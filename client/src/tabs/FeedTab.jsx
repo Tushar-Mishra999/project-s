@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 
 function formatDate(d) {
   return new Date(d).toLocaleDateString(undefined, {
@@ -25,8 +25,9 @@ function Card({ item }) {
 
 export default function FeedTab() {
   const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const hasRun = data !== null || error !== null;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -46,11 +47,15 @@ export default function FeedTab() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
-
   const today = formatDate(data?.generatedAt || Date.now());
   const total = data?.count ?? 0;
   const sources = data?.sources ?? {};
+
+  const buttonLabel = loading
+    ? 'Running…'
+    : hasRun
+      ? 'Refresh Feed'
+      : 'Run Feed';
 
   return (
     <div className="wrap">
@@ -58,20 +63,31 @@ export default function FeedTab() {
         <div>
           <h1>Tech Sensing Feed</h1>
           <div className="sub">
-            {today}
-            {!loading && !error ? ` · ${total} item${total === 1 ? '' : 's'}` : ''}
+            {hasRun
+              ? `${today}${!loading && !error ? ` · ${total} item${total === 1 ? '' : 's'}` : ''}`
+              : 'Click below to scrape today’s tech news from 13 sources.'}
           </div>
         </div>
         <button className="primary-btn" onClick={load} disabled={loading}>
-          {loading ? 'Refreshing…' : 'Refresh Feed'}
+          {buttonLabel}
         </button>
       </div>
+
+      {!hasRun && !loading && (
+        <div className="state">
+          <div className="state-text">
+            The feed is not auto-refreshed. Click <strong>Run Feed</strong> to start the pipeline —
+            it scrapes 13 sources, scores items with Gemini Flash, then summarises the top picks.
+            Takes 1–3 minutes per run.
+          </div>
+        </div>
+      )}
 
       {loading && (
         <div className="state">
           <div className="spinner" />
           <div className="state-text">
-            Running the pipeline — scraping 13 sources, scoring with Haiku, summarising with Sonnet.
+            Running the pipeline — scraping 13 sources, scoring &amp; summarising with Gemini.
             This typically takes 1–3 minutes.
           </div>
         </div>
@@ -87,10 +103,10 @@ export default function FeedTab() {
         </div>
       )}
 
-      {!loading && !error && Object.keys(sources).length === 0 && (
+      {!loading && !error && hasRun && Object.keys(sources).length === 0 && (
         <div className="state">
           <div className="state-text">
-            No items passed the relevance threshold. Try refreshing later.
+            No items passed the relevance threshold. Try again later.
           </div>
         </div>
       )}
