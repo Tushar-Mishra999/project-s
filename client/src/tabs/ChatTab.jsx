@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 
 function SourcesList({ sources }) {
   const [open, setOpen] = useState(false);
@@ -103,7 +104,11 @@ export default function ChatTab({ parts }) {
         {messages.map((m, i) => (
           <div key={i} className={`bubble-row ${m.role}`}>
             <div className={`bubble ${m.role}${m.error ? ' error' : ''}`}>
-              {m.content}
+              {m.role === 'assistant' && !m.error ? (
+                <div className="md"><ReactMarkdown>{m.content}</ReactMarkdown></div>
+              ) : (
+                m.content
+              )}
               {m.role === 'assistant' && <SourcesList sources={m.sources} />}
             </div>
           </div>
