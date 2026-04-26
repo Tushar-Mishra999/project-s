@@ -17,7 +17,7 @@ Fill in `.env`:
 ```
 FIRECRAWL_API_KEY=fc-...
 ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_API_KEY=sk-...           # used for text-embedding-3-small
+VOYAGE_API_KEY=pa-...           # used for voyage-3 embeddings (free tier)
 SUPABASE_URL=https://<project>.supabase.co
 SUPABASE_SERVICE_KEY=eyJ...     # service_role key (server-only — never ship to client)
 PORT=3001
@@ -30,7 +30,7 @@ PORT=3001
 3. In **Storage**, create a **public** bucket named `documents`.
 4. From **Settings → API**, copy the project URL (→ `SUPABASE_URL`) and the **service_role** key (→ `SUPABASE_SERVICE_KEY`). Keep the service key on the server only.
 
-Tab 1 works without Supabase/OpenAI. Tabs 2 & 3 require all five keys.
+Tab 1 works without Supabase/Voyage. Tabs 2 & 3 require all five keys.
 
 ## Run
 

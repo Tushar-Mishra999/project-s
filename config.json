@@ -24,7 +24,8 @@
     "reranker": "claude-haiku-4-5",
     "chat": "claude-sonnet-4-5"
   },
-  "embeddingModel": "text-embedding-3-small",
+  "embeddingModel": "voyage-3",
+  "embeddingDimensions": 1024,
   "rag": {
     "vector_search_top_k": 20,
     "rerank_top_n": 5,

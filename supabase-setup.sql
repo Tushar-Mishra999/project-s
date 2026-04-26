@@ -1,4 +1,9 @@
 -- Run this once in the Supabase SQL Editor to set up the RAG schema.
+-- Embedding dimension = 1024 (Voyage AI voyage-3).
+-- If you previously ran an older 1536-dim version of this script, run:
+--   drop function if exists match_chunks(vector,text,int);
+--   drop table if exists chunks;
+-- before re-running this file.
 
 -- 1. Enable pgvector
 create extension if not exists vector;
@@ -22,7 +27,7 @@ create table if not exists chunks (
   chunk_summary          text,
   keywords               text[] default '{}',
   hypothetical_questions text[] default '{}',
-  embedding              vector(1536),
+  embedding              vector(1024),
   chunk_index            integer,
   created_at             timestamptz default now()
 );
@@ -34,7 +39,7 @@ create index if not exists chunks_embedding_idx
 -- 5. RPC for filtered vector search.
 -- Filters by Part-level access *before* similarity, then returns top-k.
 create or replace function match_chunks(
-  query_embedding vector(1536),
+  query_embedding vector(1024),
   part_filter     text,
   match_count     int default 20
 )
@@ -76,4 +81,3 @@ $$;
 
 -- 6. Storage bucket. Run in the Supabase Storage UI:
 --    Create a PUBLIC bucket named "documents".
---    (Or run: select storage.create_bucket('documents', public => true);)

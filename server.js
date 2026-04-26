@@ -150,7 +150,7 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
       const embeddingInput = buildEmbeddingInput(enriched) || c.text.slice(0, 2000);
       let embedding;
       try {
-        embedding = await embedText(embeddingInput, config.embeddingModel);
+        embedding = await embedText(embeddingInput, config.embeddingModel, 'document');
       } catch (err) {
         console.warn(`[upload] embed failed for chunk ${i}: ${err.message}`);
         continue;
@@ -188,7 +188,7 @@ async function retrieve({ query, part }) {
     e.status = 503;
     throw e;
   }
-  const queryEmbedding = await embedText(query, config.embeddingModel);
+  const queryEmbedding = await embedText(query, config.embeddingModel, 'query');
 
   const { data, error } = await supabase.rpc('match_chunks', {
     query_embedding: queryEmbedding,
