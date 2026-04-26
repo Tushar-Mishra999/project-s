@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, extname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
-import { anthropic, supabase, ragReady } from './lib/clients.js';
+import { supabase, ragReady } from './lib/clients.js';
+import { generateChat } from './lib/llm.js';
 import { runFeedPipeline } from './lib/feed.js';
 import { extractText } from './lib/extract.js';
 import { chunkDocument, addContextPrefix } from './lib/chunk.js';
@@ -22,8 +23,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const config = JSON.parse(readFileSync(join(__dirname, 'config.json'), 'utf-8'));
 
 const PORT = process.env.PORT || 3001;
-if (!process.env.FIRECRAWL_API_KEY || !process.env.ANTHROPIC_API_KEY) {
-  console.error('Missing FIRECRAWL_API_KEY or ANTHROPIC_API_KEY in .env');
+if (!process.env.FIRECRAWL_API_KEY || !process.env.GEMINI_API_KEY) {
+  console.error('Missing FIRECRAWL_API_KEY or GEMINI_API_KEY in .env');
   process.exit(1);
 }
 
@@ -245,17 +246,12 @@ app.post('/api/chat', async (req, res) => {
       },
     ];
 
-    const resp = await anthropic.messages.create({
+    const answer = await generateChat({
       model: config.models.chat,
-      max_tokens: 1024,
       system: CHAT_SYSTEM,
       messages,
+      maxTokens: 1024,
     });
-    const answer = resp.content
-      .filter((b) => b.type === 'text')
-      .map((b) => b.text)
-      .join('')
-      .trim();
 
     const sources = chunks.map((c) => ({
       filename: c.filename,

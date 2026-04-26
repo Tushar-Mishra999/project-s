@@ -18,11 +18,11 @@
   "maxItemsPerSource": 5,
   "parts": ["Tech Management", "PRISM", "PMO", "Data Management"],
   "models": {
-    "scoring": "claude-haiku-4-5",
-    "summarisation": "claude-sonnet-4-5",
-    "enrichment": "claude-haiku-4-5",
-    "reranker": "claude-haiku-4-5",
-    "chat": "claude-sonnet-4-5"
+    "scoring": "gemini-2.5-flash",
+    "summarisation": "gemini-2.5-flash",
+    "enrichment": "gemini-2.5-flash",
+    "reranker": "gemini-2.5-flash",
+    "chat": "gemini-2.5-pro"
   },
   "embeddingModel": "voyage-3",
   "embeddingDimensions": 1024,

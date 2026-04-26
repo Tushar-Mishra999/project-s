@@ -2,7 +2,7 @@
 
 Three-tab full-stack app:
 
-- **Tab 1 — Tech Sensing Feed**: Firecrawl scrapes 13 sources, Haiku scores, Sonnet summarises.
+- **Tab 1 — Tech Sensing Feed**: Firecrawl scrapes 13 sources, Gemini Flash scores + summarises.
 - **Tab 2 — Smart File Retrieval**: Upload PDF/DOCX/PPTX/TXT, chunked + enriched + embedded into Supabase pgvector. Plain-English search with reranking. PDF thumbnail preview, downloads.
 - **Tab 3 — Insights Chatbot**: Conversational Q&A grounded only in retrieved chunks, with source citations.
 
@@ -16,7 +16,7 @@ Fill in `.env`:
 
 ```
 FIRECRAWL_API_KEY=fc-...
-ANTHROPIC_API_KEY=sk-ant-...
+GEMINI_API_KEY=AIza...          # used for all LLM calls (free tier)
 VOYAGE_API_KEY=pa-...           # used for voyage-3 embeddings (free tier)
 SUPABASE_URL=https://<project>.supabase.co
 SUPABASE_SERVICE_KEY=eyJ...     # service_role key (server-only — never ship to client)
