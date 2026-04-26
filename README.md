@@ -1,22 +1,36 @@
-# Tech Sensing Feed
+# Knowledge Hub — Tech Sensing Feed + RAG
 
-Full-stack app: Express backend runs the 4-stage scrape → score → fetch → summarise pipeline; React frontend renders the feed.
+Three-tab full-stack app:
+
+- **Tab 1 — Tech Sensing Feed**: Firecrawl scrapes 13 sources, Haiku scores, Sonnet summarises.
+- **Tab 2 — Smart File Retrieval**: Upload PDF/DOCX/PPTX/TXT, chunked + enriched + embedded into Supabase pgvector. Plain-English search with reranking. PDF thumbnail preview, downloads.
+- **Tab 3 — Insights Chatbot**: Conversational Q&A grounded only in retrieved chunks, with source citations.
 
 ## Setup
-
-One-time install (root + client):
 
 ```bash
 npm run install:all
 ```
 
-Make sure `.env` contains:
+Fill in `.env`:
 
 ```
 FIRECRAWL_API_KEY=fc-...
 ANTHROPIC_API_KEY=sk-ant-...
+OPENAI_API_KEY=sk-...           # used for text-embedding-3-small
+SUPABASE_URL=https://<project>.supabase.co
+SUPABASE_SERVICE_KEY=eyJ...     # service_role key (server-only — never ship to client)
 PORT=3001
 ```
+
+### One-time Supabase setup
+
+1. Create a Supabase project (free tier is fine).
+2. In the **SQL Editor**, paste and run `supabase-setup.sql`. This enables pgvector, creates the `files` + `chunks` tables, the HNSW index, and the `match_chunks` RPC.
+3. In **Storage**, create a **public** bucket named `documents`.
+4. From **Settings → API**, copy the project URL (→ `SUPABASE_URL`) and the **service_role** key (→ `SUPABASE_SERVICE_KEY`). Keep the service key on the server only.
+
+Tab 1 works without Supabase/OpenAI. Tabs 2 & 3 require all five keys.
 
 ## Run
 
@@ -24,29 +38,39 @@ PORT=3001
 npm start
 ```
 
-- Express API on http://localhost:3001
-- React dev server on http://localhost:5173 (proxies `/api` to the Express server)
+- API on http://localhost:3001
+- React on http://localhost:5173 (proxies `/api` to the API)
 
-Open http://localhost:5173 in a browser. The feed loads automatically; use **Refresh Feed** to re-run the pipeline.
+## Deploy on Render
+
+Build command: `npm install && npm run build`
+Start command: `npm run production`
+Add all `.env` keys as Environment Variables in the Render dashboard, plus `NODE_ENV=production`.
 
 ## Project layout
 
 ```
 .
-├── server.js         Express + Firecrawl + Anthropic pipeline
-├── config.json       Sources, threshold, models
-├── .env              API keys (gitignored)
-├── package.json      Root scripts (uses concurrently)
-└── client/           React + Vite frontend
+├── server.js                 Express app + routes
+├── lib/
+│   ├── clients.js            Anthropic / OpenAI / Supabase clients
+│   ├── feed.js               Tab 1 pipeline
+│   ├── extract.js            PDF / DOCX / PPTX / TXT text extraction
+│   ├── chunk.js              Heading- and paragraph-aware chunker
+│   └── rag.js                Enrich, embed, rerank
+├── config.json               Sources, parts, models, RAG params
+├── supabase-setup.sql        Schema + RPC for Supabase
+├── .env                      API keys (gitignored)
+└── client/
     ├── index.html
     ├── vite.config.js
     └── src/
         ├── main.jsx
-        ├── App.jsx
-        └── styles.css
+        ├── App.jsx           Tab shell
+        ├── styles.css
+        ├── lib/pdfPreview.js Lazy pdfjs-dist thumbnail rendering
+        └── tabs/
+            ├── FeedTab.jsx
+            ├── RetrievalTab.jsx
+            └── ChatTab.jsx
 ```
-
-## Deploy notes
-
-- Build the client: `npm run build` (outputs `client/dist/`).
-- Have Express serve `client/dist/` statically in production, or deploy each separately (Render/Railway for the API, Vercel/Netlify for the static client).

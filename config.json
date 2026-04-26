@@ -16,8 +16,19 @@
   ],
   "scoringThreshold": 7,
   "maxItemsPerSource": 5,
+  "parts": ["Tech Management", "PRISM", "PMO", "Data Management"],
   "models": {
     "scoring": "claude-haiku-4-5",
-    "summarisation": "claude-sonnet-4-5"
+    "summarisation": "claude-sonnet-4-5",
+    "enrichment": "claude-haiku-4-5",
+    "reranker": "claude-haiku-4-5",
+    "chat": "claude-sonnet-4-5"
+  },
+  "embeddingModel": "text-embedding-3-small",
+  "rag": {
+    "vector_search_top_k": 20,
+    "rerank_top_n": 5,
+    "chunk_min_words": 300,
+    "chunk_max_words": 600
   }
 }
