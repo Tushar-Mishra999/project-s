@@ -46,6 +46,7 @@ const upload = multer({
 // GET  /api/feed         -> return cached payload (or null if never run)
 // POST /api/feed/refresh -> run the pipeline, overwrite cache, return result
 let memoryFeedCache = null;
+let pipelineRunning = false;
 
 async function readFeedCache() {
   if (supabase) {
@@ -80,27 +81,32 @@ async function writeFeedCache(payload) {
 
 app.get('/api/feed', async (_req, res) => {
   const cached = await readFeedCache();
-  res.json(cached || { sources: {}, count: 0, generatedAt: null });
+  res.json({ ...(cached || { sources: {}, count: 0, generatedAt: null }), pipelineRunning });
 });
 
-app.post('/api/feed/refresh', async (_req, res) => {
+app.post('/api/feed/refresh', (_req, res) => {
+  if (pipelineRunning) return res.status(202).json({ status: 'running' });
+  pipelineRunning = true;
   const started = Date.now();
   console.log(`\n=== /api/feed/refresh at ${new Date().toISOString()} ===`);
-  try {
-    const { grouped, total } = await runFeedPipeline(config);
-    const elapsed = ((Date.now() - started) / 1000).toFixed(1);
-    console.log(`Done in ${elapsed}s. ${total} items / ${Object.keys(grouped).length} sources.`);
-    const payload = {
-      generatedAt: new Date().toISOString(),
-      count: total,
-      sources: grouped,
-    };
-    await writeFeedCache(payload);
-    res.json(payload);
-  } catch (err) {
-    console.error('feed pipeline error:', err);
-    res.status(500).json({ error: err.message || 'pipeline failed' });
-  }
+  runFeedPipeline(config)
+    .then(async ({ grouped, total }) => {
+      const elapsed = ((Date.now() - started) / 1000).toFixed(1);
+      console.log(`Done in ${elapsed}s. ${total} items / ${Object.keys(grouped).length} sources.`);
+      const payload = {
+        generatedAt: new Date().toISOString(),
+        count: total,
+        sources: grouped,
+      };
+      await writeFeedCache(payload);
+    })
+    .catch((err) => {
+      console.error('feed pipeline error:', err);
+    })
+    .finally(() => {
+      pipelineRunning = false;
+    });
+  res.status(202).json({ status: 'started' });
 });
 
 // ---------- Worklet generator ----------
