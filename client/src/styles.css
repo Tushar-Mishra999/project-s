@@ -74,13 +74,26 @@ a { color: var(--blue-bright); }
 .tabs-inner .brand-row { width: 100%; justify-content: space-between; }
 .brand-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 .brand {
-  font-weight: 700;
-  font-size: 16px;
-  letter-spacing: -0.01em;
-  background: linear-gradient(135deg, #93C5FD, #3B82F6);
+  font-weight: 800;
+  font-size: 24px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  background: linear-gradient(135deg, #DBEAFE 0%, #60A5FA 45%, #3B82F6 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+  filter: drop-shadow(0 0 14px rgba(59, 130, 246, 0.45));
+  position: relative;
+  padding: 2px 0;
+}
+.brand::after {
+  content: '';
+  display: block;
+  width: 28px;
+  height: 3px;
+  margin-top: 4px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #3B82F6, transparent);
 }
 
 /* Part switcher in nav */
