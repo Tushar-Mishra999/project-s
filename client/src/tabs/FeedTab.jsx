@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 
 function formatDate(d) {
@@ -98,45 +98,71 @@ function Card({ item }) {
 
 export default function FeedTab() {
   const [data, setData] = useState(null);
-  const [loadingCache, setLoadingCache] = useState(true); // initial fetch of cached
+  const [loadingCache, setLoadingCache] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  const cancelPollRef = useRef(false);
 
-  // Load cached feed on mount.
+  // Poll /api/feed every 3 s until pipelineRunning becomes false and generatedAt changes.
+  const startPolling = useCallback(async (prevGeneratedAt) => {
+    for (let i = 0; i < 100; i++) {
+      await new Promise(r => setTimeout(r, 3000));
+      if (cancelPollRef.current) return;
+      try {
+        const pollRes = await fetch('/api/feed');
+        if (pollRes.ok) {
+          const json = await pollRes.json();
+          if (!json.pipelineRunning && json.generatedAt && json.generatedAt !== prevGeneratedAt) {
+            setData(json);
+            setRefreshing(false);
+            return;
+          }
+        }
+      } catch { /* keep polling */ }
+    }
+    setError('Feed pipeline is taking longer than expected. Reload the page to check results.');
+    setRefreshing(false);
+  }, []);
+
+  // Load cached feed on mount; auto-poll if a pipeline is already running.
   useEffect(() => {
     let cancelled = false;
+    cancelPollRef.current = false;
     (async () => {
       try {
         const res = await fetch('/api/feed');
         const json = await res.json();
         if (cancelled) return;
         if (json && json.generatedAt) setData(json);
+        if (json.pipelineRunning) {
+          setRefreshing(true);
+          startPolling(json.generatedAt);
+        }
       } catch {
         /* silent — user will see idle state */
       } finally {
         if (!cancelled) setLoadingCache(false);
       }
     })();
-    return () => { cancelled = true; };
-  }, []);
+    return () => { cancelled = true; cancelPollRef.current = true; };
+  }, [startPolling]);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
     setError(null);
+    const prevGeneratedAt = data?.generatedAt ?? null;
     try {
-      const res = await fetch('/api/feed/refresh', { method: 'POST' });
-      if (!res.ok) {
-        const body = await res.text();
-        throw new Error(`Server returned ${res.status}: ${body.slice(0, 200)}`);
+      const triggerRes = await fetch('/api/feed/refresh', { method: 'POST' });
+      if (!triggerRes.ok) {
+        const body = await triggerRes.text();
+        throw new Error(`Server returned ${triggerRes.status}: ${body.slice(0, 200)}`);
       }
-      const json = await res.json();
-      setData(json);
+      await startPolling(prevGeneratedAt);
     } catch (err) {
       setError(err.message || 'Failed to refresh feed');
-    } finally {
       setRefreshing(false);
     }
-  }, []);
+  }, [data, startPolling]);
 
   const hasData = data && data.generatedAt;
   const sources = data?.sources ?? {};
