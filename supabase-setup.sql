@@ -81,3 +81,11 @@ $$;
 
 -- 6. Storage bucket. Run in the Supabase Storage UI:
 --    Create a PUBLIC bucket named "documents".
+
+-- 7. Feed cache (single-row table holding the most recent Tech Sensing Feed run).
+create table if not exists feed_cache (
+  id           text primary key default 'latest',
+  data         jsonb not null,
+  generated_at timestamptz default now(),
+  updated_at   timestamptz default now()
+);

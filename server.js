@@ -8,7 +8,7 @@ import { dirname, join, extname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 import { supabase, ragReady } from './lib/clients.js';
-import { generateChat } from './lib/llm.js';
+import { generateChat, generateText } from './lib/llm.js';
 import { runFeedPipeline } from './lib/feed.js';
 import { extractText } from './lib/extract.js';
 import { chunkDocument, addContextPrefix } from './lib/chunk.js';
@@ -42,17 +42,110 @@ const upload = multer({
 });
 
 // ---------- Tab 1: Tech Sensing Feed ----------
+// Cache strategy: store the most recent run in Supabase (or memory fallback).
+// GET  /api/feed         -> return cached payload (or null if never run)
+// POST /api/feed/refresh -> run the pipeline, overwrite cache, return result
+let memoryFeedCache = null;
+
+async function readFeedCache() {
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('feed_cache')
+      .select('data, generated_at')
+      .eq('id', 'latest')
+      .maybeSingle();
+    if (error) {
+      console.warn('feed_cache read error:', error.message);
+      return memoryFeedCache;
+    }
+    return data ? { ...data.data, generatedAt: data.generated_at } : null;
+  }
+  return memoryFeedCache;
+}
+
+async function writeFeedCache(payload) {
+  memoryFeedCache = payload;
+  if (supabase) {
+    const { error } = await supabase
+      .from('feed_cache')
+      .upsert({
+        id: 'latest',
+        data: payload,
+        generated_at: payload.generatedAt,
+        updated_at: new Date().toISOString(),
+      });
+    if (error) console.warn('feed_cache write error:', error.message);
+  }
+}
+
 app.get('/api/feed', async (_req, res) => {
+  const cached = await readFeedCache();
+  res.json(cached || { sources: {}, count: 0, generatedAt: null });
+});
+
+app.post('/api/feed/refresh', async (_req, res) => {
   const started = Date.now();
-  console.log(`\n=== /api/feed run at ${new Date().toISOString()} ===`);
+  console.log(`\n=== /api/feed/refresh at ${new Date().toISOString()} ===`);
   try {
     const { grouped, total } = await runFeedPipeline(config);
     const elapsed = ((Date.now() - started) / 1000).toFixed(1);
     console.log(`Done in ${elapsed}s. ${total} items / ${Object.keys(grouped).length} sources.`);
-    res.json({ generatedAt: new Date().toISOString(), count: total, sources: grouped });
+    const payload = {
+      generatedAt: new Date().toISOString(),
+      count: total,
+      sources: grouped,
+    };
+    await writeFeedCache(payload);
+    res.json(payload);
   } catch (err) {
     console.error('feed pipeline error:', err);
     res.status(500).json({ error: err.message || 'pipeline failed' });
+  }
+});
+
+// ---------- Worklet generator ----------
+const WORKLET_SYSTEM = `You are a research mentor designing hands-on student projects ("worklets") inspired by recent technology news.
+
+Given a news item, propose ONE concrete 3-5 day worklet a 3rd/4th-year engineering student or fresher could complete. Return MARKDOWN with this exact structure:
+
+**[Worklet title]**
+
+*Why it matters:* one sentence linking the news to a learning opportunity.
+
+**Goal:** one sentence describing the deliverable.
+
+**Suggested approach:**
+1. step one
+2. step two
+3. step three
+4. step four (optional)
+
+**Skills you'll practise:** 4-6 short tags, comma-separated.
+
+**Stretch goal:** one optional extension.
+
+Be specific and practical. Avoid filler. No introductions or meta-commentary — start directly with the bold title.`;
+
+app.post('/api/worklet', async (req, res) => {
+  const { title, summary, source, url } = req.body || {};
+  if (!title) return res.status(400).json({ error: 'title required' });
+  try {
+    const userMsg = [
+      `Title: ${title}`,
+      source ? `Source: ${source}` : null,
+      summary ? `Summary: ${summary}` : null,
+      url ? `URL: ${url}` : null,
+    ].filter(Boolean).join('\n');
+    const worklet = await generateText({
+      model: config.models.scoring, // Flash is enough; cheap structured output
+      system: WORKLET_SYSTEM,
+      user: userMsg,
+      maxTokens: 800,
+    });
+    res.json({ worklet });
+  } catch (err) {
+    console.error('[worklet] error:', err);
+    res.status(500).json({ error: err.message || 'worklet generation failed' });
   }
 });
 

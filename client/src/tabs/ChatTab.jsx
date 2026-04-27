@@ -29,14 +29,13 @@ function SourcesList({ sources }) {
   );
 }
 
-export default function ChatTab({ parts }) {
-  const [part, setPart] = useState('');
+export default function ChatTab({ activePart }) {
+  const part = activePart;
   const [messages, setMessages] = useState([]); // {role, content, sources?}
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const scrollRef = useRef(null);
 
-  useEffect(() => { if (parts.length) setPart((p) => p || parts[0]); }, [parts]);
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages, sending]);
@@ -86,9 +85,7 @@ export default function ChatTab({ parts }) {
           <div className="sub">Ask questions across your team's documents.</div>
         </div>
         <div className="chat-controls">
-          <select value={part} onChange={(e) => setPart(e.target.value)}>
-            {parts.map((p) => <option key={p} value={p}>{p}</option>)}
-          </select>
+          <span className="part-badge">{part || '…'}</span>
           <button className="ghost-btn" onClick={() => setMessages([])} disabled={messages.length === 0}>
             Clear
           </button>

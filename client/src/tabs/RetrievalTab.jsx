@@ -57,7 +57,7 @@ function dedupeByFile(chunks) {
   return Array.from(seen.values());
 }
 
-export default function RetrievalTab({ parts }) {
+export default function RetrievalTab({ parts, activePart }) {
   // Upload state
   const [file, setFile] = useState(null);
   const [uploadedBy, setUploadedBy] = useState('');
@@ -68,17 +68,18 @@ export default function RetrievalTab({ parts }) {
 
   // Search state
   const [query, setQuery] = useState('');
-  const [searchPart, setSearchPart] = useState('');
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState(null);
   const [searchErr, setSearchErr] = useState(null);
 
+  // Use the global activePart for searching.
+  const searchPart = activePart;
+
   useEffect(() => {
     if (parts.length) {
-      setUploadedBy((p) => p || parts[0]);
-      setSearchPart((p) => p || parts[0]);
+      setUploadedBy((p) => p || activePart || parts[0]);
     }
-  }, [parts]);
+  }, [parts, activePart]);
 
   const toggleAccessible = (p) =>
     setAccessibleTo((curr) => (curr.includes(p) ? curr.filter((x) => x !== p) : [...curr, p]));
@@ -185,7 +186,7 @@ export default function RetrievalTab({ parts }) {
       </section>
 
       <section className="panel">
-        <h2 className="panel-title">Search</h2>
+        <h2 className="panel-title">Search · {searchPart}</h2>
         <form className="search-form" onSubmit={handleSearch}>
           <input
             className="search-input"
@@ -194,9 +195,6 @@ export default function RetrievalTab({ parts }) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          <select value={searchPart} onChange={(e) => setSearchPart(e.target.value)}>
-            {parts.map((p) => <option key={p} value={p}>{p}</option>)}
-          </select>
           <button className="primary-btn" type="submit" disabled={searching}>
             {searching ? 'Searching…' : 'Search'}
           </button>
