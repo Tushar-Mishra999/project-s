@@ -90,13 +90,14 @@ app.post('/api/feed/refresh', (_req, res) => {
   const started = Date.now();
   console.log(`\n=== /api/feed/refresh at ${new Date().toISOString()} ===`);
   runFeedPipeline(config)
-    .then(async ({ grouped, total }) => {
+    .then(async ({ grouped, total, errors = [] }) => {
       const elapsed = ((Date.now() - started) / 1000).toFixed(1);
-      console.log(`Done in ${elapsed}s. ${total} items / ${Object.keys(grouped).length} sources.`);
+      console.log(`Done in ${elapsed}s. ${total} items / ${Object.keys(grouped).length} sources. ${errors.length} errors.`);
       const payload = {
         generatedAt: new Date().toISOString(),
         count: total,
         sources: grouped,
+        errors,
       };
       await writeFeedCache(payload);
     })

@@ -218,11 +218,27 @@ export default function FeedTab() {
       )}
 
       {!refreshing && hasData && Object.keys(sources).length === 0 && (
-        <div className="state">
-          <div className="state-text">
-            No items passed the relevance threshold. Try refreshing later.
+        (data.errors && data.errors.length > 0) ? (
+          <div className="state">
+            <div className="error-box" style={{ maxWidth: 640 }}>
+              <h3>The pipeline ran but couldn't fetch any sources</h3>
+              <p>
+                {data.errors[0].message?.toLowerCase().includes('insufficient credits') ? (
+                  <>Firecrawl is out of free credits. Top up at <a href="https://www.firecrawl.dev/pricing" target="_blank" rel="noopener">firecrawl.dev/pricing</a> or generate a new free key.</>
+                ) : (
+                  <>{data.errors.length} source{data.errors.length === 1 ? '' : 's'} failed. First error: <code>{data.errors[0].message}</code></>
+                )}
+              </p>
+              <button className="primary-btn" onClick={refresh}>Retry</button>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="state">
+            <div className="state-text">
+              No items passed the relevance threshold. Try refreshing later.
+            </div>
+          </div>
+        )
       )}
 
       {!refreshing && hasData &&
