@@ -195,13 +195,7 @@ export default function FeedTab() {
       )}
 
       {!loadingCache && !hasData && !refreshing && !error && (
-        <div className="state">
-          <div className="state-text">
-            The feed is not auto-refreshed. Click <strong>Run Feed</strong> to start the pipeline —
-            it scrapes 13 sources, scores items with Gemini Flash, then summarises the top picks.
-            Takes 1–3 minutes per run. The result is saved and shown next time you visit.
-          </div>
-        </div>
+        <div className="state" />
       )}
 
       {refreshing && (

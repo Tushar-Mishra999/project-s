@@ -519,6 +519,72 @@ select {
   box-shadow: 0 0 0 3px var(--blue-soft);
 }
 
+/* Upload prompt (collapsible) */
+.upload-prompt-panel { padding: 0; overflow: hidden; }
+.upload-prompt {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; padding: 22px 28px; flex-wrap: wrap;
+}
+.upload-prompt-title { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+.upload-prompt-sub   { font-size: 13px; color: var(--text-muted); }
+.upload-prompt-panel:has(form) { padding: 28px; }
+
+.panel-title-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 18px; flex-wrap: wrap;
+}
+.panel-title-row .panel-title { margin: 0; }
+
+/* Library list */
+.library-list { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+.library-row {
+  display: flex; align-items: center; gap: 16px;
+  padding: 14px 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  transition: border-color .15s, background .15s;
+}
+.library-row:hover { border-color: rgba(59,130,246,.25); background: var(--surface-3); }
+.library-row-icon { flex: 0 0 auto; }
+.library-row-icon .file-icon-doc { width: 36px; height: 46px; }
+.library-row-icon .file-icon-label { font-size: 9px; }
+.library-row-main { flex: 1; min-width: 0; }
+.library-row-title {
+  font-size: 14px; font-weight: 600; color: var(--text);
+  margin-bottom: 4px; word-break: break-word; line-height: 1.35;
+}
+.library-row-meta {
+  display: flex; gap: 6px; flex-wrap: wrap;
+  font-size: 12px; color: var(--text-muted); margin-bottom: 8px;
+}
+.library-row-meta strong { color: var(--text-mid); font-weight: 500; }
+.library-row-access {
+  display: flex; gap: 4px; flex-wrap: wrap;
+}
+.access-chip {
+  display: inline-block; font-size: 10px; font-weight: 600;
+  letter-spacing: 0.04em; padding: 3px 8px;
+  background: var(--blue-soft); color: var(--blue-bright);
+  border: 1px solid rgba(59,130,246,.2);
+  border-radius: 999px;
+}
+.library-row-actions { flex: 0 0 auto; }
+
+/* Chat empty state */
+.chat-empty {
+  margin: auto; text-align: center; max-width: 360px;
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  padding: 20px;
+}
+.chat-empty-icon { font-size: 36px; opacity: .85; }
+.chat-empty-title {
+  font-size: 18px; font-weight: 600; color: var(--text); letter-spacing: -0.01em;
+}
+.chat-empty-sub {
+  font-size: 13px; color: var(--text-muted); line-height: 1.6;
+}
+
 /* Placeholder tabs */
 .placeholder-panel {
   background: var(--surface);

@@ -36,7 +36,7 @@ export default function App() {
       <nav className="tabs">
         <div className="tabs-inner">
           <div className="brand-row">
-            <div className="brand">Knowledge Hub</div>
+            <div className="brand">Kernel</div>
             <div className="part-switcher">
               <span className="part-switcher-label">Viewing as</span>
               <select

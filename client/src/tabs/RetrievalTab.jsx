@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { renderPdfThumbnail } from '../lib/pdfPreview.js';
 
 function FileIcon({ ext }) {
@@ -57,8 +57,43 @@ function dedupeByFile(chunks) {
   return Array.from(seen.values());
 }
 
+function formatDate(d) {
+  if (!d) return '';
+  return new Date(d).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function LibraryRow({ file }) {
+  const ext = (file.filetype || '').toLowerCase();
+  return (
+    <div className="library-row">
+      <div className="library-row-icon">
+        <FileIcon ext={ext} />
+      </div>
+      <div className="library-row-main">
+        <div className="library-row-title">{file.filename}</div>
+        <div className="library-row-meta">
+          <span>Uploaded by <strong>{file.uploaded_by}</strong></span>
+          <span>·</span>
+          <span>{formatDate(file.uploaded_at)}</span>
+        </div>
+        <div className="library-row-access">
+          {(file.accessible_to || []).map((p) => (
+            <span key={p} className="access-chip">{p}</span>
+          ))}
+        </div>
+      </div>
+      <div className="library-row-actions">
+        <a className="ghost-btn" href={file.file_url} target="_blank" rel="noopener noreferrer" download>
+          Download
+        </a>
+      </div>
+    </div>
+  );
+}
+
 export default function RetrievalTab({ parts, activePart }) {
   // Upload state
+  const [showUpload, setShowUpload] = useState(false);
   const [file, setFile] = useState(null);
   const [uploadedBy, setUploadedBy] = useState('');
   const [accessibleTo, setAccessibleTo] = useState([]);
@@ -71,15 +106,35 @@ export default function RetrievalTab({ parts, activePart }) {
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState(null);
   const [searchErr, setSearchErr] = useState(null);
-
-  // Use the global activePart for searching.
   const searchPart = activePart;
+
+  // Library
+  const [library, setLibrary] = useState([]);
+  const [libraryLoading, setLibraryLoading] = useState(true);
+  const [libraryErr, setLibraryErr] = useState(null);
+
+  const loadLibrary = useCallback(async () => {
+    setLibraryLoading(true);
+    setLibraryErr(null);
+    try {
+      const res = await fetch('/api/files');
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `Server returned ${res.status}`);
+      setLibrary(json.files || []);
+    } catch (err) {
+      setLibraryErr(err.message);
+    } finally {
+      setLibraryLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (parts.length) {
       setUploadedBy((p) => p || activePart || parts[0]);
     }
   }, [parts, activePart]);
+
+  useEffect(() => { loadLibrary(); }, [loadLibrary]);
 
   const toggleAccessible = (p) =>
     setAccessibleTo((curr) => (curr.includes(p) ? curr.filter((x) => x !== p) : [...curr, p]));
@@ -106,6 +161,7 @@ export default function RetrievalTab({ parts, activePart }) {
       });
       setFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
+      loadLibrary();
     } catch (err) {
       setUploadMsg({ type: 'error', text: err.message });
     } finally {
@@ -141,50 +197,11 @@ export default function RetrievalTab({ parts, activePart }) {
       <div className="header">
         <div>
           <h1>Smart File Retrieval</h1>
-          <div className="sub">Upload documents and search them in plain English.</div>
+          <div className="sub">Search your team's documents in plain English.</div>
         </div>
       </div>
 
-      <section className="panel">
-        <h2 className="panel-title">Upload</h2>
-        <form className="upload-form" onSubmit={handleUpload}>
-          <div className="form-row">
-            <label>File</label>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".pdf,.docx,.pptx,.txt"
-              onChange={(e) => setFile(e.target.files?.[0] || null)}
-            />
-          </div>
-          <div className="form-row">
-            <label>Uploaded by</label>
-            <select value={uploadedBy} onChange={(e) => setUploadedBy(e.target.value)}>
-              {parts.map((p) => <option key={p} value={p}>{p}</option>)}
-            </select>
-          </div>
-          <div className="form-row">
-            <label>Accessible to</label>
-            <div className="checkbox-row">
-              {parts.map((p) => (
-                <label key={p} className="checkbox-pill">
-                  <input
-                    type="checkbox"
-                    checked={accessibleTo.includes(p)}
-                    onChange={() => toggleAccessible(p)}
-                  />
-                  <span>{p}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-          <button className="primary-btn" disabled={uploading} type="submit">
-            {uploading ? 'Uploading…' : 'Upload & Index'}
-          </button>
-          {uploadMsg && <div className={`inline-msg ${uploadMsg.type}`}>{uploadMsg.text}</div>}
-        </form>
-      </section>
-
+      {/* 1. SEARCH FIRST */}
       <section className="panel">
         <h2 className="panel-title">Search · {searchPart}</h2>
         <form className="search-form" onSubmit={handleSearch}>
@@ -200,9 +217,7 @@ export default function RetrievalTab({ parts, activePart }) {
           </button>
         </form>
 
-        {searching && (
-          <div className="state"><div className="spinner" /></div>
-        )}
+        {searching && <div className="state"><div className="spinner" /></div>}
         {searchErr && <div className="inline-msg error">{searchErr}</div>}
         {!searching && results && results.length === 0 && (
           <div className="state-text" style={{ marginTop: 16 }}>
@@ -212,6 +227,88 @@ export default function RetrievalTab({ parts, activePart }) {
         {!searching && results && results.length > 0 && (
           <div className="file-grid">
             {dedupeByFile(results).map((r) => <FileCard key={r.id} result={r} />)}
+          </div>
+        )}
+      </section>
+
+      {/* 2. UPLOAD PROMPT (collapsible) */}
+      <section className="panel upload-prompt-panel">
+        {!showUpload ? (
+          <div className="upload-prompt">
+            <div>
+              <div className="upload-prompt-title">Have a document to add to the library?</div>
+              <div className="upload-prompt-sub">PDF, DOCX, PPTX or TXT — up to 30 MB.</div>
+            </div>
+            <button className="primary-btn" onClick={() => setShowUpload(true)}>
+              Upload a document
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="panel-title-row">
+              <h2 className="panel-title">Upload</h2>
+              <button className="ghost-btn" onClick={() => { setShowUpload(false); setUploadMsg(null); }}>
+                Cancel
+              </button>
+            </div>
+            <form className="upload-form" onSubmit={handleUpload}>
+              <div className="form-row">
+                <label>File</label>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.docx,.pptx,.txt"
+                  onChange={(e) => setFile(e.target.files?.[0] || null)}
+                />
+              </div>
+              <div className="form-row">
+                <label>Uploaded by</label>
+                <select value={uploadedBy} onChange={(e) => setUploadedBy(e.target.value)}>
+                  {parts.map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+              <div className="form-row">
+                <label>Accessible to</label>
+                <div className="checkbox-row">
+                  {parts.map((p) => (
+                    <label key={p} className="checkbox-pill">
+                      <input
+                        type="checkbox"
+                        checked={accessibleTo.includes(p)}
+                        onChange={() => toggleAccessible(p)}
+                      />
+                      <span>{p}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <button className="primary-btn" disabled={uploading} type="submit">
+                {uploading ? 'Uploading…' : 'Upload & Index'}
+              </button>
+              {uploadMsg && <div className={`inline-msg ${uploadMsg.type}`}>{uploadMsg.text}</div>}
+            </form>
+          </>
+        )}
+      </section>
+
+      {/* 3. LIBRARY */}
+      <section className="panel">
+        <div className="panel-title-row">
+          <h2 className="panel-title">Library · {library.length} document{library.length === 1 ? '' : 's'}</h2>
+          <button className="ghost-btn" onClick={loadLibrary} disabled={libraryLoading}>
+            {libraryLoading ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
+        {libraryLoading && <div className="state"><div className="spinner" /></div>}
+        {libraryErr && <div className="inline-msg error">{libraryErr}</div>}
+        {!libraryLoading && !libraryErr && library.length === 0 && (
+          <div className="state-text" style={{ marginTop: 8 }}>
+            No documents uploaded yet.
+          </div>
+        )}
+        {!libraryLoading && library.length > 0 && (
+          <div className="library-list">
+            {library.map((f) => <LibraryRow key={f.id} file={f} />)}
           </div>
         )}
       </section>

@@ -94,8 +94,12 @@ export default function ChatTab({ activePart }) {
 
       <div className="chat-window" ref={scrollRef}>
         {messages.length === 0 && (
-          <div className="state-text" style={{ textAlign: 'center', padding: 40 }}>
-            Ask a question about documents accessible to <strong>{part || '…'}</strong>.
+          <div className="chat-empty">
+            <div className="chat-empty-icon">💬</div>
+            <div className="chat-empty-title">Ask anything</div>
+            <div className="chat-empty-sub">
+              Get grounded answers from your team's documents — every response cites its sources.
+            </div>
           </div>
         )}
         {messages.map((m, i) => (
