@@ -67,7 +67,12 @@ async function readFeedCache() {
       console.warn('feed_cache read error:', error.message);
       return memoryFeedCache;
     }
-    return data ? { ...data.data, generatedAt: data.generated_at } : null;
+    const fromDB = data ? { ...data.data, generatedAt: data.generated_at } : null;
+    // Prefer the most recent data — memory may be newer if a Supabase write failed.
+    if (memoryFeedCache && (!fromDB || memoryFeedCache.generatedAt > fromDB.generatedAt)) {
+      return memoryFeedCache;
+    }
+    return fromDB;
   }
   return memoryFeedCache;
 }

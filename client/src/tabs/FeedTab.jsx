@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 
 function formatDate(d) {
@@ -101,13 +101,13 @@ export default function FeedTab() {
   const [loadingCache, setLoadingCache] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
-  const cancelPollRef = useRef(false);
 
   // Poll /api/feed every 3 s until pipelineRunning becomes false and generatedAt changes.
-  const startPolling = useCallback(async (prevGeneratedAt) => {
+  // isCancelled lets the caller signal early exit (used by the mount effect for cleanup).
+  const startPolling = useCallback(async (prevGeneratedAt, isCancelled = () => false) => {
     for (let i = 0; i < 100; i++) {
       await new Promise(r => setTimeout(r, 3000));
-      if (cancelPollRef.current) return;
+      if (isCancelled()) return;
       try {
         const pollRes = await fetch('/api/feed');
         if (pollRes.ok) {
@@ -127,24 +127,22 @@ export default function FeedTab() {
   // Load cached feed on mount; auto-poll if a pipeline is already running.
   useEffect(() => {
     let cancelled = false;
-    cancelPollRef.current = false;
     (async () => {
       try {
         const res = await fetch('/api/feed');
         const json = await res.json();
         if (cancelled) return;
-        if (json && json.generatedAt) setData(json);
+        if (json?.generatedAt) setData(json);
+        setLoadingCache(false);
         if (json.pipelineRunning) {
           setRefreshing(true);
-          startPolling(json.generatedAt);
+          await startPolling(json.generatedAt, () => cancelled);
         }
       } catch {
-        /* silent — user will see idle state */
-      } finally {
         if (!cancelled) setLoadingCache(false);
       }
     })();
-    return () => { cancelled = true; cancelPollRef.current = true; };
+    return () => { cancelled = true; };
   }, [startPolling]);
 
   const refresh = useCallback(async () => {
