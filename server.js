@@ -23,8 +23,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const config = JSON.parse(readFileSync(join(__dirname, 'config.json'), 'utf-8'));
 
 const PORT = process.env.PORT || 3001;
-if (!process.env.FIRECRAWL_API_KEY || !process.env.GEMINI_API_KEY) {
-  console.error('Missing FIRECRAWL_API_KEY or GEMINI_API_KEY in .env');
+if (!process.env.FIRECRAWL_API_KEY || !process.env.VERTEX_API_KEY) {
+  console.error('Missing FIRECRAWL_API_KEY or VERTEX_API_KEY in .env');
   process.exit(1);
 }
 
