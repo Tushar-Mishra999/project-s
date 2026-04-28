@@ -2,7 +2,7 @@
 
 Three-tab full-stack app:
 
-- **Tab 1 — Tech Sensing Feed**: Firecrawl scrapes 13 sources, Gemini Flash scores + summarises.
+- **Tab 1 — Tech Sensing Feed**: Firecrawl scrapes 13 sources, Vertex AI (Gemini Flash) scores + summarises.
 - **Tab 2 — Smart File Retrieval**: Upload PDF/DOCX/PPTX/TXT, chunked + enriched + embedded into Supabase pgvector. Plain-English search with reranking. PDF thumbnail preview, downloads.
 - **Tab 3 — Insights Chatbot**: Conversational Q&A grounded only in retrieved chunks, with source citations.
 
@@ -16,7 +16,9 @@ Fill in `.env`:
 
 ```
 FIRECRAWL_API_KEY=fc-...
-GEMINI_API_KEY=AIza...          # used for all LLM calls (free tier)
+VERTEX_API_KEY=...              # Vertex AI / Agent Platform API key (used for all LLM calls)
+GOOGLE_CLOUD_PROJECT=...        # GCP project ID
+GOOGLE_CLOUD_LOCATION=us-central1  # Vertex AI region (defaults to us-central1 if omitted)
 VOYAGE_API_KEY=pa-...           # used for voyage-3 embeddings (free tier)
 SUPABASE_URL=https://<project>.supabase.co
 SUPABASE_SERVICE_KEY=eyJ...     # service_role key (server-only — never ship to client)
@@ -30,7 +32,7 @@ PORT=3001
 3. In **Storage**, create a **public** bucket named `documents`.
 4. From **Settings → API**, copy the project URL (→ `SUPABASE_URL`) and the **service_role** key (→ `SUPABASE_SERVICE_KEY`). Keep the service key on the server only.
 
-Tab 1 works without Supabase/Voyage. Tabs 2 & 3 require all five keys.
+Tab 1 works without Supabase/Voyage. Tabs 2 & 3 require all keys except `PORT`.
 
 ## Run
 
