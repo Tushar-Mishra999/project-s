@@ -16,7 +16,7 @@ Fill in `.env`:
 
 ```
 FIRECRAWL_API_KEY=fc-...
-VERTEX_API_KEY=...              # Vertex AI / Agent Platform API key (used for all LLM calls)
+GOOGLE_APPLICATION_CREDENTIALS_JSON={"type":"service_account",...}  # service account JSON (one line)
 GOOGLE_CLOUD_PROJECT=...        # GCP project ID
 GOOGLE_CLOUD_LOCATION=us-central1  # Vertex AI region (defaults to us-central1 if omitted)
 VOYAGE_API_KEY=pa-...           # used for voyage-3 embeddings (free tier)
