@@ -2,10 +2,18 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, extname } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
+
+// Write Vertex AI service account JSON to a temp file so ADC picks it up.
+if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+  const credPath = join(tmpdir(), 'gcp-sa-key.json');
+  writeFileSync(credPath, process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
+  process.env.GOOGLE_APPLICATION_CREDENTIALS = credPath;
+}
 
 import { supabase, ragReady } from './lib/clients.js';
 import { generateChat, generateText } from './lib/llm.js';
