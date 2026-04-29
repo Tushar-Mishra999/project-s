@@ -190,6 +190,69 @@ main { flex: 1; }
 }
 .ghost-btn:disabled { color: var(--text-muted); cursor: not-allowed; opacity: .6; }
 
+/* ---------- Tab 1: source filter toolbar ---------- */
+.source-toolbar {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 12px; margin-bottom: 32px; flex-wrap: wrap;
+}
+
+.source-filter {
+  display: flex; flex-wrap: wrap; gap: 6px; flex: 1;
+}
+
+.filter-pill {
+  background: var(--surface); color: var(--text-mid);
+  border: 1px solid var(--border-strong); border-radius: 999px;
+  padding: 6px 14px; font-size: 12px; font-weight: 500;
+  cursor: pointer; font-family: inherit;
+  transition: background .15s, border-color .15s, color .15s, box-shadow .15s;
+  white-space: nowrap;
+}
+.filter-pill:hover { color: var(--text); border-color: rgba(59,130,246,.35); background: var(--surface-2); }
+.filter-pill.active {
+  background: var(--blue-soft-2); border-color: var(--blue);
+  color: var(--blue-bright); font-weight: 600;
+  box-shadow: 0 0 0 1px rgba(59,130,246,.2);
+}
+
+.add-source-btn {
+  background: transparent; color: var(--text-muted);
+  border: 1px dashed var(--border-strong); border-radius: 999px;
+  padding: 6px 14px; font-size: 12px; font-weight: 500;
+  cursor: pointer; font-family: inherit; white-space: nowrap;
+  transition: border-color .15s, color .15s, background .15s;
+  flex-shrink: 0;
+}
+.add-source-btn:hover { border-color: var(--blue); color: var(--blue-bright); background: var(--blue-soft); }
+
+/* Add source panel */
+.add-source-panel {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 20px 22px;
+  margin-bottom: 28px;
+}
+.add-source-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 16px;
+}
+.add-source-title {
+  font-size: 13px; font-weight: 600; color: var(--text);
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.add-source-close {
+  background: transparent; border: none; color: var(--text-muted);
+  font-size: 14px; cursor: pointer; padding: 2px 6px;
+  border-radius: 6px; font-family: inherit;
+  transition: color .15s, background .15s;
+}
+.add-source-close:hover { color: var(--text); background: var(--surface-2); }
+.add-source-form { display: flex; flex-direction: column; gap: 14px; }
+.add-source-actions {
+  display: flex; gap: 10px; justify-content: flex-end; margin-top: 4px;
+}
+
 /* ---------- Tab 1: feed cards ---------- */
 .source-section { margin-bottom: 40px; }
 .source-header {
