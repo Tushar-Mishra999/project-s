@@ -31,9 +31,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const config = JSON.parse(readFileSync(join(__dirname, 'config.json'), 'utf-8'));
 
 const PORT = process.env.PORT || 3001;
-if (!process.env.FIRECRAWL_API_KEY || !process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
-  console.error('Missing FIRECRAWL_API_KEY or GOOGLE_APPLICATION_CREDENTIALS_JSON in .env');
+if (!process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
+  console.error('Missing GOOGLE_APPLICATION_CREDENTIALS_JSON in .env');
   process.exit(1);
+}
+if (!process.env.FIRECRAWL_API_KEY) {
+  console.warn('FIRECRAWL_API_KEY not set — feed pipeline uses Gemini url_context instead of Firecrawl.');
 }
 
 const app = express();
