@@ -96,14 +96,98 @@ function Card({ item }) {
   );
 }
 
+function AddSourcePanel({ onAdded, onClose }) {
+  const [name, setName] = useState('');
+  const [url, setUrl] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/feed/sources', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim(), url: url.trim() }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `Server error ${res.status}`);
+      setSuccess(true);
+      onAdded(json.sources);
+      setTimeout(() => { setSuccess(false); onClose(); }, 1800);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="add-source-panel">
+      <div className="add-source-header">
+        <span className="add-source-title">Add a new source</span>
+        <button className="add-source-close" onClick={onClose} aria-label="Close">✕</button>
+      </div>
+      {success ? (
+        <div className="inline-msg success">Source added! It will appear in the next feed refresh.</div>
+      ) : (
+        <form className="add-source-form" onSubmit={handleSubmit}>
+          <div className="form-row">
+            <label htmlFor="src-name">Display name</label>
+            <input
+              id="src-name"
+              type="text"
+              placeholder="e.g. MIT Technology Review"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              required
+            />
+          </div>
+          <div className="form-row">
+            <label htmlFor="src-url">URL (homepage or RSS feed)</label>
+            <input
+              id="src-url"
+              type="url"
+              placeholder="https://…"
+              value={url}
+              onChange={e => setUrl(e.target.value)}
+              required
+            />
+          </div>
+          {error && <div className="inline-msg error">{error}</div>}
+          <div className="add-source-actions">
+            <button type="button" className="ghost-btn" onClick={onClose} disabled={saving}>Cancel</button>
+            <button type="submit" className="primary-btn" disabled={saving || !name.trim() || !url.trim()}>
+              {saving ? 'Adding…' : 'Add source'}
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
+
 export default function FeedTab() {
   const [data, setData] = useState(null);
   const [loadingCache, setLoadingCache] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
 
-  // Poll /api/feed every 3 s until pipelineRunning becomes false and generatedAt changes.
-  // isCancelled lets the caller signal early exit (used by the mount effect for cleanup).
+  const [configSources, setConfigSources] = useState([]);
+  const [sourceFilter, setSourceFilter] = useState('All');
+  const [showAddSource, setShowAddSource] = useState(false);
+
+  // Fetch configured sources for filter bar
+  useEffect(() => {
+    fetch('/api/feed/sources')
+      .then(r => r.json())
+      .then(({ sources }) => setConfigSources(sources || []))
+      .catch(() => {});
+  }, []);
+
   const startPolling = useCallback(async (prevGeneratedAt, isCancelled = () => false) => {
     for (let i = 0; i < 100; i++) {
       await new Promise(r => setTimeout(r, 3000));
@@ -124,7 +208,6 @@ export default function FeedTab() {
     setRefreshing(false);
   }, []);
 
-  // Load cached feed on mount; auto-poll if a pipeline is already running.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -166,11 +249,17 @@ export default function FeedTab() {
   const sources = data?.sources ?? {};
   const total = data?.count ?? 0;
 
-  const buttonLabel = refreshing
-    ? 'Running…'
-    : hasData
-      ? 'Refresh Feed'
-      : 'Run Feed';
+  // Filter pills: use configSources names; fall back to data source names if config not loaded yet
+  const filterOptions = configSources.length > 0
+    ? configSources.map(s => s.name)
+    : Object.keys(sources);
+
+  // Articles to display based on active filter
+  const visibleSources = sourceFilter === 'All'
+    ? sources
+    : Object.fromEntries(Object.entries(sources).filter(([name]) => name === sourceFilter));
+
+  const buttonLabel = refreshing ? 'Running…' : hasData ? 'Refresh Feed' : 'Run Feed';
 
   return (
     <div className="wrap">
@@ -180,13 +269,49 @@ export default function FeedTab() {
           <div className="sub">
             {hasData
               ? `Last run: ${formatDate(data.generatedAt)} · ${total} item${total === 1 ? '' : 's'}`
-              : 'Click below to scrape today’s tech news from 13 sources.'}
+              : `Click below to scrape today's tech news from ${configSources.length || 13} sources.`}
           </div>
         </div>
         <button className="primary-btn" onClick={refresh} disabled={refreshing || loadingCache}>
           {buttonLabel}
         </button>
       </div>
+
+      {/* Source filter bar */}
+      {(filterOptions.length > 0 || !loadingCache) && (
+        <div className="source-toolbar">
+          <div className="source-filter">
+            <button
+              className={`filter-pill${sourceFilter === 'All' ? ' active' : ''}`}
+              onClick={() => setSourceFilter('All')}
+            >
+              All
+            </button>
+            {filterOptions.map(name => (
+              <button
+                key={name}
+                className={`filter-pill${sourceFilter === name ? ' active' : ''}`}
+                onClick={() => setSourceFilter(name)}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+          <button
+            className="add-source-btn"
+            onClick={() => setShowAddSource(v => !v)}
+          >
+            {showAddSource ? '✕ Cancel' : '＋ Add source'}
+          </button>
+        </div>
+      )}
+
+      {showAddSource && (
+        <AddSourcePanel
+          onAdded={(updated) => { setConfigSources(updated); }}
+          onClose={() => setShowAddSource(false)}
+        />
+      )}
 
       {loadingCache && (
         <div className="state"><div className="spinner" /></div>
@@ -239,8 +364,16 @@ export default function FeedTab() {
         )
       )}
 
+      {!refreshing && hasData && Object.keys(visibleSources).length === 0 && Object.keys(sources).length > 0 && (
+        <div className="state">
+          <div className="state-text">
+            No articles from <strong>{sourceFilter}</strong> in this run. Try refreshing the feed or select a different source.
+          </div>
+        </div>
+      )}
+
       {!refreshing && hasData &&
-        Object.entries(sources).map(([name, items]) => (
+        Object.entries(visibleSources).map(([name, items]) => (
           <section className="source-section" key={name}>
             <h2 className="source-header">{name}</h2>
             <div className="cards">

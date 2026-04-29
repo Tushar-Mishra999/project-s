@@ -97,6 +97,25 @@ app.get('/api/feed', async (_req, res) => {
   res.json({ ...(cached || { sources: {}, count: 0, generatedAt: null }), pipelineRunning });
 });
 
+app.get('/api/feed/sources', (_req, res) => {
+  const cfg = JSON.parse(readFileSync(join(__dirname, 'config.json'), 'utf-8'));
+  res.json({ sources: cfg.sources });
+});
+
+app.post('/api/feed/sources', (req, res) => {
+  const { name, url } = req.body || {};
+  if (!name || !url) return res.status(400).json({ error: 'name and url are required' });
+  const cfgPath = join(__dirname, 'config.json');
+  const cfg = JSON.parse(readFileSync(cfgPath, 'utf-8'));
+  if (cfg.sources.some(s => s.name === name)) {
+    return res.status(409).json({ error: 'A source with that name already exists' });
+  }
+  cfg.sources.push({ name, url });
+  writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+  config.sources = cfg.sources;
+  res.json({ sources: cfg.sources });
+});
+
 app.post('/api/feed/refresh', (_req, res) => {
   if (pipelineRunning) return res.status(202).json({ status: 'running' });
   pipelineRunning = true;
@@ -130,21 +149,25 @@ Given a news item, propose ONE concrete 3-5 day worklet a 3rd/4th-year engineeri
 
 **[Worklet title]**
 
-*Why it matters:* one sentence linking the news to a learning opportunity.
+*Why it matters:* 2-3 sentences connecting the news to a real engineering challenge or career opportunity. Explain the significance of the development and what hands-on exploration of it teaches.
 
-**Goal:** one sentence describing the deliverable.
+**Goal:** 2-3 sentences describing what the student will build or demonstrate, what "done" looks like, and what insight the project is designed to produce.
+
+**Background reading:** Name 2-3 specific resources — papers, documentation pages, or tutorials — the student should skim before starting. Be concrete (e.g., "Skim the HuggingFace Transformers quickstart", "Read the FAISS README on vector indexing").
 
 **Suggested approach:**
-1. step one
-2. step two
-3. step three
-4. step four (optional)
+1. **Setup & exploration** — Install required tools, run existing examples, and build intuition for the core concept (half-day to 1 day).
+2. **Core implementation** — Build the main component. Name the specific libraries or APIs to use and describe the key technical challenge to solve.
+3. **Evaluation & testing** — Define at least one measurable success criterion. Describe concretely how to verify the implementation works.
+4. **Write-up** — Summarise findings in a short README or blog post covering: what you built, what you learned, and one unexpected finding or limitation you encountered.
 
-**Skills you'll practise:** 4-6 short tags, comma-separated.
+**Tools & technologies:** 4-6 specific libraries, frameworks, or APIs the student should use (e.g., PyTorch, HuggingFace Transformers, FastAPI, LangChain, Weights & Biases).
 
-**Stretch goal:** one optional extension.
+**Skills you'll practise:** 4-6 short tags covering technical and transferable skills, comma-separated.
 
-Be specific and practical. Avoid filler. No introductions or meta-commentary — start directly with the bold title.`;
+**Stretch goal:** 2-3 sentences describing a more advanced extension — a harder variant, a different domain application, or a path toward real-world deployment.
+
+Be specific and practical. Use real tool names. No introductions or meta-commentary — start directly with the bold title.`;
 
 app.post('/api/worklet', async (req, res) => {
   const { title, summary, source, url } = req.body || {};
