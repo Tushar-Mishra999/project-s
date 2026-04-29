@@ -62,8 +62,26 @@ function formatDate(d) {
   return new Date(d).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-function LibraryRow({ file }) {
+function LibraryRow({ file, onDeleted }) {
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [err, setErr] = useState(null);
   const ext = (file.filetype || '').toLowerCase();
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    setErr(null);
+    try {
+      const res = await fetch(`/api/files/${file.id}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `Delete failed (${res.status})`);
+      onDeleted(file.id);
+    } catch (e) {
+      setErr(e.message);
+      setDeleting(false);
+    }
+  };
+
   return (
     <div className="library-row">
       <div className="library-row-icon">
@@ -81,11 +99,26 @@ function LibraryRow({ file }) {
             <span key={p} className="access-chip">{p}</span>
           ))}
         </div>
+        {err && <div className="inline-msg error" style={{ marginTop: 8 }}>{err}</div>}
       </div>
       <div className="library-row-actions">
         <a className="ghost-btn" href={file.file_url} target="_blank" rel="noopener noreferrer" download>
           Download
         </a>
+        {confirming ? (
+          <>
+            <button className="ghost-btn small danger" onClick={handleDelete} disabled={deleting}>
+              {deleting ? 'Deleting…' : 'Confirm'}
+            </button>
+            <button className="ghost-btn small" onClick={() => setConfirming(false)} disabled={deleting}>
+              Cancel
+            </button>
+          </>
+        ) : (
+          <button className="ghost-btn small danger" onClick={() => setConfirming(true)}>
+            Delete
+          </button>
+        )}
       </div>
     </div>
   );
@@ -97,6 +130,7 @@ export default function RetrievalTab({ parts, activePart }) {
   const [file, setFile] = useState(null);
   const [uploadedBy, setUploadedBy] = useState('');
   const [accessibleTo, setAccessibleTo] = useState([]);
+  const [extractActions, setExtractActions] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState(null);
   const fileInputRef = useRef(null);
@@ -152,6 +186,7 @@ export default function RetrievalTab({ parts, activePart }) {
       fd.append('file', file);
       fd.append('uploaded_by', uploadedBy);
       fd.append('accessible_to', JSON.stringify(accessibleTo));
+      fd.append('extract_action_items', String(extractActions));
       const res = await fetch('/api/upload', { method: 'POST', body: fd });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `Upload failed (${res.status})`);
@@ -282,6 +317,16 @@ export default function RetrievalTab({ parts, activePart }) {
                   ))}
                 </div>
               </div>
+              <div className="form-row">
+                <label className="checkbox-pill" style={{ alignSelf: 'flex-start' }}>
+                  <input
+                    type="checkbox"
+                    checked={extractActions}
+                    onChange={(e) => setExtractActions(e.target.checked)}
+                  />
+                  <span>Extract action items from this document</span>
+                </label>
+              </div>
               <button className="primary-btn" disabled={uploading} type="submit">
                 {uploading ? 'Uploading…' : 'Upload & Index'}
               </button>
@@ -308,7 +353,13 @@ export default function RetrievalTab({ parts, activePart }) {
         )}
         {!libraryLoading && library.length > 0 && (
           <div className="library-list">
-            {library.map((f) => <LibraryRow key={f.id} file={f} />)}
+            {library.map((f) => (
+              <LibraryRow
+                key={f.id}
+                file={f}
+                onDeleted={(id) => setLibrary((curr) => curr.filter((x) => x.id !== id))}
+              />
+            ))}
           </div>
         )}
       </section>

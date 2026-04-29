@@ -337,6 +337,43 @@ app.get('/api/files', async (req, res) => {
   }
 });
 
+// ---------- Tab 2: delete file (cascades to chunks + action_items) ----------
+app.delete('/api/files/:id', async (req, res) => {
+  const ready = ragReady();
+  if (!ready.ok) return res.status(503).json({ error: `RAG not configured: missing ${ready.missing.join(', ')}` });
+  const { id } = req.params;
+  try {
+    // Fetch the file row so we know the storage path.
+    const { data: fileRow, error: fetchErr } = await supabase
+      .from('files').select('id, file_url').eq('id', id).maybeSingle();
+    if (fetchErr) throw fetchErr;
+    if (!fileRow) return res.status(404).json({ error: 'file not found' });
+
+    // Delete the original from Storage (best-effort).
+    if (fileRow.file_url) {
+      const path = fileRow.file_url.split('/documents/')[1];
+      if (path) {
+        const { error: storageErr } = await supabase.storage.from('documents').remove([path]);
+        if (storageErr) console.warn('[delete] storage remove failed:', storageErr.message);
+      }
+    }
+
+    // Delete the row — chunks and action_items cascade via ON DELETE CASCADE.
+    const { error: deleteErr } = await supabase.from('files').delete().eq('id', id);
+    if (deleteErr) throw deleteErr;
+
+    // Clear in-memory action-item cache for this file.
+    for (const [key, val] of memoryActionItems) {
+      if (val.file_id === id) memoryActionItems.delete(key);
+    }
+    console.log(`[delete] file ${id} removed (chunks + action items cascaded)`);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[delete] error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---------- Tab 2: Upload + ingest ----------
 app.post('/api/upload', upload.single('file'), async (req, res) => {
   const ready = ragReady();
@@ -351,6 +388,8 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
   if (!uploadedBy || !Array.isArray(accessibleTo) || accessibleTo.length === 0) {
     return res.status(400).json({ error: 'uploaded_by and accessible_to are required' });
   }
+  // Opt-in flag: only extract action items if the uploader explicitly asked for it.
+  const extractActions = req.body.extract_action_items === 'true' || req.body.extract_action_items === true;
 
   const filename = req.file.originalname;
   const ext = extname(filename).slice(1).toLowerCase();
@@ -433,11 +472,14 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
     }
 
     console.log(`[upload] done. file_id=${fileRow.id}, ${inserted}/${chunks.length} chunks stored`);
-    // Kick off action-item extraction in the background — does not block the response.
-    extractAndSaveActionItems(fileRow, extracted.text, config).catch((err) =>
-      console.warn('[action-items] background extraction failed:', err.message)
-    );
-    res.json({ success: true, file_id: fileRow.id, chunk_count: inserted });
+    if (extractActions) {
+      // Opt-in: kick off action-item extraction in the background.
+      console.log(`[upload] action-item extraction requested for "${filename}"`);
+      extractAndSaveActionItems(fileRow, extracted.text, config).catch((err) =>
+        console.warn('[action-items] background extraction failed:', err.message)
+      );
+    }
+    res.json({ success: true, file_id: fileRow.id, chunk_count: inserted, action_items_extracted: extractActions });
   } catch (err) {
     console.error('[upload] error:', err);
     res.status(500).json({ error: err.message || 'upload failed' });
@@ -526,6 +568,133 @@ app.post('/api/chat', async (req, res) => {
   } catch (err) {
     console.error('[chat] error:', err);
     res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+// ---------- Report Generator ----------
+const REPORT_SYSTEM = `You are a report-writing assistant. You will be given:
+1. A TEMPLATE — example structure showing how the user wants reports formatted
+2. INPUT DATA — facts, notes, or context the user wants written up
+
+Your job:
+- Produce a complete report that follows the template's STRUCTURE, TONE, and FORMATTING (headings, sections, bullet points, table styles, length).
+- Replace the template's example/placeholder content with the user's actual input data.
+- Keep the same section ordering and formatting conventions as the template.
+- Output as clean Markdown (use #, ##, ###, **bold**, lists, tables).
+- Do not invent facts not present in the input data — if a section can't be filled, write "(not provided)".
+
+Return ONLY the report. No preamble, no commentary.`;
+
+app.get('/api/report-templates', async (_req, res) => {
+  const ready = ragReady();
+  if (!ready.ok) return res.status(503).json({ error: `not configured: missing ${ready.missing.join(', ')}` });
+  try {
+    const { data, error } = await supabase
+      .from('report_templates')
+      .select('id, filename, filetype, file_url, uploaded_by, uploaded_at')
+      .order('uploaded_at', { ascending: false });
+    if (error) throw error;
+    res.json({ templates: data });
+  } catch (err) {
+    console.error('[report-templates] list error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/report-templates', upload.single('file'), async (req, res) => {
+  const ready = ragReady();
+  if (!ready.ok) return res.status(503).json({ error: `not configured: missing ${ready.missing.join(', ')}` });
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  const uploadedBy = req.body.uploaded_by;
+  if (!uploadedBy) return res.status(400).json({ error: 'uploaded_by is required' });
+
+  const filename = req.file.originalname;
+  const ext = extname(filename).slice(1).toLowerCase();
+  const filetype = req.file.mimetype || ext;
+  console.log(`\n[template] ${filename} (${filetype}) by ${uploadedBy}`);
+
+  try {
+    const extracted = await extractText(req.file.buffer, filetype);
+    if (!extracted.text || extracted.text.trim().length < 30) {
+      return res.status(422).json({ error: 'No extractable text in template file' });
+    }
+    const storagePath = `templates/${randomUUID()}-${filename.replace(/[^\w.\-]+/g, '_')}`;
+    const { error: storageErr } = await supabase
+      .storage.from('documents')
+      .upload(storagePath, req.file.buffer, { contentType: filetype, upsert: false });
+    if (storageErr) throw new Error('storage upload failed: ' + storageErr.message);
+    const { data: pub } = supabase.storage.from('documents').getPublicUrl(storagePath);
+
+    const { data: row, error: insErr } = await supabase
+      .from('report_templates')
+      .insert({
+        filename,
+        filetype: ext || filetype,
+        file_url: pub.publicUrl,
+        template_text: extracted.text.slice(0, 60000),
+        uploaded_by: uploadedBy,
+      })
+      .select()
+      .single();
+    if (insErr) throw insErr;
+    console.log(`[template] saved id=${row.id}`);
+    res.json({ template: row });
+  } catch (err) {
+    console.error('[template] upload error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/report-templates/:id', async (req, res) => {
+  const ready = ragReady();
+  if (!ready.ok) return res.status(503).json({ error: `not configured: missing ${ready.missing.join(', ')}` });
+  const { id } = req.params;
+  try {
+    const { data: row, error: fetchErr } = await supabase
+      .from('report_templates').select('id, file_url').eq('id', id).maybeSingle();
+    if (fetchErr) throw fetchErr;
+    if (!row) return res.status(404).json({ error: 'template not found' });
+    if (row.file_url) {
+      const path = row.file_url.split('/documents/')[1];
+      if (path) {
+        const { error: stErr } = await supabase.storage.from('documents').remove([path]);
+        if (stErr) console.warn('[template-delete] storage remove failed:', stErr.message);
+      }
+    }
+    const { error: delErr } = await supabase.from('report_templates').delete().eq('id', id);
+    if (delErr) throw delErr;
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[template-delete] error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/report-templates/:id/generate', async (req, res) => {
+  const ready = ragReady();
+  if (!ready.ok) return res.status(503).json({ error: `not configured: missing ${ready.missing.join(', ')}` });
+  const { id } = req.params;
+  const { input_data } = req.body || {};
+  if (!input_data || !input_data.trim()) {
+    return res.status(400).json({ error: 'input_data is required' });
+  }
+  try {
+    const { data: tmpl, error: fetchErr } = await supabase
+      .from('report_templates').select('*').eq('id', id).maybeSingle();
+    if (fetchErr) throw fetchErr;
+    if (!tmpl) return res.status(404).json({ error: 'template not found' });
+
+    const userMsg = `--- TEMPLATE (${tmpl.filename}) ---\n${tmpl.template_text}\n\n--- INPUT DATA ---\n${input_data}`;
+    const report = await generateText({
+      model: config.models.summarisation,
+      system: REPORT_SYSTEM,
+      user: userMsg,
+      maxTokens: 4096,
+    });
+    res.json({ report, template_filename: tmpl.filename });
+  } catch (err) {
+    console.error('[report-generate] error:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 

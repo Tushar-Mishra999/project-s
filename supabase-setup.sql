@@ -104,3 +104,14 @@ create table if not exists action_items (
 
 create index if not exists action_items_file_id_idx on action_items(file_id);
 
+-- 9. Report templates — uploaded once, reused to generate filled reports.
+create table if not exists report_templates (
+  id            uuid primary key default gen_random_uuid(),
+  filename      text not null,
+  filetype      text not null,
+  file_url      text,
+  template_text text not null,
+  uploaded_by   text not null,
+  uploaded_at   timestamptz default now()
+);
+
