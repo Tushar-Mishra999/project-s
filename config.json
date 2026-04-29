@@ -16,10 +16,6 @@
       "rss": "https://techcrunch.com/category/artificial-intelligence/feed/"
     },
     {
-      "name": "Reuters Technology",
-      "url": "https://www.reuters.com/technology/"
-    },
-    {
       "name": "Economic Times Tech",
       "url": "https://economictimes.indiatimes.com/tech",
       "rss": "https://economictimes.indiatimes.com/tech/rssfeeds/13357270.cms"
@@ -34,29 +30,23 @@
       "url": "https://blog.research.google/"
     },
     {
-      "name": "Meta AI Blog",
-      "url": "https://ai.meta.com/blog/"
+      "name": "Anthropic News",
+      "url": "https://www.anthropic.com/news"
     },
     {
       "name": "OpenAI News",
       "url": "https://openai.com/news/"
     },
     {
-      "name": "Anthropic News",
-      "url": "https://www.anthropic.com/news"
-    },
-    {
       "name": "NASSCOM",
       "url": "http://community.nasscom.in/blogs"
-    },
-    {
-      "name": "Zinnov",
-      "url": "https://zinnov.com/blog/"
-    },
-    {
-      "name": "PIB India",
-      "url": "https://www.pib.gov.in/indexd.aspx?reg=3&lang=1"
     }
+  ],
+  "_inactive_sources": [
+    { "name": "Reuters Technology", "url": "https://www.reuters.com/technology/" },
+    { "name": "Meta AI Blog", "url": "https://ai.meta.com/blog/" },
+    { "name": "Zinnov", "url": "https://zinnov.com/blog/" },
+    { "name": "PIB India", "url": "https://www.pib.gov.in/indexd.aspx?reg=3&lang=1" }
   ],
   "scoringThreshold": 7,
   "maxItemsPerSource": 5,

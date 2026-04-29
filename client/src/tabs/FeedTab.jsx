@@ -269,7 +269,7 @@ export default function FeedTab() {
           <div className="sub">
             {hasData
               ? `Last run: ${formatDate(data.generatedAt)} · ${total} item${total === 1 ? '' : 's'}`
-              : `Click below to scrape today's tech news from ${configSources.length || 13} sources.`}
+              : `Click below to scrape today's tech news from ${configSources.length || 9} sources.`}
           </div>
         </div>
         <button className="primary-btn" onClick={refresh} disabled={refreshing || loadingCache}>
