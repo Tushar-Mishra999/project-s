@@ -661,7 +661,125 @@ select {
   font-size: 13px; color: var(--text-muted); line-height: 1.6;
 }
 
-/* Placeholder tabs */
+/* ---------- Tab 4: Action Items ---------- */
+.action-cards-list { display: flex; flex-direction: column; gap: 20px; }
+
+.action-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-soft);
+  transition: border-color .2s, box-shadow .2s;
+}
+.action-card:hover { border-color: var(--border-strong); }
+
+.action-card-header {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px; padding: 20px 22px 14px; flex-wrap: wrap;
+}
+.action-card-title-block { flex: 1; min-width: 0; }
+.action-card-filename {
+  display: block; font-size: 15px; font-weight: 600; color: var(--text);
+  word-break: break-word; margin-bottom: 6px;
+}
+.action-card-meta-row {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+}
+.action-card-meta { font-size: 12px; color: var(--text-muted); }
+
+.action-card-controls {
+  display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap;
+}
+.action-confirm-label { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+
+.ghost-btn.small { padding: 6px 11px; font-size: 12px; border-radius: 8px; }
+.ghost-btn.small.danger {
+  color: var(--error-text); border-color: var(--error-border);
+}
+.ghost-btn.small.danger:hover:not(:disabled) {
+  background: var(--error-bg); border-color: var(--error-text); color: var(--error-text);
+}
+
+/* Progress bar */
+.action-progress-wrap {
+  height: 3px; background: var(--surface-3); margin: 0 22px 0;
+  border-radius: 2px; overflow: hidden;
+}
+.action-progress-bar {
+  height: 100%; background: linear-gradient(90deg, #2563EB, #3B82F6);
+  border-radius: 2px; transition: width .4s ease;
+  box-shadow: 0 0 6px rgba(59,130,246,.5);
+}
+
+/* Action list */
+.action-list {
+  list-style: none; margin: 14px 0 0; padding: 0 22px 20px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.action-item {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 10px 10px 10px 0;
+  border-bottom: 1px solid var(--border);
+  transition: background .12s;
+  border-radius: 8px;
+}
+.action-item:last-child { border-bottom: none; }
+.action-item:hover { background: var(--surface-2); padding-left: 10px; margin: 0 -10px; }
+.action-item.done .action-text { text-decoration: line-through; color: var(--text-muted); }
+
+/* Custom checkbox */
+.action-checkbox {
+  flex-shrink: 0; width: 18px; height: 18px; margin-top: 2px;
+  border: 1.5px solid var(--border-strong); border-radius: 5px;
+  background: var(--surface-2); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s, border-color .15s, box-shadow .15s;
+}
+.action-checkbox:hover:not(:disabled) { border-color: var(--blue); box-shadow: 0 0 0 2px var(--blue-soft); }
+.action-checkbox.checked {
+  background: var(--blue); border-color: var(--blue);
+  box-shadow: 0 0 6px rgba(59,130,246,.4);
+}
+.action-checkbox:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Item body */
+.action-item-body { flex: 1; min-width: 0; }
+.action-text { font-size: 14px; color: var(--text-mid); line-height: 1.5; word-break: break-word; }
+
+/* Inline edit */
+.action-edit-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.action-edit-input {
+  flex: 1; min-width: 180px;
+  padding: 7px 12px; font-size: 13px; font-family: inherit;
+  background: var(--surface-3); color: var(--text);
+  border: 1px solid var(--blue); border-radius: 8px;
+  outline: none; box-shadow: 0 0 0 3px var(--blue-soft);
+}
+
+/* Per-item icon buttons */
+.action-item-actions {
+  display: flex; gap: 4px; flex-shrink: 0; opacity: 0;
+  transition: opacity .15s;
+}
+.action-item:hover .action-item-actions { opacity: 1; }
+
+.action-icon-btn {
+  background: transparent; border: 1px solid transparent;
+  border-radius: 6px; padding: 4px 5px;
+  color: var(--text-muted); cursor: pointer; display: flex; align-items: center;
+  transition: color .15s, background .15s, border-color .15s;
+  line-height: 1;
+}
+.action-icon-btn:hover:not(:disabled) {
+  color: var(--text); background: var(--surface-3); border-color: var(--border-strong);
+}
+.action-icon-btn.danger:hover:not(:disabled) {
+  color: var(--error-text); background: var(--error-bg); border-color: var(--error-border);
+}
+.action-icon-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+/* ---------- Placeholder tabs ---------- */
 .placeholder-panel {
   background: var(--surface);
   border: 1px solid var(--border);
