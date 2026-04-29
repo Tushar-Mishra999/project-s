@@ -732,6 +732,37 @@ app.post('/api/report-templates/:id/generate', async (req, res) => {
   }
 });
 
+// ---------- Render markdown to .docx ----------
+import { marked } from 'marked';
+import HTMLtoDOCX from 'html-to-docx';
+
+app.post('/api/render-docx', async (req, res) => {
+  const { markdown, filename = 'report.docx' } = req.body || {};
+  if (!markdown || !markdown.trim()) {
+    return res.status(400).json({ error: 'markdown is required' });
+  }
+  try {
+    const html = await marked.parse(markdown);
+    // Wrap with minimal HTML so html-to-docx gets a valid document.
+    const wrapped = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${html}</body></html>`;
+    const buffer = await HTMLtoDOCX(wrapped, null, {
+      orientation: 'portrait',
+      margins: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
+      table: { row: { cantSplit: true } },
+      font: 'Calibri',
+      fontSize: 22, // half-points (=11pt)
+    });
+    const safeName = String(filename).replace(/[^\w.\-]+/g, '_');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+    res.setHeader('Content-Length', buffer.length);
+    res.send(buffer);
+  } catch (err) {
+    console.error('[render-docx] error:', err);
+    res.status(500).json({ error: err.message || 'docx render failed' });
+  }
+});
+
 app.get('/api/health', (_req, res) => res.json({ ok: true, rag: ragReady() }));
 
 if (process.env.NODE_ENV === 'production') {

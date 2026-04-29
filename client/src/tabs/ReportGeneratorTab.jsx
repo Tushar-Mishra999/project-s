@@ -6,8 +6,7 @@ function formatDate(d) {
   return new Date(d).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-function downloadText(filename, text) {
-  const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' });
+function triggerDownload(filename, blob) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -16,6 +15,25 @@ function downloadText(filename, text) {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+function downloadText(filename, text) {
+  triggerDownload(filename, new Blob([text], { type: 'text/markdown;charset=utf-8' }));
+}
+
+async function downloadDocx(filename, markdown) {
+  const res = await fetch('/api/render-docx', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ markdown, filename }),
+  });
+  if (!res.ok) {
+    let msg = `Server returned ${res.status}`;
+    try { msg = (await res.json()).error || msg; } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+  const blob = await res.blob();
+  triggerDownload(filename, blob);
 }
 
 function TemplateRow({ tmpl, isSelected, onSelect, onDeleted }) {
@@ -92,6 +110,8 @@ export default function ReportGeneratorTab({ activePart }) {
   const [generating, setGenerating] = useState(false);
   const [report, setReport] = useState(null);
   const [generateErr, setGenerateErr] = useState(null);
+  const [downloadingDocx, setDownloadingDocx] = useState(false);
+  const [downloadErr, setDownloadErr] = useState(null);
 
   const loadTemplates = useCallback(async () => {
     setLoadingList(true);
@@ -276,7 +296,7 @@ export default function ReportGeneratorTab({ activePart }) {
           <div className="report-output">
             <div className="panel-title-row" style={{ marginTop: 24 }}>
               <h3 className="panel-title">Generated report</h3>
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <button
                   className="ghost-btn"
                   onClick={() => navigator.clipboard.writeText(report.text)}
@@ -284,7 +304,7 @@ export default function ReportGeneratorTab({ activePart }) {
                   Copy
                 </button>
                 <button
-                  className="primary-btn"
+                  className="ghost-btn"
                   onClick={() => {
                     const base = report.templateName.replace(/\.[^.]+$/, '');
                     const stamp = new Date().toISOString().slice(0, 10);
@@ -293,8 +313,28 @@ export default function ReportGeneratorTab({ activePart }) {
                 >
                   Download .md
                 </button>
+                <button
+                  className="primary-btn"
+                  disabled={downloadingDocx}
+                  onClick={async () => {
+                    setDownloadingDocx(true);
+                    setDownloadErr(null);
+                    const base = report.templateName.replace(/\.[^.]+$/, '');
+                    const stamp = new Date().toISOString().slice(0, 10);
+                    try {
+                      await downloadDocx(`${base}-${stamp}.docx`, report.text);
+                    } catch (e) {
+                      setDownloadErr(e.message);
+                    } finally {
+                      setDownloadingDocx(false);
+                    }
+                  }}
+                >
+                  {downloadingDocx ? 'Preparing…' : 'Download .docx'}
+                </button>
               </div>
             </div>
+            {downloadErr && <div className="inline-msg error" style={{ marginTop: 8 }}>{downloadErr}</div>}
             <div className="report-preview md">
               <ReactMarkdown>{report.text}</ReactMarkdown>
             </div>
