@@ -65,6 +65,8 @@ function formatDate(d) {
 function LibraryRow({ file, onDeleted }) {
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [extracting, setExtracting] = useState(false);
+  const [extractMsg, setExtractMsg] = useState(null);
   const [err, setErr] = useState(null);
   const ext = (file.filetype || '').toLowerCase();
 
@@ -79,6 +81,27 @@ function LibraryRow({ file, onDeleted }) {
     } catch (e) {
       setErr(e.message);
       setDeleting(false);
+    }
+  };
+
+  const handleExtract = async () => {
+    setExtracting(true);
+    setExtractMsg(null);
+    try {
+      const res = await fetch(`/api/action-items/extract/${file.id}`, { method: 'POST' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `Extraction failed (${res.status})`);
+      const n = json.items_count;
+      setExtractMsg({
+        type: n > 0 ? 'success' : 'info',
+        text: n > 0
+          ? `Extracted ${n} action item${n === 1 ? '' : 's'}. Check the Action Items tab.`
+          : 'No action items found in this document.',
+      });
+    } catch (e) {
+      setExtractMsg({ type: 'error', text: e.message });
+    } finally {
+      setExtracting(false);
     }
   };
 
@@ -100,11 +123,19 @@ function LibraryRow({ file, onDeleted }) {
           ))}
         </div>
         {err && <div className="inline-msg error" style={{ marginTop: 8 }}>{err}</div>}
+        {extractMsg && (
+          <div className={`inline-msg ${extractMsg.type}`} style={{ marginTop: 8 }}>
+            {extractMsg.text}
+          </div>
+        )}
       </div>
       <div className="library-row-actions">
         <a className="ghost-btn" href={file.file_url} target="_blank" rel="noopener noreferrer" download>
           Download
         </a>
+        <button className="ghost-btn small" onClick={handleExtract} disabled={extracting}>
+          {extracting ? 'Extracting…' : 'Extract action items'}
+        </button>
         {confirming ? (
           <>
             <button className="ghost-btn small danger" onClick={handleDelete} disabled={deleting}>

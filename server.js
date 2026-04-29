@@ -243,11 +243,11 @@ async function deleteActionItemCard(id) {
 }
 
 async function extractAndSaveActionItems(fileRow, fullText, cfg) {
-  console.log(`[action-items] extracting from "${fileRow.filename}"…`);
+  console.log(`[action-items] extracting from "${fileRow.filename}" (${fullText.length} chars)…`);
   const items = await extractActionItems(fullText, cfg.models.enrichment);
   if (!items.length) {
     console.log(`[action-items] no items found in "${fileRow.filename}"`);
-    return;
+    return { items_count: 0 };
   }
   const card = {
     id: randomUUID(),
@@ -260,7 +260,41 @@ async function extractAndSaveActionItems(fileRow, fullText, cfg) {
   };
   await upsertActionItemCard(card);
   console.log(`[action-items] saved ${items.length} items from "${fileRow.filename}"`);
+  return { items_count: items.length, card };
 }
+
+// Manual re-extraction trigger — re-runs extraction for an existing file.
+// Useful if the upload-time extraction silently produced 0 items.
+app.post('/api/action-items/extract/:file_id', async (req, res) => {
+  const ready = ragReady();
+  if (!ready.ok) return res.status(503).json({ error: `RAG not configured: missing ${ready.missing.join(', ')}` });
+  const { file_id } = req.params;
+  try {
+    // Look up file row
+    const { data: fileRow, error: fileErr } = await supabase
+      .from('files').select('*').eq('id', file_id).maybeSingle();
+    if (fileErr) throw fileErr;
+    if (!fileRow) return res.status(404).json({ error: 'file not found' });
+
+    // Reconstruct text from the file's chunks
+    const { data: chunks, error: chunkErr } = await supabase
+      .from('chunks').select('chunk_text').eq('file_id', file_id).order('chunk_index');
+    if (chunkErr) throw chunkErr;
+    const fullText = (chunks || []).map((c) => c.chunk_text || '').join('\n\n');
+    if (!fullText.trim()) {
+      return res.status(422).json({ error: 'No chunk text available for this file' });
+    }
+
+    // Delete any existing card so we don't end up with duplicates
+    await supabase.from('action_items').delete().eq('file_id', file_id);
+
+    const result = await extractAndSaveActionItems(fileRow, fullText, config);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('[action-items] manual extract error:', err);
+    res.status(500).json({ error: err.message || 'extraction failed' });
+  }
+});
 
 app.get('/api/action-items', async (req, res) => {
   const { part } = req.query;
