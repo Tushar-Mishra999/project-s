@@ -1,15 +1,25 @@
 {
   "sources": [
-    { "name": "MarkTechPost", "url": "https://www.marktechpost.com/" },
-    { "name": "TechCrunch AI", "url": "https://techcrunch.com/category/artificial-intelligence/" },
+    {
+      "name": "Hugging Face Blog",
+      "url": "https://huggingface.co/blog",
+      "rss": "https://huggingface.co/blog/feed.xml"
+    },
+    {
+      "name": "MarkTechPost",
+      "url": "https://www.marktechpost.com/",
+      "rss": "https://www.marktechpost.com/feed/"
+    }
+  ],
+  "_inactive_sources_disabled_for_testing_re_enable_later": [
+    { "name": "TechCrunch AI", "url": "https://techcrunch.com/category/artificial-intelligence/", "rss": "https://techcrunch.com/category/artificial-intelligence/feed/" },
     { "name": "Reuters Technology", "url": "https://www.reuters.com/technology/" },
-    { "name": "Hugging Face Blog", "url": "https://huggingface.co/blog" },
-    { "name": "Economic Times Tech", "url": "https://economictimes.indiatimes.com/tech" },
-    { "name": "Times of India Tech", "url": "https://timesofindia.indiatimes.com/technology" },
+    { "name": "Economic Times Tech", "url": "https://economictimes.indiatimes.com/tech", "rss": "https://economictimes.indiatimes.com/tech/rssfeeds/13357270.cms" },
+    { "name": "Times of India Tech", "url": "https://timesofindia.indiatimes.com/technology", "rss": "https://timesofindia.indiatimes.com/rssfeeds/66949542.cms" },
     { "name": "Google AI Blog", "url": "https://blog.research.google/" },
     { "name": "Meta AI Blog", "url": "https://ai.meta.com/blog/" },
     { "name": "OpenAI News", "url": "https://openai.com/news/" },
-    { "name": "Anthropic News", "url": "https://www.anthropic.com/news" },
+    { "name": "Anthropic News", "url": "https://www.anthropic.com/news", "_note": "No public RSS — needs Firecrawl scraping" },
     { "name": "NASSCOM", "url": "http://community.nasscom.in/blogs" },
     { "name": "Zinnov", "url": "https://zinnov.com/blog/" },
     { "name": "PIB India", "url": "https://www.pib.gov.in/indexd.aspx?reg=3&lang=1" }
