@@ -5,6 +5,7 @@ import ChatTab from './tabs/ChatTab.jsx';
 import ActionItemsTab from './tabs/ActionItemsTab.jsx';
 import ReportGeneratorTab from './tabs/ReportGeneratorTab.jsx';
 import AIQuizzesTab from './tabs/AIQuizzesTab.jsx';
+import TaskForceTab from './tabs/TaskForceTab.jsx';
 
 const TABS = [
   { id: 'feed',     label: 'Tech Sensing' },
@@ -13,6 +14,7 @@ const TABS = [
   { id: 'actions',  label: 'Action Items' },
   { id: 'reports',  label: 'Report Generator' },
   { id: 'quizzes',  label: 'AI Quizzes' },
+  { id: 'taskforce',label: 'Task Force' },
 ];
 
 export default function App() {
@@ -71,6 +73,7 @@ export default function App() {
         {active === 'actions' && <ActionItemsTab activePart={activePart} />}
         {active === 'reports' && <ReportGeneratorTab activePart={activePart} />}
         {active === 'quizzes' && <AIQuizzesTab activePart={activePart} />}
+        {active === 'taskforce' && <TaskForceTab />}
       </main>
     </div>
   );

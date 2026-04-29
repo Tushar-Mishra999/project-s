@@ -814,6 +814,243 @@ select {
 }
 .action-icon-btn:disabled { opacity: .4; cursor: not-allowed; }
 
+/* ---------- Task Force tab ---------- */
+.tf-wrap { max-width: 1100px; }
+
+.tf-role-switcher {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 4px 6px 4px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+.tf-role-switcher .part-select { min-width: 220px; }
+
+.tf-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 18px; flex-wrap: wrap;
+}
+.tf-toolbar-info { color: var(--text-muted); font-size: 13px; }
+
+.tf-table-scroll {
+  width: 100%; overflow-x: auto;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+}
+.tf-table {
+  width: 100%; min-width: 760px;
+  border-collapse: collapse; font-size: 13px;
+}
+.tf-table thead th {
+  text-align: left; padding: 12px 16px;
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  position: sticky; top: 0;
+}
+.tf-table tbody td {
+  padding: 14px 16px; border-bottom: 1px solid var(--border);
+  vertical-align: top; color: var(--text-mid);
+}
+.tf-table tbody tr:last-child td { border-bottom: none; }
+.tf-row { cursor: pointer; transition: background .12s; }
+.tf-row:hover { background: var(--surface-2); }
+.tf-cell-name { font-weight: 600; color: var(--text); white-space: nowrap; }
+.tf-cell-update { max-width: 320px; }
+.tf-update-date { font-size: 12px; color: var(--text-muted); margin-bottom: 2px; }
+.tf-update-snippet {
+  color: var(--text-mid); line-height: 1.45;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tf-open-count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 28px; padding: 4px 10px;
+  background: var(--surface-3); color: var(--text-muted);
+  border-radius: 999px; font-weight: 600; font-size: 12px;
+}
+.tf-open-count.has-open {
+  background: rgba(245, 158, 11, 0.14); color: #FCD34D;
+  border: 1px solid rgba(245, 158, 11, 0.30);
+}
+
+/* Status badges */
+.tf-status {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  border-radius: 999px; white-space: nowrap;
+}
+.tf-status::before {
+  content: ''; width: 6px; height: 6px; border-radius: 50%;
+}
+.tf-status-green {
+  background: rgba(16, 185, 129, 0.12); color: var(--success-text);
+  border: 1px solid var(--success-border);
+}
+.tf-status-green::before { background: #10B981; box-shadow: 0 0 6px #10B981; }
+.tf-status-amber {
+  background: rgba(245, 158, 11, 0.12); color: #FCD34D;
+  border: 1px solid rgba(245, 158, 11, 0.30);
+}
+.tf-status-amber::before { background: #F59E0B; box-shadow: 0 0 6px #F59E0B; }
+.tf-status-grey {
+  background: var(--surface-3); color: var(--text-muted);
+  border: 1px solid var(--border-strong);
+}
+.tf-status-grey::before { background: var(--text-muted); }
+
+/* Chips for parts/teams */
+.tf-chip-row { display: flex; flex-wrap: wrap; gap: 5px; }
+.tf-chip {
+  display: inline-block; padding: 3px 9px;
+  font-size: 11px; font-weight: 500; border-radius: 999px;
+  border: 1px solid var(--border-strong); background: var(--surface-2);
+  color: var(--text-mid); white-space: nowrap;
+}
+.tf-chip.part {
+  background: var(--blue-soft); color: var(--blue-bright);
+  border-color: rgba(59,130,246,.25);
+}
+.tf-chip.team {
+  background: rgba(139, 92, 246, 0.10); color: #C4B5FD;
+  border-color: rgba(139, 92, 246, 0.25);
+}
+.tf-muted { color: var(--text-muted); }
+
+/* Card grid */
+.tf-card-grid {
+  display: grid; gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+.tf-card {
+  text-align: left; cursor: pointer; font-family: inherit;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  display: flex; flex-direction: column; gap: 12px;
+  transition: border-color .2s, transform .15s, box-shadow .2s;
+  color: var(--text);
+}
+.tf-card:hover {
+  border-color: rgba(59,130,246,.30);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-hover);
+}
+.tf-card-top {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 10px;
+}
+.tf-card-title { font-weight: 600; font-size: 15px; color: var(--text); line-height: 1.35; }
+.tf-card-meta { display: flex; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--text-muted); }
+.tf-card-meta strong { color: var(--text); font-weight: 600; }
+.tf-mine-open { color: #FCD34D; }
+.tf-card-update {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--blue);
+  padding: 10px 12px; border-radius: 8px;
+  font-size: 13px;
+}
+.tf-card-update-meta { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+.tf-card-update-text {
+  color: var(--text-mid); line-height: 1.5;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.tf-section-title {
+  font-size: 12px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--blue-bright);
+  margin: 0 0 14px;
+}
+
+/* Detail view */
+.tf-detail-header {
+  margin: 18px 0 22px;
+  padding: 22px 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+}
+.tf-detail-title-row {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+.tf-detail-title {
+  margin: 0; font-size: 22px; font-weight: 700;
+  color: var(--text); letter-spacing: -0.01em;
+}
+.tf-detail-owners { margin-top: 12px; font-size: 13px; color: var(--text-mid); }
+
+.tf-detail-grid {
+  display: grid; gap: 20px;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 900px) {
+  .tf-detail-grid { grid-template-columns: 1fr 1fr; }
+}
+
+.tf-update-form {
+  margin-bottom: 14px; padding: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.tf-update-form select { min-width: 130px; }
+
+.tf-updates-feed {
+  max-height: 420px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 10px;
+  padding-right: 4px;
+}
+.tf-update-card {
+  padding: 12px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--blue);
+  border-radius: 10px;
+}
+.tf-update-card-meta {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  font-size: 12px; margin-bottom: 6px;
+}
+.tf-update-card-body { font-size: 13px; line-height: 1.55; color: var(--text-mid); }
+
+.tf-update-type {
+  display: inline-block; font-size: 10px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 2px 8px; border-radius: 999px;
+  background: var(--surface-3); color: var(--text-mid);
+  border: 1px solid var(--border-strong);
+}
+.tf-update-type-status    { background: var(--blue-soft); color: var(--blue-bright); border-color: rgba(59,130,246,.25); }
+.tf-update-type-milestone { background: var(--success-bg); color: var(--success-text); border-color: var(--success-border); }
+.tf-update-type-risk      { background: var(--error-bg); color: var(--error-text); border-color: var(--error-border); }
+.tf-update-type-decision  { background: rgba(139,92,246,.12); color: #C4B5FD; border-color: rgba(139,92,246,.25); }
+
+.tf-action-form {
+  display: grid; gap: 8px; margin-bottom: 14px;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 600px) {
+  .tf-action-form { grid-template-columns: 2fr 1fr 1fr auto; }
+}
+
+.tf-action-table { min-width: 520px; }
+.tf-action-table tbody tr.tf-action-done td:not(:first-child) {
+  text-decoration: line-through; color: var(--text-muted);
+}
+.tf-action-table tbody tr.tf-action-mine {
+  background: rgba(59, 130, 246, 0.06);
+}
+.tf-action-table tbody tr.tf-action-mine td:nth-child(2) {
+  border-left: 2px solid var(--blue);
+}
+
 /* ---------- Placeholder tabs ---------- */
 .placeholder-panel {
   background: var(--surface);
