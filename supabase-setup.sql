@@ -89,3 +89,18 @@ create table if not exists feed_cache (
   generated_at timestamptz default now(),
   updated_at   timestamptz default now()
 );
+
+-- 8. Action items — one row per document, items stored as a JSONB array.
+--    Each item: { "id": "uuid", "text": "...", "completed": false }
+create table if not exists action_items (
+  id            uuid primary key default gen_random_uuid(),
+  file_id       uuid references files(id) on delete cascade,
+  filename      text not null,
+  accessible_to text[] not null default '{}',
+  items         jsonb not null default '[]',
+  created_at    timestamptz default now(),
+  updated_at    timestamptz default now()
+);
+
+create index if not exists action_items_file_id_idx on action_items(file_id);
+

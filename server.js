@@ -18,6 +18,7 @@ if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON && !process.env.GOOGLE_APPLI
 import { supabase, ragReady } from './lib/clients.js';
 import { generateChat, generateText } from './lib/llm.js';
 import { runFeedPipeline } from './lib/feed.js';
+import { extractActionItems } from './lib/actionItems.js';
 import { extractText } from './lib/extract.js';
 import { chunkDocument, addContextPrefix } from './lib/chunk.js';
 import {
@@ -195,6 +196,125 @@ app.post('/api/worklet', async (req, res) => {
   }
 });
 
+// ---------- Tab 4: Action Items ----------
+const memoryActionItems = new Map(); // file_id -> card
+
+async function readActionItemCards(part) {
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('action_items')
+      .select('*')
+      .contains('accessible_to', [part])
+      .order('created_at', { ascending: false });
+    if (error) {
+      console.warn('action_items read error:', error.message);
+    } else {
+      return data || [];
+    }
+  }
+  return Array.from(memoryActionItems.values())
+    .filter((c) => c.accessible_to.includes(part))
+    .sort((a, b) => (b.created_at > a.created_at ? 1 : -1));
+}
+
+async function upsertActionItemCard(card) {
+  memoryActionItems.set(card.file_id, card);
+  if (supabase) {
+    const { error } = await supabase.from('action_items').upsert({
+      id: card.id,
+      file_id: card.file_id,
+      filename: card.filename,
+      accessible_to: card.accessible_to,
+      items: card.items,
+      updated_at: new Date().toISOString(),
+    });
+    if (error) console.warn('action_items upsert error:', error.message);
+  }
+}
+
+async function deleteActionItemCard(id) {
+  for (const [key, val] of memoryActionItems) {
+    if (val.id === id) { memoryActionItems.delete(key); break; }
+  }
+  if (supabase) {
+    const { error } = await supabase.from('action_items').delete().eq('id', id);
+    if (error) console.warn('action_items delete error:', error.message);
+  }
+}
+
+async function extractAndSaveActionItems(fileRow, fullText, cfg) {
+  console.log(`[action-items] extracting from "${fileRow.filename}"…`);
+  const items = await extractActionItems(fullText, cfg.models.enrichment);
+  if (!items.length) {
+    console.log(`[action-items] no items found in "${fileRow.filename}"`);
+    return;
+  }
+  const card = {
+    id: randomUUID(),
+    file_id: fileRow.id,
+    filename: fileRow.filename,
+    accessible_to: fileRow.accessible_to,
+    items,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  await upsertActionItemCard(card);
+  console.log(`[action-items] saved ${items.length} items from "${fileRow.filename}"`);
+}
+
+app.get('/api/action-items', async (req, res) => {
+  const { part } = req.query;
+  if (!part) return res.status(400).json({ error: 'part query param is required' });
+  try {
+    const cards = await readActionItemCards(part);
+    res.json({ cards });
+  } catch (err) {
+    console.error('[action-items] list error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch('/api/action-items/:id', async (req, res) => {
+  const { id } = req.params;
+  const { items } = req.body || {};
+  if (!Array.isArray(items)) return res.status(400).json({ error: 'items array required' });
+  try {
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('action_items')
+        .update({ items, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) throw error;
+      memoryActionItems.set(data.file_id, data);
+      return res.json({ card: data });
+    }
+    for (const [key, val] of memoryActionItems) {
+      if (val.id === id) {
+        const updated = { ...val, items, updated_at: new Date().toISOString() };
+        memoryActionItems.set(key, updated);
+        return res.json({ card: updated });
+      }
+    }
+    res.status(404).json({ error: 'card not found' });
+  } catch (err) {
+    console.error('[action-items] patch error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/action-items/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    await deleteActionItemCard(id);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[action-items] delete error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---------- Shared: parts list ----------
 app.get('/api/parts', (_req, res) => {
   res.json({ parts: config.parts || [] });
@@ -313,6 +433,10 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
     }
 
     console.log(`[upload] done. file_id=${fileRow.id}, ${inserted}/${chunks.length} chunks stored`);
+    // Kick off action-item extraction in the background — does not block the response.
+    extractAndSaveActionItems(fileRow, extracted.text, config).catch((err) =>
+      console.warn('[action-items] background extraction failed:', err.message)
+    );
     res.json({ success: true, file_id: fileRow.id, chunk_count: inserted });
   } catch (err) {
     console.error('[upload] error:', err);
