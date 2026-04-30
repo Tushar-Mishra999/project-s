@@ -146,27 +146,29 @@ export default function App() {
         <div className="tabs-inner">
           <div className="brand-row">
             <div className="brand">Kernel</div>
-            <button
-              className="idea-btn"
-              onClick={() => setIdeaOpen(true)}
-              title="Submit Worklet Idea"
-            >
-              <span className="idea-btn-plus">+</span>
-              <span className="idea-btn-label">Idea</span>
-            </button>
-            <div className="part-switcher">
-              <span className="part-switcher-label">Viewing as</span>
-              <select
-                value={activeUserId}
-                onChange={(e) => setActiveUserId(e.target.value)}
-                className="part-select"
+            <div className="nav-right">
+              <button
+                className="idea-btn"
+                onClick={() => setIdeaOpen(true)}
+                title="Submit Worklet Idea"
               >
-                {USERS.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name} — {u.label}
-                  </option>
-                ))}
-              </select>
+                <span className="idea-btn-plus">+</span>
+                <span className="idea-btn-label">Idea</span>
+              </button>
+              <div className="part-switcher">
+                <span className="part-switcher-label">Viewing as</span>
+                <select
+                  value={activeUserId}
+                  onChange={(e) => setActiveUserId(e.target.value)}
+                  className="part-select"
+                >
+                  {USERS.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name} — {u.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
           <div className="tab-buttons">

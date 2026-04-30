@@ -897,27 +897,31 @@ select {
 .action-icon-btn:disabled { opacity: .4; cursor: not-allowed; }
 
 /* ---------- + Idea button (top nav) ---------- */
+.nav-right {
+  display: inline-flex; align-items: center; gap: 10px;
+  margin-left: auto;
+}
 .idea-btn {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 6px 14px 6px 12px;
-  background: linear-gradient(135deg, rgba(139,92,246,.18), rgba(59,130,246,.18));
-  color: var(--text);
-  border: 1px solid rgba(139,92,246,.35);
+  padding: 6px 14px 6px 10px;
+  background: linear-gradient(135deg, #2563EB, #3B82F6);
+  color: #fff;
+  border: 1px solid rgba(59,130,246,.55);
   border-radius: 999px;
   font-size: 13px; font-weight: 600; font-family: inherit;
   cursor: pointer;
   transition: transform .1s ease, box-shadow .18s ease, border-color .15s, background .18s;
-  margin-right: 8px;
+  box-shadow: 0 1px 0 rgba(255,255,255,.08) inset, 0 4px 14px -4px rgba(59,130,246,.55);
 }
 .idea-btn:hover {
   transform: translateY(-1px);
-  border-color: rgba(139,92,246,.6);
-  box-shadow: 0 4px 14px -4px rgba(139,92,246,.55);
+  border-color: var(--blue);
+  box-shadow: 0 1px 0 rgba(255,255,255,.1) inset, 0 8px 22px -6px rgba(59,130,246,.7);
 }
 .idea-btn-plus {
   display: inline-flex; align-items: center; justify-content: center;
   width: 18px; height: 18px;
-  background: linear-gradient(135deg, #7C3AED, #3B82F6);
+  background: rgba(255,255,255,.18);
   color: #fff; border-radius: 50%;
   font-size: 14px; font-weight: 700; line-height: 1;
 }
