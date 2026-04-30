@@ -4,19 +4,21 @@ const PARTS = ['Tech Management', 'PRISM', 'PMO', 'Data Management'];
 const TEAMS = ['Team 1', 'Team 2', 'Team 3', 'Team 4', 'Team 5'];
 
 const USERS = [
-  { id: 'u_md',     name: 'Priya Rao',      role: 'MD' },
-  { id: 'u_tm',     name: 'Arjun Sethi',    role: 'TechMgmt' },
-  { id: 'u_poc1',   name: 'Maya Iyer',      role: 'POC' },
-  { id: 'u_poc2',   name: 'Karan Doshi',    role: 'POC' },
-  { id: 'u_poc3',   name: 'Lena Park',      role: 'POC' },
-  { id: 'u_mem1',   name: 'Sam Patel',      role: 'Member' },
-  { id: 'u_mem2',   name: 'Nadia Verma',    role: 'Member' },
-  { id: 'u_mem3',   name: 'Diego Alvarez',  role: 'Member' },
-  { id: 'u_mem4',   name: 'Ifeoma Okeke',   role: 'Member' },
+  { id: 'u_md',     name: 'Priya Rao', role: 'MD',       label: 'MD' },
+  { id: 'u_tm',     name: 'Arjun',     role: 'TechMgmt', label: 'Tech Mgmt' },
+  { id: 'u_prism',  name: 'John',      role: 'POC',      label: 'PRISM' },
+  { id: 'u_dm',     name: 'Karan',     role: 'POC',      label: 'Data Management' },
+  { id: 'u_pmo',    name: 'Ranjit',    role: 'POC',      label: 'PMO' },
+  { id: 'u_mem1',   name: 'Member',    role: 'Member',   label: 'Team 1' },
+  { id: 'u_mem2',   name: 'Member',    role: 'Member',   label: 'Team 2' },
+  { id: 'u_mem3',   name: 'Member',    role: 'Member',   label: 'Team 3' },
 ];
 
 function userName(id) {
-  return USERS.find((u) => u.id === id)?.name || id;
+  const u = USERS.find((x) => x.id === id);
+  if (!u) return id;
+  // Disambiguate users that share the same first name (e.g. "Member")
+  return u.role === 'Member' ? `${u.name} (${u.label})` : u.name;
 }
 
 const INITIAL_TFS = [
@@ -26,21 +28,21 @@ const INITIAL_TFS = [
     status: 'Active',
     parts: ['Tech Management', 'PRISM'],
     teams: ['Team 1', 'Team 3'],
-    owners: ['u_poc1', 'u_poc2'],
-    members: ['u_mem1', 'u_mem2', 'u_mem3'],
+    owners: ['u_prism'],
+    members: ['u_mem1', 'u_mem3'],
     updates: [
-      { id: 'up1', date: '2026-04-22', type: 'Milestone', author: 'u_poc1',
+      { id: 'up1', date: '2026-04-22', type: 'Milestone', author: 'u_prism',
         content: 'Completed benchmarking of 4 candidate inference runtimes; ONNX Runtime + TensorRT lead on latency.' },
-      { id: 'up2', date: '2026-04-15', type: 'Risk', author: 'u_poc2',
+      { id: 'up2', date: '2026-04-15', type: 'Risk', author: 'u_prism',
         content: 'Hardware delivery slipped by 2 weeks — escalated to procurement.' },
-      { id: 'up3', date: '2026-04-08', type: 'Status', author: 'u_poc1',
+      { id: 'up3', date: '2026-04-08', type: 'Status', author: 'u_prism',
         content: 'Kickoff complete. Scope locked at Tier-1 use cases for Q2.' },
     ],
     actionItems: [
       { id: 'a1', text: 'Draft architecture brief for review', assignee: 'u_mem1', due: '2026-05-05', done: false },
-      { id: 'a2', text: 'Run latency benchmark on Jetson AGX', assignee: 'u_mem2', due: '2026-05-02', done: false },
-      { id: 'a3', text: 'Procure dev kits (x4)', assignee: 'u_poc2', due: '2026-04-30', done: true },
-      { id: 'a4', text: 'Compile vendor shortlist', assignee: 'u_mem3', due: '2026-05-10', done: false },
+      { id: 'a2', text: 'Run latency benchmark on Jetson AGX', assignee: 'u_mem3', due: '2026-05-02', done: false },
+      { id: 'a3', text: 'Procure dev kits (x4)', assignee: 'u_prism', due: '2026-04-30', done: true },
+      { id: 'a4', text: 'Compile vendor shortlist', assignee: 'u_mem1', due: '2026-05-10', done: false },
     ],
   },
   {
@@ -48,18 +50,19 @@ const INITIAL_TFS = [
     name: 'Synthetic Data Pipeline',
     status: 'On Hold',
     parts: ['Data Management', 'PMO'],
-    teams: ['Team 2', 'Team 4'],
-    owners: ['u_poc3'],
-    members: ['u_mem2', 'u_mem4'],
+    teams: ['Team 2', 'Team 1'],
+    owners: ['u_dm', 'u_pmo'],
+    members: ['u_mem2', 'u_mem1'],
     updates: [
-      { id: 'up1', date: '2026-04-18', type: 'Status', author: 'u_poc3',
+      { id: 'up1', date: '2026-04-18', type: 'Status', author: 'u_dm',
         content: 'Paused pending legal review of generation framework licensing.' },
-      { id: 'up2', date: '2026-03-30', type: 'Decision', author: 'u_poc3',
+      { id: 'up2', date: '2026-03-30', type: 'Decision', author: 'u_pmo',
         content: 'Selected Gretel + in-house augmentation as the dual-track approach.' },
     ],
     actionItems: [
-      { id: 'a1', text: 'Send licensing questions to legal', assignee: 'u_poc3', due: '2026-04-25', done: true },
-      { id: 'a2', text: 'Document privacy budget assumptions', assignee: 'u_mem4', due: '2026-05-12', done: false },
+      { id: 'a1', text: 'Send licensing questions to legal', assignee: 'u_pmo', due: '2026-04-25', done: true },
+      { id: 'a2', text: 'Document privacy budget assumptions', assignee: 'u_mem2', due: '2026-05-12', done: false },
+      { id: 'a3', text: 'Spec metadata schema for synthetic batches', assignee: 'u_mem1', due: '2026-05-15', done: false },
     ],
   },
   {
@@ -67,18 +70,18 @@ const INITIAL_TFS = [
     name: 'Ops Telemetry Consolidation',
     status: 'Closed',
     parts: ['PMO', 'Tech Management', 'Data Management'],
-    teams: ['Team 5'],
-    owners: ['u_poc2'],
-    members: ['u_mem1', 'u_mem4'],
+    teams: ['Team 3'],
+    owners: ['u_pmo'],
+    members: ['u_mem3', 'u_mem2'],
     updates: [
-      { id: 'up1', date: '2026-03-12', type: 'Milestone', author: 'u_poc2',
+      { id: 'up1', date: '2026-03-12', type: 'Milestone', author: 'u_pmo',
         content: 'Final dashboards rolled out to all parts. TF closed.' },
-      { id: 'up2', date: '2026-02-28', type: 'Status', author: 'u_poc2',
+      { id: 'up2', date: '2026-02-28', type: 'Status', author: 'u_pmo',
         content: 'Migration of legacy metrics complete; deprecation notices sent.' },
     ],
     actionItems: [
-      { id: 'a1', text: 'Archive legacy collectors', assignee: 'u_mem1', due: '2026-03-10', done: true },
-      { id: 'a2', text: 'Publish runbook for new pipeline', assignee: 'u_mem4', due: '2026-03-08', done: true },
+      { id: 'a1', text: 'Archive legacy collectors', assignee: 'u_mem3', due: '2026-03-10', done: true },
+      { id: 'a2', text: 'Publish runbook for new pipeline', assignee: 'u_mem2', due: '2026-03-08', done: true },
     ],
   },
 ];
@@ -176,7 +179,7 @@ export default function TaskForceTab() {
           >
             {USERS.map((u) => (
               <option key={u.id} value={u.id}>
-                {u.name} — {u.role}
+                {u.name} — {u.label}
               </option>
             ))}
           </select>
