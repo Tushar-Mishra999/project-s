@@ -149,6 +149,12 @@ app.post('/api/feed/refresh', (_req, res) => {
 // ---------- Worklet generator ----------
 function stripHtmlTags(s) {
   return (s || '')
+    // Remove non-content structural blocks before generic tag stripping
+    .replace(/<head[\s\S]*?<\/head>/gi, ' ')
+    .replace(/<nav[\s\S]*?<\/nav>/gi, ' ')
+    .replace(/<header[\s\S]*?<\/header>/gi, ' ')
+    .replace(/<footer[\s\S]*?<\/footer>/gi, ' ')
+    .replace(/<aside[\s\S]*?<\/aside>/gi, ' ')
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
     .replace(/<[^>]+>/g, ' ')
@@ -168,7 +174,7 @@ async function fetchArticleText(url) {
     });
     if (!resp.ok) return null;
     const html = await resp.text();
-    return stripHtmlTags(html).slice(0, 8000);
+    return stripHtmlTags(html).slice(0, 12000);
   } catch {
     return null;
   }
@@ -208,7 +214,8 @@ app.post('/api/worklet', async (req, res) => {
       model: config.models.scoring,
       system: WORKLET_SYSTEM,
       user: userMsg,
-      maxTokens: 900,
+      maxTokens: 1500,
+      thinking: true,
     });
     res.json({ worklet });
   } catch (err) {
