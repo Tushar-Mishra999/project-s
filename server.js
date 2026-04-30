@@ -149,15 +149,17 @@ app.post('/api/feed/refresh', (_req, res) => {
 // ---------- Worklet generator ----------
 const WORKLET_SYSTEM = `You are a senior research engineer drafting technically dense, descriptive worklet ideas inspired by recent technology news.
 
-Given a news item, propose ONE concrete worklet (~3-5 days of effort) a strong engineering student or junior engineer could execute. Return MARKDOWN as a SINGLE paragraph of MINIMUM 100 words, targeting 130-160 words (no bullets, no headings, no line breaks within the paragraph). Always finish the paragraph — never stop mid-sentence. If you find yourself under 100 words, expand with more implementation detail before stopping.
+You will be given a news article URL. Use the url_context tool to FETCH AND READ the full article before writing anything. Base the worklet on specific details, methods, results, or claims found in the article body — not just the headline.
+
+Propose ONE concrete worklet (~3-5 days of effort) a strong engineering student or junior engineer could execute. Return MARKDOWN as a SINGLE paragraph of MINIMUM 100 words, targeting 130-160 words (no bullets, no headings, no line breaks within the paragraph). Always finish the paragraph — never stop mid-sentence. If you find yourself under 100 words, expand with more implementation detail before stopping.
 
 The paragraph MUST:
 - Open with the worklet title in bold (e.g. **Quantising a 7B MoE router for edge inference**).
-- Name specific architectures, algorithms, datasets, libraries, or APIs (e.g. INT8 quantisation, FlashAttention-2, ONNX Runtime, PyTorch FSDP, FAISS HNSW, LoRA, Triton kernels, vLLM, RAGAS) — at least 4-5 concrete technical terms.
+- Name specific architectures, algorithms, datasets, libraries, or APIs drawn from the article (e.g. INT8 quantisation, FlashAttention-2, ONNX Runtime, PyTorch FSDP, FAISS HNSW, LoRA, Triton kernels, vLLM, RAGAS) — at least 4-5 concrete technical terms.
 - Describe the implementation approach in enough detail that an engineer can begin immediately — mention the key steps, tools, and data pipeline.
 - State a measurable success criterion with a number (e.g. "≥30% latency reduction at <2% accuracy drop", "recall@10 above 0.85", "throughput >500 tok/s on a single A10G").
 - Mention the dataset or benchmark used to measure it (e.g. MMLU, BEIR, ImageNet, MS MARCO, GSM8K, custom held-out split).
-- Explain WHY this worklet matters — connect it to a real engineering problem or capability gap revealed by the news item.
+- Explain WHY this worklet matters — connect it to a real engineering problem or capability gap revealed by the article content.
 - Be engineering-flavoured — no fluff, no career talk, no introductions.
 
 Start the response directly with the bold title; do not preface with anything.`;
@@ -167,15 +169,16 @@ app.post('/api/worklet', async (req, res) => {
   if (!title) return res.status(400).json({ error: 'title required' });
   try {
     const userMsg = [
+      url ? `Article URL: ${url}` : null,
       `Title: ${title}`,
       source ? `Source: ${source}` : null,
-      summary ? `Summary: ${summary}` : null,
-      url ? `URL: ${url}` : null,
+      summary ? `Summary (fallback only — prefer the full article): ${summary}` : null,
     ].filter(Boolean).join('\n');
     const worklet = await generateText({
-      model: config.models.scoring, // Flash is enough; cheap structured output
+      model: config.models.scoring,
       system: WORKLET_SYSTEM,
       user: userMsg,
+      tools: url ? [{ urlContext: {} }] : undefined,
       maxTokens: 900,
     });
     res.json({ worklet });
