@@ -6,8 +6,10 @@ import ActionItemsTab from './tabs/ActionItemsTab.jsx';
 import ReportGeneratorTab from './tabs/ReportGeneratorTab.jsx';
 import AIQuizzesTab from './tabs/AIQuizzesTab.jsx';
 import TaskForceTab, { USERS } from './tabs/TaskForceTab.jsx';
+import HomeTab from './tabs/HomeTab.jsx';
 
 const TABS = [
+  { id: 'home',     label: 'Home' },
   { id: 'feed',     label: 'Tech Sensing' },
   { id: 'files',    label: 'Smart Retrieval' },
   { id: 'chat',     label: 'Insights Chat' },
@@ -18,7 +20,7 @@ const TABS = [
 ];
 
 export default function App() {
-  const [active, setActive] = useState('feed');
+  const [active, setActive] = useState('home');
   const [parts, setParts] = useState([]);
   const [activeUserId, setActiveUserId] = useState('u_md');
 
@@ -76,6 +78,7 @@ export default function App() {
       </nav>
 
       <main>
+        {active === 'home'    && <HomeTab activeUserId={activeUserId} onNavigate={setActive} />}
         {active === 'feed'    && <FeedTab activePart={activePart} />}
         {active === 'files'   && <RetrievalTab parts={parts} activePart={activePart} />}
         {active === 'chat'    && <ChatTab activePart={activePart} />}

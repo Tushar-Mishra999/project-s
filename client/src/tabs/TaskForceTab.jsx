@@ -14,14 +14,14 @@ export const USERS = [
   { id: 'u_mem3',   name: 'Member',    role: 'Member',   label: 'Team 3' },
 ];
 
-function userName(id) {
+export function userName(id) {
   const u = USERS.find((x) => x.id === id);
   if (!u) return id;
   // Disambiguate users that share the same first name (e.g. "Member")
   return u.role === 'Member' ? `${u.name} (${u.label})` : u.name;
 }
 
-const INITIAL_TFS = [
+export const INITIAL_TFS = [
   {
     id: 'tf_edge',
     name: 'Edge AI Acceleration',
