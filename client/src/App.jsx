@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import FeedTab from './tabs/FeedTab.jsx';
 import RetrievalTab from './tabs/RetrievalTab.jsx';
 import ChatTab from './tabs/ChatTab.jsx';
 import ActionItemsTab from './tabs/ActionItemsTab.jsx';
 import ReportGeneratorTab from './tabs/ReportGeneratorTab.jsx';
 import AIQuizzesTab from './tabs/AIQuizzesTab.jsx';
-import TaskForceTab from './tabs/TaskForceTab.jsx';
+import TaskForceTab, { USERS } from './tabs/TaskForceTab.jsx';
 
 const TABS = [
   { id: 'feed',     label: 'Tech Sensing' },
@@ -20,18 +20,25 @@ const TABS = [
 export default function App() {
   const [active, setActive] = useState('feed');
   const [parts, setParts] = useState([]);
-  const [activePart, setActivePart] = useState('');
+  const [activeUserId, setActiveUserId] = useState('u_md');
 
   useEffect(() => {
     fetch('/api/parts')
       .then((r) => r.json())
-      .then((d) => {
-        const list = d.parts || [];
-        setParts(list);
-        if (list.length) setActivePart((p) => p || list[0]);
-      })
+      .then((d) => setParts(d.parts || []))
       .catch(() => setParts([]));
   }, []);
+
+  // Derive the active "part" from the selected user. If the user's label
+  // matches a known part (e.g. PRISM, PMO, Data Management, Tech Management),
+  // use it; otherwise fall back to the first available part so the rest of
+  // the app keeps working for MD / Member roles.
+  const activePart = useMemo(() => {
+    const u = USERS.find((x) => x.id === activeUserId);
+    if (u && parts.includes(u.label)) return u.label;
+    if (u && u.role === 'TechMgmt' && parts.includes('Tech Management')) return 'Tech Management';
+    return parts[0] || '';
+  }, [activeUserId, parts]);
 
   return (
     <div className="app-shell">
@@ -42,13 +49,15 @@ export default function App() {
             <div className="part-switcher">
               <span className="part-switcher-label">Viewing as</span>
               <select
-                value={activePart}
-                onChange={(e) => setActivePart(e.target.value)}
+                value={activeUserId}
+                onChange={(e) => setActiveUserId(e.target.value)}
                 className="part-select"
-                disabled={parts.length === 0}
               >
-                {parts.length === 0 && <option>Loading…</option>}
-                {parts.map((p) => <option key={p} value={p}>{p}</option>)}
+                {USERS.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name} — {u.label}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -73,7 +82,7 @@ export default function App() {
         {active === 'actions' && <ActionItemsTab activePart={activePart} />}
         {active === 'reports' && <ReportGeneratorTab activePart={activePart} />}
         {active === 'quizzes' && <AIQuizzesTab activePart={activePart} />}
-        {active === 'taskforce' && <TaskForceTab />}
+        {active === 'taskforce' && <TaskForceTab activeUserId={activeUserId} />}
       </main>
     </div>
   );

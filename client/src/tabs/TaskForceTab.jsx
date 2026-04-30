@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 const PARTS = ['Tech Management', 'PRISM', 'PMO', 'Data Management'];
 const TEAMS = ['Team 1', 'Team 2', 'Team 3', 'Team 4', 'Team 5'];
 
-const USERS = [
+export const USERS = [
   { id: 'u_md',     name: 'Priya Rao', role: 'MD',       label: 'MD' },
   { id: 'u_tm',     name: 'Arjun',     role: 'TechMgmt', label: 'Tech Mgmt' },
   { id: 'u_prism',  name: 'John',      role: 'POC',      label: 'PRISM' },
@@ -98,13 +98,15 @@ function openCountOf(tf) {
   return tf.actionItems.filter((a) => !a.done).length;
 }
 
-export default function TaskForceTab() {
+export default function TaskForceTab({ activeUserId = 'u_md' }) {
   const [taskForces, setTaskForces] = useState(INITIAL_TFS);
-  const [activeUserId, setActiveUserId] = useState('u_md');
   const [selectedTfId, setSelectedTfId] = useState(null);
 
-  const activeUser = USERS.find((u) => u.id === activeUserId);
+  const activeUser = USERS.find((u) => u.id === activeUserId) || USERS[0];
   const role = activeUser.role;
+
+  // Clear detail selection when the simulated user changes
+  useEffect(() => { setSelectedTfId(null); }, [activeUserId]);
   const isMD = role === 'MD' || role === 'TechMgmt';
   const isPOC = role === 'POC';
   const isMember = role === 'Member';
@@ -169,20 +171,6 @@ export default function TaskForceTab() {
           <div className="sub">
             Track active task forces, log updates, and assign action items across parts and teams.
           </div>
-        </div>
-        <div className="tf-role-switcher">
-          <span className="part-switcher-label">Simulating</span>
-          <select
-            className="part-select"
-            value={activeUserId}
-            onChange={(e) => { setActiveUserId(e.target.value); setSelectedTfId(null); }}
-          >
-            {USERS.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name} — {u.label}
-              </option>
-            ))}
-          </select>
         </div>
       </div>
 
