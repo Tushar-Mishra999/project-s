@@ -773,7 +773,12 @@ Return ONLY a valid JSON object — no markdown fences, no extra fields:
   "action_items": [{"text": "action item description", "owner": "person responsible or null"}]
 }`;
 
-app.post('/api/minutes/transcribe', upload.single('audio'), async (req, res) => {
+app.post('/api/minutes/transcribe', (req, res, next) => {
+  upload.single('audio')(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message || 'upload error' });
+    next();
+  });
+}, async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'audio file required' });
   try {
     const base64 = req.file.buffer.toString('base64');
@@ -803,9 +808,12 @@ app.post('/api/minutes/parse', async (req, res) => {
       user: `Today's date: ${new Date().toISOString().slice(0, 10)}\n\nTranscript:\n\n${transcript.slice(0, 20000)}`,
       maxTokens: 2048,
       jsonMode: true,
-      thinking: true,
+      // thinking intentionally disabled — combining thinking with jsonMode on Vertex AI
+      // causes thinking parts to leak into the output, breaking JSON.parse
     });
-    const minutes = JSON.parse(raw);
+    // Strip markdown fences if the model wraps its output despite jsonMode
+    const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+    const minutes = JSON.parse(cleaned);
     res.json({ minutes });
   } catch (err) {
     console.error('[mom-parse]', err);
