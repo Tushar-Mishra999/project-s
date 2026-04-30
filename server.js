@@ -147,9 +147,36 @@ app.post('/api/feed/refresh', (_req, res) => {
 });
 
 // ---------- Worklet generator ----------
+function stripHtmlTags(s) {
+  return (s || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function fetchArticleText(url) {
+  try {
+    const resp = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ResearchBot/1.0)' },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!resp.ok) return null;
+    const html = await resp.text();
+    return stripHtmlTags(html).slice(0, 8000);
+  } catch {
+    return null;
+  }
+}
+
 const WORKLET_SYSTEM = `You are a senior research engineer drafting technically dense, descriptive worklet ideas inspired by recent technology news.
 
-You will be given a news article URL. Use the url_context tool to FETCH AND READ the full article before writing anything. Base the worklet on specific details, methods, results, or claims found in the article body — not just the headline.
+You will be given a news article — either the full article content or a short summary. Base the worklet on specific details, methods, results, or claims found in the article — not just the headline.
 
 Propose ONE concrete worklet (~3-5 days of effort) a strong engineering student or junior engineer could execute. Return MARKDOWN as a SINGLE paragraph of MINIMUM 100 words, targeting 130-160 words (no bullets, no headings, no line breaks within the paragraph). Always finish the paragraph — never stop mid-sentence. If you find yourself under 100 words, expand with more implementation detail before stopping.
 
@@ -168,17 +195,19 @@ app.post('/api/worklet', async (req, res) => {
   const { title, summary, source, url } = req.body || {};
   if (!title) return res.status(400).json({ error: 'title required' });
   try {
+    const articleText = url ? await fetchArticleText(url) : null;
     const userMsg = [
-      url ? `Article URL: ${url}` : null,
       `Title: ${title}`,
       source ? `Source: ${source}` : null,
-      summary ? `Summary (fallback only — prefer the full article): ${summary}` : null,
-    ].filter(Boolean).join('\n');
+      url ? `URL: ${url}` : null,
+      articleText
+        ? `Full article content:\n${articleText}`
+        : (summary ? `Summary: ${summary}` : null),
+    ].filter(Boolean).join('\n\n');
     const worklet = await generateText({
       model: config.models.scoring,
       system: WORKLET_SYSTEM,
       user: userMsg,
-      tools: url ? [{ urlContext: {} }] : undefined,
       maxTokens: 900,
     });
     res.json({ worklet });
