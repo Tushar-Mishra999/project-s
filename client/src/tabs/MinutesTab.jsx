@@ -3,7 +3,7 @@ export default function MinutesTab() {
     <div className="wrap">
       <div className="header">
         <div>
-          <h1>Minutes of Meeting</h1>
+          <h1>MoM — Minutes of Meeting</h1>
           <div className="sub">
             Capture meeting notes, decisions, and action items in one place.
           </div>

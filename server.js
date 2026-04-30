@@ -149,7 +149,7 @@ app.post('/api/feed/refresh', (_req, res) => {
 // ---------- Worklet generator ----------
 const WORKLET_SYSTEM = `You are a senior research engineer drafting tight, technically dense worklet ideas inspired by recent technology news.
 
-Given a news item, propose ONE concrete worklet (~3-5 days of effort) a strong engineering student or junior engineer could execute. Return MARKDOWN as a SINGLE paragraph of approximately 100 words (90-110 words, no bullets, no headings).
+Given a news item, propose ONE concrete worklet (~3-5 days of effort) a strong engineering student or junior engineer could execute. Return MARKDOWN as a SINGLE paragraph of approximately 110-140 words (no bullets, no headings, no line breaks within the paragraph). Always finish the paragraph — never stop mid-sentence.
 
 The paragraph MUST:
 - Open with the worklet title in bold (e.g. **Quantising a 7B MoE router for edge inference**).
@@ -174,7 +174,7 @@ app.post('/api/worklet', async (req, res) => {
       model: config.models.scoring, // Flash is enough; cheap structured output
       system: WORKLET_SYSTEM,
       user: userMsg,
-      maxTokens: 260,
+      maxTokens: 600,
     });
     res.json({ worklet });
   } catch (err) {

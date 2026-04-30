@@ -111,6 +111,7 @@ const MOCK_EMAILS = [
 
 function InboxSection({ onAction }) {
   const [statuses, setStatuses] = useState({}); // { [id]: { added?: bool, extracted?: number } }
+  const [open, setOpen] = useState(false);
 
   const handleAdd = (email) => {
     setStatuses((s) => ({ ...s, [email.id]: { ...(s[email.id] || {}), added: true } }));
@@ -126,10 +127,28 @@ function InboxSection({ onAction }) {
 
   return (
     <section className="panel">
-      <div className="panel-title-row">
-        <h2 className="panel-title">Inbox</h2>
-        <span className="tf-muted" style={{ fontSize: 12 }}>{MOCK_EMAILS.length} unread</span>
+      <div
+        className={`inbox-header ${open ? 'open' : ''}`}
+        onClick={() => setOpen((o) => !o)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setOpen((o) => !o)}
+      >
+        <div className="inbox-header-left">
+          <span className="inbox-icon">📬</span>
+          <h2 className="panel-title" style={{ margin: 0 }}>Inbox</h2>
+          <span className="inbox-count">{MOCK_EMAILS.length} unread</span>
+        </div>
+        <button className="ghost-btn small" onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}>
+          {open ? 'Hide' : 'View emails'}
+        </button>
       </div>
+      {!open && (
+        <div className="inbox-collapsed-hint">
+          Click to view {MOCK_EMAILS.length} new emails — add their content to the Knowledge Hub or extract action items.
+        </div>
+      )}
+      {open && (
       <div className="inbox-list">
         {MOCK_EMAILS.map((em) => {
           const s = statuses[em.id] || {};
@@ -163,6 +182,7 @@ function InboxSection({ onAction }) {
           );
         })}
       </div>
+      )}
     </section>
   );
 }
