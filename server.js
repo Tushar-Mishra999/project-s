@@ -16,7 +16,7 @@ if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON && !process.env.GOOGLE_APPLI
 }
 
 import { supabase, ragReady } from './lib/clients.js';
-import { generateChat, generateText } from './lib/llm.js';
+import { generateChat, generateText, generateWithParts } from './lib/llm.js';
 import { runFeedPipeline } from './lib/feed.js';
 import { extractActionItems } from './lib/actionItems.js';
 import { extractText } from './lib/extract.js';
@@ -758,6 +758,90 @@ app.post('/api/report-templates/:id/generate', async (req, res) => {
     console.error('[report-generate] error:', err);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ---------- Minutes of Meeting ----------
+const memoryMinutes = new Map();
+
+const MOM_PARSE_SYSTEM = `You are a meeting assistant. Parse the transcript into structured meeting minutes.
+Return ONLY a valid JSON object — no markdown fences, no extra fields:
+{
+  "title": "short meeting title inferred from context, or 'Meeting — YYYY-MM-DD'",
+  "summary": "2-3 sentence executive summary of what was discussed and decided",
+  "attendees": ["names mentioned as present, if any"],
+  "decisions": ["each key decision made, as a complete sentence"],
+  "action_items": [{"text": "action item description", "owner": "person responsible or null"}]
+}`;
+
+app.post('/api/minutes/transcribe', upload.single('audio'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'audio file required' });
+  try {
+    const base64 = req.file.buffer.toString('base64');
+    const mimeType = (req.file.mimetype || 'audio/webm').split(';')[0];
+    const transcript = await generateWithParts({
+      model: config.models.summarisation,
+      parts: [
+        { inlineData: { mimeType, data: base64 } },
+        { text: 'Transcribe this audio recording verbatim. Output only the spoken words — no timestamps, no labels, no commentary.' },
+      ],
+      maxTokens: 8192,
+    });
+    res.json({ transcript });
+  } catch (err) {
+    console.error('[mom-transcribe]', err);
+    res.status(500).json({ error: err.message || 'transcription failed' });
+  }
+});
+
+app.post('/api/minutes/parse', async (req, res) => {
+  const { transcript } = req.body || {};
+  if (!transcript?.trim()) return res.status(400).json({ error: 'transcript required' });
+  try {
+    const raw = await generateText({
+      model: config.models.summarisation,
+      system: MOM_PARSE_SYSTEM,
+      user: `Today's date: ${new Date().toISOString().slice(0, 10)}\n\nTranscript:\n\n${transcript.slice(0, 20000)}`,
+      maxTokens: 2048,
+      jsonMode: true,
+      thinking: true,
+    });
+    const minutes = JSON.parse(raw);
+    res.json({ minutes });
+  } catch (err) {
+    console.error('[mom-parse]', err);
+    res.status(500).json({ error: err.message || 'parsing failed' });
+  }
+});
+
+app.get('/api/minutes', (_req, res) => {
+  const list = Array.from(memoryMinutes.values())
+    .sort((a, b) => (b.created_at > a.created_at ? 1 : -1));
+  res.json({ minutes: list });
+});
+
+app.post('/api/minutes', (req, res) => {
+  const { title, summary, attendees, decisions, action_items, transcript } = req.body || {};
+  if (!title) return res.status(400).json({ error: 'title required' });
+  const id = randomUUID();
+  const record = {
+    id,
+    title,
+    summary: summary || '',
+    attendees: attendees || [],
+    decisions: decisions || [],
+    action_items: action_items || [],
+    transcript: transcript || '',
+    created_at: new Date().toISOString(),
+  };
+  memoryMinutes.set(id, record);
+  res.status(201).json({ minute: record });
+});
+
+app.delete('/api/minutes/:id', (req, res) => {
+  const { id } = req.params;
+  if (!memoryMinutes.has(id)) return res.status(404).json({ error: 'not found' });
+  memoryMinutes.delete(id);
+  res.json({ ok: true });
 });
 
 // ---------- Render markdown to .docx ----------
