@@ -9,16 +9,13 @@ export const USERS = [
   { id: 'u_prism',  name: 'John',      role: 'POC',      label: 'PRISM' },
   { id: 'u_dm',     name: 'Karan',     role: 'POC',      label: 'Data Management' },
   { id: 'u_pmo',    name: 'Ranjit',    role: 'POC',      label: 'PMO' },
-  { id: 'u_mem1',   name: 'Member',    role: 'Member',   label: 'Team 1' },
-  { id: 'u_mem2',   name: 'Member',    role: 'Member',   label: 'Team 2' },
-  { id: 'u_mem3',   name: 'Member',    role: 'Member',   label: 'Team 3' },
+  { id: 'u_mem1',   name: 'Sam Patel',     role: 'Member',   label: 'Team 1' },
+  { id: 'u_mem2',   name: 'Nadia Verma',   role: 'Member',   label: 'Team 2' },
+  { id: 'u_mem3',   name: 'Diego Alvarez', role: 'Member',   label: 'Team 3' },
 ];
 
 export function userName(id) {
-  const u = USERS.find((x) => x.id === id);
-  if (!u) return id;
-  // Disambiguate users that share the same first name (e.g. "Member")
-  return u.role === 'Member' ? `${u.name} (${u.label})` : u.name;
+  return USERS.find((x) => x.id === id)?.name || id;
 }
 
 export const INITIAL_TFS = [

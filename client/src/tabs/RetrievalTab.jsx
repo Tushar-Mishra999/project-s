@@ -28,8 +28,25 @@ function PdfThumb({ url }) {
 
 function FileCard({ result }) {
   const ext = (result.filetype || '').toLowerCase();
+  const [showSummary, setShowSummary] = useState(false);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+
+  const handleSummarize = () => {
+    setSummaryLoading(true);
+    // Simulate a brief processing delay so the UX feels real.
+    setTimeout(() => {
+      setShowSummary(true);
+      setSummaryLoading(false);
+    }, 600);
+  };
+
+  // Compose a slightly fuller "AI summary" from available fields.
+  const fullSummary =
+    result.chunk_summary ||
+    (result.chunk_text || '').slice(0, 600);
+
   return (
-    <article className="file-card">
+    <article className="file-card file-card-result">
       <div className="file-card-preview">
         {ext.includes('pdf') ? <PdfThumb url={result.file_url} /> : <FileIcon ext={ext} />}
       </div>
@@ -38,14 +55,115 @@ function FileCard({ result }) {
           {result.uploaded_by} · Chunk #{result.chunk_index}
         </div>
         <div className="file-card-title">{result.filename}</div>
-        <p className="summary">{result.chunk_summary || result.chunk_text.slice(0, 240) + '…'}</p>
+        <p className="summary">
+          {result.chunk_summary || (result.chunk_text || '').slice(0, 240) + '…'}
+        </p>
+        {showSummary && (
+          <div className="ai-summary-panel">
+            <div className="ai-summary-label">AI Summary</div>
+            <p>{fullSummary}</p>
+          </div>
+        )}
         <div className="file-card-actions">
           <a className="more" href={result.file_url} target="_blank" rel="noopener noreferrer" download>
             Download ↓
           </a>
+          <button
+            className="ghost-btn small"
+            onClick={handleSummarize}
+            disabled={summaryLoading || showSummary}
+          >
+            {summaryLoading ? 'Summarising…' : showSummary ? 'Summary shown' : 'Get summary'}
+          </button>
         </div>
       </div>
     </article>
+  );
+}
+
+// ---------- Inbox (mock) ----------
+const MOCK_EMAILS = [
+  {
+    id: 'em1',
+    sender: 'priya.rao@company.com',
+    subject: 'Q2 Tech Roadmap Sync — notes & next steps',
+    preview:
+      'Thanks all for the call. Action items: (1) Arjun to circulate the revised PRISM scope by Friday, (2) Karan to validate the synthetic-data licensing path, (3) PMO to lock dates for the May review. Slides attached.',
+    attachment: 'Q2-roadmap-sync.pdf',
+  },
+  {
+    id: 'em2',
+    sender: 'newsletter@arxiv-digest.com',
+    subject: 'Weekly digest: 12 new papers in retrieval & RAG',
+    preview:
+      'This week: HyDE++ shows 9% recall@10 lift on BEIR, ColBERT-v3 release notes, and a new survey on hybrid sparse-dense retrieval. Full PDFs attached for the top-3.',
+    attachment: 'arxiv-digest-w17.pdf',
+  },
+  {
+    id: 'em3',
+    sender: 'vendor@nv-partners.com',
+    subject: 'Jetson AGX dev kits — delivery confirmation',
+    preview:
+      'Your 4 dev kits ship Monday. Please confirm the receiving contact and have the team review the attached unboxing checklist before first-power-on. Replies welcome.',
+    attachment: 'jetson-onboarding.pdf',
+  },
+];
+
+function InboxSection({ onAction }) {
+  const [statuses, setStatuses] = useState({}); // { [id]: { added?: bool, extracted?: number } }
+
+  const handleAdd = (email) => {
+    setStatuses((s) => ({ ...s, [email.id]: { ...(s[email.id] || {}), added: true } }));
+    onAction?.({ type: 'added', email });
+  };
+  const handleExtract = (email) => {
+    // Heuristic: count 'Action items'/numbered list items in the preview.
+    const numbered = (email.preview.match(/\(\d\)/g) || []).length;
+    const count = numbered > 0 ? numbered : 2;
+    setStatuses((s) => ({ ...s, [email.id]: { ...(s[email.id] || {}), extracted: count } }));
+    onAction?.({ type: 'extracted', email, count });
+  };
+
+  return (
+    <section className="panel">
+      <div className="panel-title-row">
+        <h2 className="panel-title">Inbox</h2>
+        <span className="tf-muted" style={{ fontSize: 12 }}>{MOCK_EMAILS.length} unread</span>
+      </div>
+      <div className="inbox-list">
+        {MOCK_EMAILS.map((em) => {
+          const s = statuses[em.id] || {};
+          return (
+            <div key={em.id} className="inbox-item">
+              <div className="inbox-meta">
+                <span className="inbox-sender">{em.sender}</span>
+                {em.attachment && <span className="inbox-attachment">📎 {em.attachment}</span>}
+              </div>
+              <div className="inbox-subject">{em.subject}</div>
+              <p className="inbox-preview">{em.preview}</p>
+              <div className="inbox-actions">
+                <button
+                  className="ghost-btn small"
+                  onClick={() => handleAdd(em)}
+                  disabled={s.added}
+                >
+                  {s.added ? '✓ Added to Knowledge Hub' : 'Add to Knowledge Hub'}
+                </button>
+                <button
+                  className="ghost-btn small"
+                  onClick={() => handleExtract(em)}
+                  disabled={s.extracted != null}
+                >
+                  {s.extracted != null
+                    ? `✓ ${s.extracted} action items extracted`
+                    : 'Extract Action Items'}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -262,10 +380,14 @@ export default function RetrievalTab({ parts, activePart }) {
     <div className="wrap">
       <div className="header">
         <div>
-          <h1>Smart File Retrieval</h1>
-          <div className="sub">Search your team's documents in plain English.</div>
+          <h1>Knowledge Hub</h1>
+          <div className="sub">Search your team's documents in plain English, triage your inbox, and grow the shared library.</div>
         </div>
       </div>
+
+      {/* INBOX */}
+      <InboxSection />
+
 
       {/* 1. SEARCH FIRST */}
       <section className="panel">

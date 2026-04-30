@@ -452,23 +452,80 @@ select {
 .inline-msg.info    { background: var(--info-bg);    color: var(--info-text);    border: 1px solid var(--blue-soft-2); }
 
 /* ---------- File grid ---------- */
-.file-grid { display: grid; grid-template-columns: 1fr; gap: 14px; margin-top: 22px; }
-@media (min-width: 640px) { .file-grid { grid-template-columns: 1fr 1fr; } }
+.file-grid {
+  display: grid; gap: 14px; margin-top: 22px;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+}
 .file-card {
   display: flex; gap: 16px; padding: 18px;
   background: var(--surface);
   border: 1px solid var(--border); border-radius: var(--radius);
   transition: border-color .2s, box-shadow .2s, transform .15s;
+  align-items: flex-start;
 }
 .file-card:hover {
   border-color: rgba(59,130,246,.25); box-shadow: var(--shadow-hover); transform: translateY(-1px);
 }
 .file-card-preview {
-  flex: 0 0 96px; display: flex; align-items: center; justify-content: center;
+  flex: 0 0 110px; display: flex; align-items: center; justify-content: center;
   background: var(--surface-2); border: 1px solid var(--border);
-  border-radius: 10px; padding: 8px; min-height: 124px;
+  border-radius: 10px; padding: 10px;
+  align-self: flex-start;
+  position: sticky; top: 12px;
 }
+.file-card-result .file-card-preview { flex: 0 0 130px; }
 .file-card-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+/* AI Summary panel inside a result card */
+.ai-summary-panel {
+  margin: 12px 0 14px;
+  padding: 12px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--blue);
+  border-radius: 10px;
+  font-size: 13px; line-height: 1.6; color: var(--text-mid);
+}
+.ai-summary-label {
+  font-size: 10px; font-weight: 700;
+  color: var(--blue-bright); letter-spacing: 0.1em;
+  text-transform: uppercase; margin-bottom: 6px;
+}
+.ai-summary-panel p { margin: 0; }
+.file-card-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+/* ---------- Inbox ---------- */
+.inbox-list { display: flex; flex-direction: column; gap: 10px; }
+.inbox-item {
+  padding: 14px 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: border-color .15s, background .15s;
+}
+.inbox-item:hover { border-color: rgba(59,130,246,.25); background: var(--surface-3); }
+.inbox-meta {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; flex-wrap: wrap;
+  font-size: 12px; color: var(--text-muted); margin-bottom: 4px;
+}
+.inbox-sender { font-weight: 600; color: var(--text-mid); }
+.inbox-attachment {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; padding: 2px 8px;
+  background: var(--blue-soft); color: var(--blue-bright);
+  border: 1px solid rgba(59,130,246,.25);
+  border-radius: 999px;
+}
+.inbox-subject {
+  font-size: 14px; font-weight: 600; color: var(--text);
+  margin-bottom: 4px; line-height: 1.4;
+}
+.inbox-preview {
+  font-size: 13px; color: var(--text-mid); line-height: 1.55;
+  margin: 0 0 10px;
+}
+.inbox-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .file-card-title {
   font-weight: 600; font-size: 14px; color: var(--text); margin: 6px 0 8px;
   word-break: break-word; line-height: 1.35;

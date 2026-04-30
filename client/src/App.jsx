@@ -7,13 +7,15 @@ import ReportGeneratorTab from './tabs/ReportGeneratorTab.jsx';
 import AIQuizzesTab from './tabs/AIQuizzesTab.jsx';
 import TaskForceTab, { USERS } from './tabs/TaskForceTab.jsx';
 import HomeTab from './tabs/HomeTab.jsx';
+import MinutesTab from './tabs/MinutesTab.jsx';
 
 const TABS = [
   { id: 'home',     label: 'Home' },
   { id: 'feed',     label: 'Tech Sensing' },
-  { id: 'files',    label: 'Smart Retrieval' },
+  { id: 'files',    label: 'Knowledge Hub' },
   { id: 'chat',     label: 'Insights Chat' },
   { id: 'actions',  label: 'Action Items' },
+  { id: 'minutes',  label: 'Minutes of Meeting' },
   { id: 'reports',  label: 'Report Generator' },
   { id: 'quizzes',  label: 'AI Quizzes' },
   { id: 'taskforce',label: 'Task Force' },
@@ -83,6 +85,7 @@ export default function App() {
         {active === 'files'   && <RetrievalTab parts={parts} activePart={activePart} />}
         {active === 'chat'    && <ChatTab activePart={activePart} />}
         {active === 'actions' && <ActionItemsTab activePart={activePart} />}
+        {active === 'minutes' && <MinutesTab />}
         {active === 'reports' && <ReportGeneratorTab activePart={activePart} />}
         {active === 'quizzes' && <AIQuizzesTab activePart={activePart} />}
         {active === 'taskforce' && <TaskForceTab activeUserId={activeUserId} />}
