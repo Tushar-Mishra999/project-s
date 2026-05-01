@@ -39,26 +39,25 @@ function ActionItemsWidget({ activeUser, onClick }) {
   const [tfItems, setTfItems] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Pull part/team action items from the server (same source as Action Items tab).
+  // Pull action items assigned to this user (same source as Action Items tab).
   useEffect(() => {
-    const part = activeUser?.part;
-    if (!part) { setPartItems([]); return; }
+    if (!activeUser?.id) { setPartItems([]); return; }
     let cancelled = false;
-    fetch(`/api/action-items?part=${encodeURIComponent(part)}`)
+    fetch(`/api/action-items?user_id=${encodeURIComponent(activeUser.id)}`)
       .then((r) => r.json())
       .then((data) => {
         if (cancelled) return;
-        const cards = Array.isArray(data) ? data : data.cards || [];
+        const cards = data.cards || [];
         const flat = cards.flatMap((c) =>
           (c.items || [])
-            .filter((it) => !it.completed)
-            .map((it) => ({ id: `${c.id}-${it.id}`, text: it.text, source: c.filename || c.title || 'Document' }))
+            .filter((it) => it.editable && !it.completed)
+            .map((it) => ({ id: `${c.id}-${it.id}`, text: it.text, source: c.filename || 'Document' }))
         );
         setPartItems(flat.slice(0, 5));
       })
       .catch(() => setPartItems([]));
     return () => { cancelled = true; };
-  }, [activeUser?.part]);
+  }, [activeUser?.id]);
 
   // TF action items assigned to this user — pulled from the same API the TF tab uses.
   useEffect(() => {
@@ -95,12 +94,12 @@ function ActionItemsWidget({ activeUser, onClick }) {
       <div className="home-actions-grid">
         <div className="home-actions-col">
           <div className="home-actions-subtitle">
-            My Part/Team Action Items
+            My Action Items (from documents)
             <span className="home-pill">{loading ? '…' : partItems.length}</span>
           </div>
           {loading && <div className="home-empty">Loading…</div>}
           {!loading && partItems.length === 0 && (
-            <div className="home-empty">No open items for {activeUser?.part || activeUser?.team || 'your part'}.</div>
+            <div className="home-empty">No open document action items assigned to you.</div>
           )}
           <ul className="home-action-list">
             {partItems.map((it) => (

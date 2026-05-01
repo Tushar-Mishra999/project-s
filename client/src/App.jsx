@@ -194,9 +194,9 @@ export default function App() {
       <main>
         {active === 'home'    && <HomeTab users={users} activeUserId={activeUserId} onNavigate={setActive} />}
         {active === 'feed'    && <FeedTab activePart={activePart} />}
-        {active === 'files'   && <RetrievalTab parts={parts} activePart={activePart} />}
+        {active === 'files'   && <RetrievalTab parts={parts} activePart={activePart} users={users} activeUserId={activeUserId} />}
         {active === 'chat'    && <ChatTab activePart={activePart} />}
-        {active === 'actions' && <ActionItemsTab activePart={activePart} />}
+        {active === 'actions' && <ActionItemsTab users={users} activeUserId={activeUserId} />}
         {active === 'minutes' && <MinutesTab />}
         {active === 'reports' && <ReportGeneratorTab activePart={activePart} />}
         {active === 'quizzes' && <AIQuizzesTab activePart={activePart} />}

@@ -200,7 +200,7 @@ function formatDate(d) {
   return new Date(d).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-function LibraryRow({ file, onDeleted }) {
+function LibraryRow({ file, onDeleted, onExtracted }) {
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [extracting, setExtracting] = useState(false);
@@ -229,13 +229,12 @@ function LibraryRow({ file, onDeleted }) {
       const res = await fetch(`/api/action-items/extract/${file.id}`, { method: 'POST' });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `Extraction failed (${res.status})`);
-      const n = json.items_count;
-      setExtractMsg({
-        type: n > 0 ? 'success' : 'info',
-        text: n > 0
-          ? `Extracted ${n} action item${n === 1 ? '' : 's'}. Check the Action Items tab.`
-          : 'No action items found in this document.',
-      });
+      const n = (json.items || []).length;
+      if (n === 0) {
+        setExtractMsg({ type: 'info', text: 'No action items found in this document.' });
+      } else {
+        onExtracted?.(json);
+      }
     } catch (e) {
       setExtractMsg({ type: 'error', text: e.message });
     } finally {
@@ -293,7 +292,143 @@ function LibraryRow({ file, onDeleted }) {
   );
 }
 
-export default function RetrievalTab({ parts, activePart }) {
+function ActionItemReviewModal({ pending, users, activeUserId, onClose, onSaved }) {
+  const [items, setItems] = useState(() =>
+    (pending.items || []).map((it) => ({
+      id: it.id,
+      text: it.text,
+      assignees: Array.isArray(it.assignees) && it.assignees.length ? it.assignees : [activeUserId].filter(Boolean),
+    }))
+  );
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState(null);
+
+  function toggleAssignee(itemIdx, userId) {
+    setItems((prev) => prev.map((it, i) => {
+      if (i !== itemIdx) return it;
+      const has = it.assignees.includes(userId);
+      return { ...it, assignees: has ? it.assignees.filter((u) => u !== userId) : [...it.assignees, userId] };
+    }));
+  }
+
+  function setItemText(itemIdx, text) {
+    setItems((prev) => prev.map((it, i) => (i === itemIdx ? { ...it, text } : it)));
+  }
+
+  function removeItem(itemIdx) {
+    setItems((prev) => prev.filter((_, i) => i !== itemIdx));
+  }
+
+  async function save() {
+    if (items.length === 0) {
+      setErr('Add at least one action item before saving.');
+      return;
+    }
+    if (items.some((it) => it.assignees.length === 0)) {
+      setErr('Each action item needs at least one assignee.');
+      return;
+    }
+    setSaving(true);
+    setErr(null);
+    try {
+      const res = await fetch('/api/action-items', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          file_id: pending.file_id,
+          filename: pending.filename,
+          accessible_to: pending.accessible_to,
+          assigned_by: activeUserId,
+          items,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Save failed');
+      onSaved(json.card);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 720 }}>
+        <div className="modal-header">
+          <h2 className="modal-title">Review extracted action items</h2>
+          <button className="modal-close" onClick={onClose}>×</button>
+        </div>
+        <div className="sub" style={{ marginBottom: 12 }}>
+          {items.length} item{items.length === 1 ? '' : 's'} extracted from <strong>{pending.filename}</strong>.
+          Assign each item to one or more people, then save.
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxHeight: '50vh', overflowY: 'auto' }}>
+          {items.map((it, idx) => (
+            <div key={it.id} style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 12 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                <textarea
+                  rows={2}
+                  value={it.text}
+                  onChange={(e) => setItemText(idx, e.target.value)}
+                  style={{ flex: 1, fontSize: 14 }}
+                />
+                <button
+                  className="ghost-btn small danger"
+                  onClick={() => removeItem(idx)}
+                  title="Remove this item"
+                >×</button>
+              </div>
+              <div style={{ marginTop: 8, fontSize: 12, color: '#666', marginBottom: 4 }}>
+                Assignees ({it.assignees.length}):
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {users.map((u) => {
+                  const checked = it.assignees.includes(u.id);
+                  return (
+                    <label
+                      key={u.id}
+                      className="checkbox-pill"
+                      style={{
+                        background: checked ? '#dbeafe' : '#f3f4f6',
+                        cursor: 'pointer',
+                        fontSize: 12,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleAssignee(idx, u.id)}
+                      />
+                      <span>{u.name}{u.id === activeUserId ? ' (you)' : ''}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+          {items.length === 0 && (
+            <div className="state-text" style={{ padding: 20, textAlign: 'center' }}>
+              All items removed.
+            </div>
+          )}
+        </div>
+
+        {err && <div className="inline-msg error" style={{ marginTop: 12 }}>{err}</div>}
+
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
+          <button className="ghost-btn" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="primary-btn" onClick={save} disabled={saving}>
+            {saving ? 'Saving…' : `Save ${items.length} action item${items.length === 1 ? '' : 's'}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function RetrievalTab({ parts, activePart, users = [], activeUserId }) {
   // Upload state
   const [showUpload, setShowUpload] = useState(false);
   const [file, setFile] = useState(null);
@@ -315,6 +450,9 @@ export default function RetrievalTab({ parts, activePart }) {
   const [library, setLibrary] = useState([]);
   const [libraryLoading, setLibraryLoading] = useState(true);
   const [libraryErr, setLibraryErr] = useState(null);
+
+  // Pending action-items review (post-upload or post-extract).
+  const [pendingItems, setPendingItems] = useState(null);
 
   const loadLibrary = useCallback(async () => {
     setLibraryLoading(true);
@@ -366,6 +504,12 @@ export default function RetrievalTab({ parts, activePart }) {
       setFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
       loadLibrary();
+      // If extraction was requested and items came back, open the review modal.
+      if (json.pending_action_items && (json.pending_action_items.items || []).length > 0) {
+        setPendingItems(json.pending_action_items);
+      } else if (extractActions && json.pending_action_items && json.pending_action_items.items.length === 0) {
+        setUploadMsg({ type: 'info', text: 'No action items found in this document.' });
+      }
     } catch (err) {
       setUploadMsg({ type: 'error', text: err.message });
     } finally {
@@ -531,11 +675,25 @@ export default function RetrievalTab({ parts, activePart }) {
                 key={f.id}
                 file={f}
                 onDeleted={(id) => setLibrary((curr) => curr.filter((x) => x.id !== id))}
+                onExtracted={(payload) => setPendingItems(payload)}
               />
             ))}
           </div>
         )}
       </section>
+
+      {pendingItems && (
+        <ActionItemReviewModal
+          pending={pendingItems}
+          users={users}
+          activeUserId={activeUserId}
+          onClose={() => setPendingItems(null)}
+          onSaved={() => {
+            setPendingItems(null);
+            setUploadMsg({ type: 'success', text: 'Action items saved.' });
+          }}
+        />
+      )}
     </div>
   );
 }
