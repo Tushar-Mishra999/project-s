@@ -23,16 +23,10 @@ const MOCK_NEWS = [
   },
 ];
 
-const MOCK_DOCS = [
-  {
-    title: 'Q1 2026 PRISM Capability Review.pdf',
-    summary: 'Tracks 14 capability bets across imaging and edge inference; flags two areas where vendor benchmarks diverge sharply from internal results.',
-  },
-  {
-    title: 'Synthetic Data Governance Framework v0.3.docx',
-    summary: 'Proposes a tiered disclosure model for synthetic datasets and a privacy-budget ledger maintained jointly by Data Management and PMO.',
-  },
-];
+function formatDate(d) {
+  if (!d) return '';
+  return new Date(d).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
 
 function ActionItemsWidget({ activeUser, onClick }) {
   const [partItems, setPartItems] = useState([]);
@@ -158,7 +152,25 @@ function TechSensingWidget({ onClick }) {
   );
 }
 
-function RecentDocsWidget({ onClick }) {
+function RecentDocsWidget({ activeUser, onClick }) {
+  const [docs, setDocs] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!activeUser?.id) { setDocs([]); setLoading(false); return; }
+    let cancelled = false;
+    setLoading(true);
+    fetch(`/api/files?user_id=${encodeURIComponent(activeUser.id)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        setDocs((data.files || []).slice(0, 5));
+      })
+      .catch(() => setDocs([]))
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [activeUser?.id]);
+
   return (
     <div className="home-card home-card-clickable" onClick={onClick} role="button" tabIndex={0}
          onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onClick()}>
@@ -166,17 +178,25 @@ function RecentDocsWidget({ onClick }) {
         <h3 className="home-card-title">Recent Documents</h3>
         <span className="home-card-link">Browse library →</span>
       </div>
-      <div className="home-docs-list">
-        {MOCK_DOCS.map((d, i) => (
-          <div key={i} className="home-doc-item">
-            <div className="file-icon-doc" aria-hidden="true" />
-            <div className="home-doc-body">
-              <div className="home-doc-title">{d.title}</div>
-              <div className="home-doc-summary">{d.summary}</div>
+      {loading && <div className="home-empty">Loading…</div>}
+      {!loading && docs.length === 0 && (
+        <div className="home-empty">No documents visible to you yet.</div>
+      )}
+      {!loading && docs.length > 0 && (
+        <div className="home-docs-list">
+          {docs.map((d) => (
+            <div key={d.id} className="home-doc-item">
+              <div className="file-icon-doc" aria-hidden="true" />
+              <div className="home-doc-body">
+                <div className="home-doc-title">{d.filename}</div>
+                <div className="home-doc-summary">
+                  {(d.accessible_to || []).join(', ') || '—'} · {formatDate(d.uploaded_at)}
+                </div>
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -215,7 +235,7 @@ export default function HomeTab({ users = [], activeUserId, onNavigate }) {
 
         <TechSensingWidget onClick={() => onNavigate('feed')} />
 
-        <RecentDocsWidget onClick={() => onNavigate('files')} />
+        <RecentDocsWidget activeUser={activeUser} onClick={() => onNavigate('files')} />
 
         <CtaCard
           eyebrow="Weekly AI Quiz"

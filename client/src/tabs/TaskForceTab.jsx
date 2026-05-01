@@ -374,7 +374,36 @@ function DetailView({ tf, users, activeUser, canEdit, onBack, onChanged, onDelet
         <div>
           <div className="tf-detail-title-row">
             <h2 className="tf-detail-title">{tf.name}</h2>
-            <StatusBadge status={tf.status} />
+            {canEdit ? (
+              <select
+                className={`tf-status tf-status-${tf.status === 'Active' ? 'green' : tf.status === 'On Hold' ? 'amber' : 'grey'}`}
+                value={tf.status}
+                disabled={busy}
+                onChange={async (e) => {
+                  const newStatus = e.target.value;
+                  setBusy(true);
+                  try {
+                    const r = await fetch(`/api/task-forces/${tf.id}`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ user_id: activeUser.id, status: newStatus }),
+                    });
+                    if (!r.ok) {
+                      const d = await r.json().catch(() => ({}));
+                      alert(d.error || 'Failed to update status');
+                      return;
+                    }
+                    onChanged();
+                  } finally { setBusy(false); }
+                }}
+              >
+                <option>Active</option>
+                <option>On Hold</option>
+                <option>Closed</option>
+              </select>
+            ) : (
+              <StatusBadge status={tf.status} />
+            )}
           </div>
           <div className="tf-chip-row" style={{ marginTop: 10 }}>
             {(tf.parts || []).map((p) => <span key={p} className="tf-chip part">{p}</span>)}

@@ -1193,6 +1193,33 @@ app.post('/api/task-forces', async (req, res) => {
   }
 });
 
+app.patch('/api/task-forces/:id', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Supabase not configured' });
+  const { id } = req.params;
+  const { user_id, status } = req.body || {};
+  if (!status || !['Active', 'On Hold', 'Closed'].includes(status)) {
+    return res.status(400).json({ error: 'status must be Active | On Hold | Closed' });
+  }
+  try {
+    const user = await loadUser(user_id);
+    if (!user) return res.status(400).json({ error: 'valid user_id required' });
+    const tf = await loadTfFull(id);
+    if (!tf) return res.status(404).json({ error: 'not found' });
+    if (!userCanEditTF(user, tf)) return res.status(403).json({ error: 'not permitted' });
+
+    const { data, error } = await supabase
+      .from('task_forces')
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select().single();
+    if (error) throw error;
+    res.json({ task_force: data });
+  } catch (err) {
+    console.error('[tf] status update error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.delete('/api/task-forces/:id', async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Supabase not configured' });
   const { id } = req.params;
