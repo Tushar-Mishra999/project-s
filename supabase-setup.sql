@@ -115,3 +115,77 @@ create table if not exists report_templates (
   uploaded_at   timestamptz default now()
 );
 
+-- 10. Users (organisation members + external team members).
+-- role values: 'MD' | 'PartHead' | 'TeamHead' | 'Member'
+-- Internal users (MD, PartHead, internal Member) have `part` set
+-- ('Tech Management', 'PRISM', 'Data Management', 'PMO').
+-- External users (TeamHead, external Member) have `team` set
+-- ('Team 1', 'Team 2', 'Team 3').
+create table if not exists users (
+  id          text primary key,
+  name        text not null,
+  role        text not null,
+  part        text,
+  team        text,
+  created_at  timestamptz default now()
+);
+
+-- 11. Task forces. Owners/members are user-id arrays; parts/teams are labels.
+create table if not exists task_forces (
+  id          uuid primary key default gen_random_uuid(),
+  name        text not null,
+  status      text not null default 'Active',
+  parts       text[] not null default '{}',
+  teams       text[] not null default '{}',
+  owners      text[] not null default '{}',
+  members     text[] not null default '{}',
+  created_by  text,
+  created_at  timestamptz default now(),
+  updated_at  timestamptz default now()
+);
+
+-- 12. Task-force updates feed.
+-- type values: 'Status' | 'Milestone' | 'Risk' | 'Decision' | 'ACTION_ITEM'
+create table if not exists tf_updates (
+  id         uuid primary key default gen_random_uuid(),
+  tf_id      uuid references task_forces(id) on delete cascade,
+  type       text not null,
+  author     text not null,
+  content    text not null,
+  created_at timestamptz default now()
+);
+
+create index if not exists tf_updates_tf_id_idx on tf_updates(tf_id);
+
+-- 13. Task-force action items.
+create table if not exists tf_action_items (
+  id         uuid primary key default gen_random_uuid(),
+  tf_id      uuid references task_forces(id) on delete cascade,
+  text       text not null,
+  assignee   text,
+  due        date,
+  done       boolean not null default false,
+  created_at timestamptz default now()
+);
+
+create index if not exists tf_action_items_tf_id_idx on tf_action_items(tf_id);
+
+-- 14. Seed users (idempotent — re-running this file leaves existing rows untouched).
+insert into users (id, name, role, part, team) values
+  ('u_md',        'Priya Rao',     'MD',       null,                 null),
+  ('u_ph_tm',     'Arjun Mehta',   'PartHead', 'Tech Management',    null),
+  ('u_ph_prism',  'John Iyer',     'PartHead', 'PRISM',              null),
+  ('u_ph_dm',     'Karan Shah',    'PartHead', 'Data Management',    null),
+  ('u_ph_pmo',    'Ranjit Bose',   'PartHead', 'PMO',                null),
+  ('u_mem_tm',    'Sam Patel',     'Member',   'Tech Management',    null),
+  ('u_mem_prism', 'Nadia Verma',   'Member',   'PRISM',              null),
+  ('u_mem_dm',    'Diego Alvarez', 'Member',   'Data Management',    null),
+  ('u_mem_pmo',   'Lina Joshi',    'Member',   'PMO',                null),
+  ('u_th_t1',     'Asha Rao',      'TeamHead', null,                 'Team 1'),
+  ('u_mem_t1',    'Vikram Singh',  'Member',   null,                 'Team 1'),
+  ('u_th_t2',     'Marco Bianchi', 'TeamHead', null,                 'Team 2'),
+  ('u_mem_t2',    'Lea Fischer',   'Member',   null,                 'Team 2'),
+  ('u_th_t3',     'Hiro Tanaka',   'TeamHead', null,                 'Team 3'),
+  ('u_mem_t3',    'Elena Costa',   'Member',   null,                 'Team 3')
+on conflict (id) do nothing;
+

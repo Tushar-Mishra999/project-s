@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { USERS, INITIAL_TFS, userName } from './TaskForceTab.jsx';
+import { userLabel } from './TaskForceTab.jsx';
 
 // ----- Mock content -----
 const MOCK_NEWS = [
@@ -36,14 +36,14 @@ const MOCK_DOCS = [
 
 function ActionItemsWidget({ activeUser, onClick }) {
   const [partItems, setPartItems] = useState([]);
+  const [tfItems, setTfItems] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // Pull part/team action items from the server (same source as Action Items tab).
   useEffect(() => {
-    const part = activeUser?.label;
-    if (!part) { setLoading(false); return; }
+    const part = activeUser?.part;
+    if (!part) { setPartItems([]); return; }
     let cancelled = false;
-    setLoading(true);
     fetch(`/api/action-items?part=${encodeURIComponent(part)}`)
       .then((r) => r.json())
       .then((data) => {
@@ -56,26 +56,34 @@ function ActionItemsWidget({ activeUser, onClick }) {
         );
         setPartItems(flat.slice(0, 5));
       })
-      .catch(() => setPartItems([]))
+      .catch(() => setPartItems([]));
+    return () => { cancelled = true; };
+  }, [activeUser?.part]);
+
+  // TF action items assigned to this user — pulled from the same API the TF tab uses.
+  useEffect(() => {
+    if (!activeUser?.id) { setTfItems([]); setLoading(false); return; }
+    let cancelled = false;
+    setLoading(true);
+    fetch(`/api/task-forces?user_id=${encodeURIComponent(activeUser.id)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        const tfs = data.task_forces || [];
+        const out = [];
+        for (const tf of tfs) {
+          for (const a of tf.actionItems || []) {
+            if (a.assignee === activeUser.id && !a.done) {
+              out.push({ id: `${tf.id}-${a.id}`, text: a.text, source: tf.name, due: a.due });
+            }
+          }
+        }
+        setTfItems(out.slice(0, 5));
+      })
+      .catch(() => setTfItems([]))
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [activeUser?.label]);
-
-  // TF action items assigned to this user across any TF they're in.
-  const tfItems = useMemo(() => {
-    if (!activeUser) return [];
-    const out = [];
-    for (const tf of INITIAL_TFS) {
-      const inTf = tf.owners.includes(activeUser.id) || tf.members.includes(activeUser.id);
-      if (!inTf) continue;
-      for (const a of tf.actionItems) {
-        if (a.assignee === activeUser.id && !a.done) {
-          out.push({ id: `${tf.id}-${a.id}`, text: a.text, source: tf.name, due: a.due });
-        }
-      }
-    }
-    return out.slice(0, 5);
-  }, [activeUser]);
+  }, [activeUser?.id]);
 
   return (
     <div className="home-card home-card-clickable home-card-wide" onClick={onClick} role="button" tabIndex={0}
@@ -92,7 +100,7 @@ function ActionItemsWidget({ activeUser, onClick }) {
           </div>
           {loading && <div className="home-empty">Loading…</div>}
           {!loading && partItems.length === 0 && (
-            <div className="home-empty">No open items for {activeUser?.label || 'your part'}.</div>
+            <div className="home-empty">No open items for {activeUser?.part || activeUser?.team || 'your part'}.</div>
           )}
           <ul className="home-action-list">
             {partItems.map((it) => (
@@ -185,8 +193,12 @@ function CtaCard({ eyebrow, title, body, ctaLabel, onClick, accent = 'blue' }) {
   );
 }
 
-export default function HomeTab({ activeUserId, onNavigate }) {
-  const activeUser = USERS.find((u) => u.id === activeUserId) || USERS[0];
+export default function HomeTab({ users = [], activeUserId, onNavigate }) {
+  const activeUser = users.find((u) => u.id === activeUserId);
+
+  if (!activeUser) {
+    return <div className="wrap home-wrap"><div className="placeholder-panel"><p>Loading…</p></div></div>;
+  }
 
   return (
     <div className="wrap home-wrap">

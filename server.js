@@ -883,6 +883,269 @@ app.post('/api/render-docx', async (req, res) => {
   }
 });
 
+// ---------- Users ----------
+app.get('/api/users', async (_req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Supabase not configured' });
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .order('role', { ascending: true })
+      .order('name', { ascending: true });
+    if (error) throw error;
+    res.json({ users: data || [] });
+  } catch (err) {
+    console.error('[users] list error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------- Task Forces ----------
+function userIsTechMgmtHead(u) {
+  return u && u.role === 'PartHead' && u.part === 'Tech Management';
+}
+function userCanSeeAllTFs(u) {
+  return !!u && (u.role === 'MD' || userIsTechMgmtHead(u));
+}
+function userCanCreateTF(u) {
+  return !!u && (u.role === 'MD' || u.role === 'PartHead' || u.role === 'TeamHead');
+}
+function userIsOwner(u, tf) {
+  return !!u && Array.isArray(tf.owners) && tf.owners.includes(u.id);
+}
+function userCanEditTF(u, tf) {
+  // Log update / add action item permission
+  if (!u || !tf) return false;
+  if (u.role === 'MD') return true;
+  if ((u.role === 'PartHead' || u.role === 'TeamHead') && userIsOwner(u, tf)) return true;
+  return false;
+}
+function userCanSeeTF(u, tf) {
+  if (!u) return false;
+  if (userCanSeeAllTFs(u)) return true;
+  return userIsOwner(u, tf) || (Array.isArray(tf.members) && tf.members.includes(u.id));
+}
+
+async function loadUser(userId) {
+  if (!userId) return null;
+  const { data, error } = await supabase.from('users').select('*').eq('id', userId).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+async function loadTfFull(id) {
+  const { data: tf, error } = await supabase
+    .from('task_forces').select('*').eq('id', id).maybeSingle();
+  if (error) throw error;
+  if (!tf) return null;
+  const [{ data: updates, error: uErr }, { data: items, error: aErr }] = await Promise.all([
+    supabase.from('tf_updates').select('*').eq('tf_id', id).order('created_at', { ascending: false }),
+    supabase.from('tf_action_items').select('*').eq('tf_id', id).order('created_at', { ascending: true }),
+  ]);
+  if (uErr) throw uErr;
+  if (aErr) throw aErr;
+  return { ...tf, updates: updates || [], actionItems: items || [] };
+}
+
+// Compute auto co-owners: heads of every selected part/team.
+async function autoOwnersForScope(parts, teams) {
+  const owners = new Set();
+  if (parts && parts.length) {
+    const { data, error } = await supabase
+      .from('users').select('id').eq('role', 'PartHead').in('part', parts);
+    if (error) throw error;
+    for (const r of data || []) owners.add(r.id);
+  }
+  if (teams && teams.length) {
+    const { data, error } = await supabase
+      .from('users').select('id').eq('role', 'TeamHead').in('team', teams);
+    if (error) throw error;
+    for (const r of data || []) owners.add(r.id);
+  }
+  return Array.from(owners);
+}
+
+app.get('/api/task-forces', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Supabase not configured' });
+  const userId = req.query.user_id;
+  try {
+    const user = await loadUser(userId);
+    if (!user) return res.status(400).json({ error: 'valid user_id required' });
+
+    const { data: tfs, error } = await supabase
+      .from('task_forces').select('*').order('created_at', { ascending: false });
+    if (error) throw error;
+
+    const visible = (tfs || []).filter((tf) => userCanSeeTF(user, tf));
+    const ids = visible.map((t) => t.id);
+    let updates = [], items = [];
+    if (ids.length) {
+      const [u, a] = await Promise.all([
+        supabase.from('tf_updates').select('*').in('tf_id', ids).order('created_at', { ascending: false }),
+        supabase.from('tf_action_items').select('*').in('tf_id', ids).order('created_at', { ascending: true }),
+      ]);
+      if (u.error) throw u.error;
+      if (a.error) throw a.error;
+      updates = u.data || [];
+      items = a.data || [];
+    }
+    const result = visible.map((tf) => ({
+      ...tf,
+      updates: updates.filter((x) => x.tf_id === tf.id),
+      actionItems: items.filter((x) => x.tf_id === tf.id),
+    }));
+    res.json({ task_forces: result });
+  } catch (err) {
+    console.error('[tf] list error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/task-forces', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Supabase not configured' });
+  const { user_id, name, status, parts = [], teams = [], members = [] } = req.body || {};
+  try {
+    const user = await loadUser(user_id);
+    if (!user) return res.status(400).json({ error: 'valid user_id required' });
+    if (!userCanCreateTF(user)) return res.status(403).json({ error: 'not permitted' });
+    if (!name || !name.trim()) return res.status(400).json({ error: 'name required' });
+
+    const autoOwners = await autoOwnersForScope(parts, teams);
+    // Creator is always an owner; auto-include heads of selected parts/teams.
+    const owners = Array.from(new Set([user.id, ...autoOwners]));
+    const { data, error } = await supabase
+      .from('task_forces')
+      .insert({
+        name: name.trim(),
+        status: status || 'Active',
+        parts, teams, owners, members,
+        created_by: user.id,
+      })
+      .select().single();
+    if (error) throw error;
+    res.status(201).json({ task_force: { ...data, updates: [], actionItems: [] } });
+  } catch (err) {
+    console.error('[tf] create error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/task-forces/:id', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Supabase not configured' });
+  const { id } = req.params;
+  const userId = req.query.user_id || req.body?.user_id;
+  try {
+    const user = await loadUser(userId);
+    if (!user) return res.status(400).json({ error: 'valid user_id required' });
+    if (!userCanCreateTF(user)) return res.status(403).json({ error: 'not permitted' });
+
+    if (user.role !== 'MD') {
+      const { data: tf, error } = await supabase
+        .from('task_forces').select('owners').eq('id', id).maybeSingle();
+      if (error) throw error;
+      if (!tf) return res.status(404).json({ error: 'not found' });
+      if (!tf.owners?.includes(user.id)) {
+        return res.status(403).json({ error: 'only owners or MD can delete' });
+      }
+    }
+    const { error: delErr } = await supabase.from('task_forces').delete().eq('id', id);
+    if (delErr) throw delErr;
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[tf] delete error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/task-forces/:id/updates', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Supabase not configured' });
+  const { id } = req.params;
+  const { user_id, type, content } = req.body || {};
+  try {
+    const user = await loadUser(user_id);
+    if (!user) return res.status(400).json({ error: 'valid user_id required' });
+    const tf = await loadTfFull(id);
+    if (!tf) return res.status(404).json({ error: 'not found' });
+    if (!userCanEditTF(user, tf)) return res.status(403).json({ error: 'not permitted' });
+    if (!type || !content?.trim()) return res.status(400).json({ error: 'type and content required' });
+
+    const { data, error } = await supabase
+      .from('tf_updates')
+      .insert({ tf_id: id, type, author: user.id, content: content.trim() })
+      .select().single();
+    if (error) throw error;
+    res.status(201).json({ update: data });
+  } catch (err) {
+    console.error('[tf] update error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/task-forces/:id/action-items', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Supabase not configured' });
+  const { id } = req.params;
+  const { user_id, text, assignee, due } = req.body || {};
+  try {
+    const user = await loadUser(user_id);
+    if (!user) return res.status(400).json({ error: 'valid user_id required' });
+    const tf = await loadTfFull(id);
+    if (!tf) return res.status(404).json({ error: 'not found' });
+    if (!userCanEditTF(user, tf)) return res.status(403).json({ error: 'not permitted' });
+    if (!text?.trim()) return res.status(400).json({ error: 'text required' });
+
+    const { data, error } = await supabase
+      .from('tf_action_items')
+      .insert({ tf_id: id, text: text.trim(), assignee: assignee || null, due: due || null, done: false })
+      .select().single();
+    if (error) throw error;
+    res.status(201).json({ action_item: data });
+  } catch (err) {
+    console.error('[tf] action-item create error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch('/api/task-forces/:id/action-items/:aid', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Supabase not configured' });
+  const { id, aid } = req.params;
+  const { user_id, done, comment } = req.body || {};
+  try {
+    const user = await loadUser(user_id);
+    if (!user) return res.status(400).json({ error: 'valid user_id required' });
+    const tf = await loadTfFull(id);
+    if (!tf) return res.status(404).json({ error: 'not found' });
+
+    const item = tf.actionItems.find((a) => a.id === aid);
+    if (!item) return res.status(404).json({ error: 'action item not found' });
+
+    const isAssignee = item.assignee === user.id;
+    const canToggle = user.role === 'MD' || userIsOwner(user, tf) || isAssignee;
+    if (!canToggle) return res.status(403).json({ error: 'not permitted' });
+
+    const newDone = typeof done === 'boolean' ? done : !item.done;
+    const { data: updated, error } = await supabase
+      .from('tf_action_items').update({ done: newDone }).eq('id', aid).select().single();
+    if (error) throw error;
+
+    let logged = null;
+    // When marking complete, log an ACTION_ITEM update with the user's comment.
+    if (newDone && !item.done) {
+      const cleanComment = (comment || '').trim();
+      const updateContent = `${user.name} completed action item: ${cleanComment || item.text}`;
+      const { data: up, error: upErr } = await supabase
+        .from('tf_updates')
+        .insert({ tf_id: id, type: 'ACTION_ITEM', author: user.id, content: updateContent })
+        .select().single();
+      if (upErr) throw upErr;
+      logged = up;
+    }
+    res.json({ action_item: updated, update: logged });
+  } catch (err) {
+    console.error('[tf] action-item patch error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/health', (_req, res) => res.json({ ok: true, rag: ragReady() }));
 
 if (process.env.NODE_ENV === 'production') {

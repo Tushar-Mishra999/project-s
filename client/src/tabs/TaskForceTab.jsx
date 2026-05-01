@@ -1,87 +1,21 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 
-const PARTS = ['Tech Management', 'PRISM', 'PMO', 'Data Management'];
-const TEAMS = ['Team 1', 'Team 2', 'Team 3', 'Team 4', 'Team 5'];
+const PARTS = ['Tech Management', 'PRISM', 'Data Management', 'PMO'];
+const TEAMS = ['Team 1', 'Team 2', 'Team 3'];
 
-export const USERS = [
-  { id: 'u_md',     name: 'Priya Rao', role: 'MD',       label: 'MD' },
-  { id: 'u_tm',     name: 'Arjun',     role: 'TechMgmt', label: 'Tech Mgmt' },
-  { id: 'u_prism',  name: 'John',      role: 'POC',      label: 'PRISM' },
-  { id: 'u_dm',     name: 'Karan',     role: 'POC',      label: 'Data Management' },
-  { id: 'u_pmo',    name: 'Ranjit',    role: 'POC',      label: 'PMO' },
-  { id: 'u_mem1',   name: 'Sam Patel',     role: 'Member',   label: 'Team 1' },
-  { id: 'u_mem2',   name: 'Nadia Verma',   role: 'Member',   label: 'Team 2' },
-  { id: 'u_mem3',   name: 'Diego Alvarez', role: 'Member',   label: 'Team 3' },
-];
-
-export function userName(id) {
-  return USERS.find((x) => x.id === id)?.name || id;
+export function userLabel(user) {
+  if (!user) return '';
+  if (user.role === 'MD') return 'MD';
+  if (user.role === 'PartHead') return `${user.part} Head`;
+  if (user.role === 'TeamHead') return `${user.team} Head`;
+  if (user.part) return user.part;
+  if (user.team) return user.team;
+  return user.role;
 }
 
-export const INITIAL_TFS = [
-  {
-    id: 'tf_edge',
-    name: 'Edge AI Acceleration',
-    status: 'Active',
-    parts: ['Tech Management', 'PRISM'],
-    teams: ['Team 1', 'Team 3'],
-    owners: ['u_prism'],
-    members: ['u_mem1', 'u_mem3'],
-    updates: [
-      { id: 'up1', date: '2026-04-22', type: 'Milestone', author: 'u_prism',
-        content: 'Completed benchmarking of 4 candidate inference runtimes; ONNX Runtime + TensorRT lead on latency.' },
-      { id: 'up2', date: '2026-04-15', type: 'Risk', author: 'u_prism',
-        content: 'Hardware delivery slipped by 2 weeks — escalated to procurement.' },
-      { id: 'up3', date: '2026-04-08', type: 'Status', author: 'u_prism',
-        content: 'Kickoff complete. Scope locked at Tier-1 use cases for Q2.' },
-    ],
-    actionItems: [
-      { id: 'a1', text: 'Draft architecture brief for review', assignee: 'u_mem1', due: '2026-05-05', done: false },
-      { id: 'a2', text: 'Run latency benchmark on Jetson AGX', assignee: 'u_mem3', due: '2026-05-02', done: false },
-      { id: 'a3', text: 'Procure dev kits (x4)', assignee: 'u_prism', due: '2026-04-30', done: true },
-      { id: 'a4', text: 'Compile vendor shortlist', assignee: 'u_mem1', due: '2026-05-10', done: false },
-    ],
-  },
-  {
-    id: 'tf_data',
-    name: 'Synthetic Data Pipeline',
-    status: 'On Hold',
-    parts: ['Data Management', 'PMO'],
-    teams: ['Team 2', 'Team 1'],
-    owners: ['u_dm', 'u_pmo'],
-    members: ['u_mem2', 'u_mem1'],
-    updates: [
-      { id: 'up1', date: '2026-04-18', type: 'Status', author: 'u_dm',
-        content: 'Paused pending legal review of generation framework licensing.' },
-      { id: 'up2', date: '2026-03-30', type: 'Decision', author: 'u_pmo',
-        content: 'Selected Gretel + in-house augmentation as the dual-track approach.' },
-    ],
-    actionItems: [
-      { id: 'a1', text: 'Send licensing questions to legal', assignee: 'u_pmo', due: '2026-04-25', done: true },
-      { id: 'a2', text: 'Document privacy budget assumptions', assignee: 'u_mem2', due: '2026-05-12', done: false },
-      { id: 'a3', text: 'Spec metadata schema for synthetic batches', assignee: 'u_mem1', due: '2026-05-15', done: false },
-    ],
-  },
-  {
-    id: 'tf_ops',
-    name: 'Ops Telemetry Consolidation',
-    status: 'Closed',
-    parts: ['PMO', 'Tech Management', 'Data Management'],
-    teams: ['Team 3'],
-    owners: ['u_pmo'],
-    members: ['u_mem3', 'u_mem2'],
-    updates: [
-      { id: 'up1', date: '2026-03-12', type: 'Milestone', author: 'u_pmo',
-        content: 'Final dashboards rolled out to all parts. TF closed.' },
-      { id: 'up2', date: '2026-02-28', type: 'Status', author: 'u_pmo',
-        content: 'Migration of legacy metrics complete; deprecation notices sent.' },
-    ],
-    actionItems: [
-      { id: 'a1', text: 'Archive legacy collectors', assignee: 'u_mem3', due: '2026-03-10', done: true },
-      { id: 'a2', text: 'Publish runbook for new pipeline', assignee: 'u_mem2', due: '2026-03-08', done: true },
-    ],
-  },
-];
+function nameById(users, id) {
+  return users.find((u) => u.id === id)?.name || id;
+}
 
 function StatusBadge({ status }) {
   const cls = status === 'Active' ? 'green' : status === 'On Hold' ? 'amber' : 'grey';
@@ -89,39 +23,52 @@ function StatusBadge({ status }) {
 }
 
 function lastUpdateOf(tf) {
-  return [...tf.updates].sort((a, b) => b.date.localeCompare(a.date))[0];
+  if (!tf.updates?.length) return null;
+  return [...tf.updates].sort((a, b) =>
+    (b.created_at || '').localeCompare(a.created_at || '')
+  )[0];
 }
 function openCountOf(tf) {
-  return tf.actionItems.filter((a) => !a.done).length;
+  return (tf.actionItems || []).filter((a) => !a.done).length;
+}
+function shortDate(s) {
+  if (!s) return '';
+  return String(s).slice(0, 10);
 }
 
-export default function TaskForceTab({ activeUserId = 'u_md' }) {
-  const [taskForces, setTaskForces] = useState(INITIAL_TFS);
+export default function TaskForceTab({ users = [], activeUserId }) {
+  const [taskForces, setTaskForces] = useState([]);
   const [selectedTfId, setSelectedTfId] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
 
-  const activeUser = USERS.find((u) => u.id === activeUserId) || USERS[0];
-  const role = activeUser.role;
+  const activeUser = users.find((u) => u.id === activeUserId);
+  const role = activeUser?.role;
+  const canSeeAll = role === 'MD' || (role === 'PartHead' && activeUser?.part === 'Tech Management');
+  const canCreate = role === 'MD' || role === 'PartHead' || role === 'TeamHead';
 
-  // Clear detail selection when the simulated user changes
+  const loadTFs = useCallback(async () => {
+    if (!activeUserId) return;
+    setLoading(true);
+    try {
+      const r = await fetch(`/api/task-forces?user_id=${encodeURIComponent(activeUserId)}`);
+      const d = await r.json();
+      setTaskForces(d.task_forces || []);
+    } catch {
+      setTaskForces([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [activeUserId]);
+
+  useEffect(() => { loadTFs(); }, [loadTFs]);
   useEffect(() => { setSelectedTfId(null); }, [activeUserId]);
-  const isMD = role === 'MD' || role === 'TechMgmt';
-  const isPOC = role === 'POC';
-  const isMember = role === 'Member';
-
-  const visibleTfs = useMemo(() => {
-    if (isMD) return taskForces;
-    if (isPOC) return taskForces.filter((tf) => tf.owners.includes(activeUserId));
-    return taskForces.filter(
-      (tf) => tf.members.includes(activeUserId) || tf.owners.includes(activeUserId)
-    );
-  }, [taskForces, activeUserId, isMD, isPOC]);
 
   const selectedTf = taskForces.find((t) => t.id === selectedTfId) || null;
-  const canEditSelected = selectedTf && selectedTf.owners.includes(activeUserId);
-
-  function updateTf(id, mutator) {
-    setTaskForces((prev) => prev.map((tf) => (tf.id === id ? mutator(tf) : tf)));
-  }
+  const canEditSelected = !!selectedTf && (
+    role === 'MD' ||
+    ((role === 'PartHead' || role === 'TeamHead') && selectedTf.owners?.includes(activeUserId))
+  );
 
   function exportExcel() {
     if (!window.XLSX) {
@@ -129,35 +76,46 @@ export default function TaskForceTab({ activeUserId = 'u_md' }) {
       return;
     }
     const XLSX = window.XLSX;
-
     const overviewRows = taskForces.map((tf) => {
       const last = lastUpdateOf(tf);
       return {
         'TF Name': tf.name,
         Status: tf.status,
-        Parts: tf.parts.join(', '),
-        Teams: tf.teams.join(', '),
-        Owners: tf.owners.map(userName).join(', '),
-        'Last Update Date': last?.date || '',
+        Parts: (tf.parts || []).join(', '),
+        Teams: (tf.teams || []).join(', '),
+        Owners: (tf.owners || []).map((id) => nameById(users, id)).join(', '),
+        'Last Update Date': last ? shortDate(last.created_at) : '',
         'Last Update': last?.content || '',
         'Open Action Items': openCountOf(tf),
       };
     });
-
     const actionRows = taskForces.flatMap((tf) =>
-      tf.actionItems.map((a) => ({
+      (tf.actionItems || []).map((a) => ({
         'TF Name': tf.name,
         'Action Item': a.text,
-        Assignee: userName(a.assignee),
-        Due: a.due,
+        Assignee: nameById(users, a.assignee),
+        Due: a.due || '',
         Status: a.done ? 'Done' : 'Open',
       }))
     );
-
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(overviewRows), 'Task Forces');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(actionRows), 'Action Items');
     XLSX.writeFile(wb, 'task-forces.xlsx');
+  }
+
+  async function handleDelete(tfId) {
+    if (!confirm('Delete this Task Force? This will remove all updates and action items.')) return;
+    const r = await fetch(`/api/task-forces/${tfId}?user_id=${encodeURIComponent(activeUserId)}`, {
+      method: 'DELETE',
+    });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      alert(d.error || 'Delete failed');
+      return;
+    }
+    setSelectedTfId(null);
+    loadTFs();
   }
 
   return (
@@ -171,107 +129,116 @@ export default function TaskForceTab({ activeUserId = 'u_md' }) {
         </div>
       </div>
 
-      {!selectedTf && isMD && (
-        <OverviewView
-          taskForces={taskForces}
-          onSelect={setSelectedTfId}
-          onExport={exportExcel}
-        />
+      {!selectedTf && (
+        <div className="tf-toolbar">
+          <div className="tf-toolbar-info">
+            {loading ? 'Loading…' : `${taskForces.length} task force${taskForces.length === 1 ? '' : 's'} visible · ${taskForces.filter((t) => t.status === 'Active').length} active`}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {canCreate && (
+              <button className="primary-btn" onClick={() => setShowCreate(true)}>+ New Task Force</button>
+            )}
+            {canSeeAll && (
+              <button className="ghost-btn" onClick={exportExcel}>Download Excel</button>
+            )}
+          </div>
+        </div>
       )}
 
-      {!selectedTf && isPOC && (
-        <PocListView taskForces={visibleTfs} onSelect={setSelectedTfId} />
+      {!selectedTf && !loading && taskForces.length === 0 && (
+        <div className="placeholder-panel">
+          <p>{canSeeAll ? 'No task forces yet — create one to get started.' : 'No task forces visible to you yet.'}</p>
+        </div>
       )}
 
-      {!selectedTf && isMember && (
-        <MemberView
-          taskForces={visibleTfs}
-          activeUserId={activeUserId}
-          onSelect={setSelectedTfId}
-        />
+      {!selectedTf && taskForces.length > 0 && (
+        canSeeAll
+          ? <OverviewView taskForces={taskForces} users={users} onSelect={setSelectedTfId} />
+          : <CardListView taskForces={taskForces} users={users} activeUserId={activeUserId} onSelect={setSelectedTfId} />
       )}
 
       {selectedTf && (
         <DetailView
           tf={selectedTf}
-          activeUserId={activeUserId}
+          users={users}
+          activeUser={activeUser}
           canEdit={canEditSelected}
-          isMember={isMember}
           onBack={() => setSelectedTfId(null)}
-          onMutate={(m) => updateTf(selectedTf.id, m)}
+          onChanged={loadTFs}
+          onDelete={() => handleDelete(selectedTf.id)}
+        />
+      )}
+
+      {showCreate && (
+        <CreateTfModal
+          users={users}
+          activeUserId={activeUserId}
+          onClose={() => setShowCreate(false)}
+          onCreated={() => { setShowCreate(false); loadTFs(); }}
         />
       )}
     </div>
   );
 }
 
-function OverviewView({ taskForces, onSelect, onExport }) {
+function OverviewView({ taskForces, users, onSelect }) {
   return (
-    <>
-      <div className="tf-toolbar">
-        <div className="tf-toolbar-info">
-          {taskForces.length} task forces ·{' '}
-          {taskForces.filter((t) => t.status === 'Active').length} active
-        </div>
-        <button className="primary-btn" onClick={onExport}>Download Excel</button>
-      </div>
-      <div className="tf-table-scroll">
-        <table className="tf-table">
-          <thead>
-            <tr>
-              <th>TF Name</th>
-              <th>Status</th>
-              <th>Parts &amp; Teams</th>
-              <th>Owners</th>
-              <th>Last Update</th>
-              <th>Open Action Items</th>
-            </tr>
-          </thead>
-          <tbody>
-            {taskForces.map((tf) => {
-              const last = lastUpdateOf(tf);
-              return (
-                <tr key={tf.id} onClick={() => onSelect(tf.id)} className="tf-row">
-                  <td className="tf-cell-name">{tf.name}</td>
-                  <td><StatusBadge status={tf.status} /></td>
-                  <td>
-                    <div className="tf-chip-row">
-                      {tf.parts.map((p) => <span key={p} className="tf-chip part">{p}</span>)}
-                      {tf.teams.map((t) => <span key={t} className="tf-chip team">{t}</span>)}
-                    </div>
-                  </td>
-                  <td>{tf.owners.map(userName).join(', ')}</td>
-                  <td className="tf-cell-update">
-                    {last ? (
-                      <>
-                        <div className="tf-update-date">{last.date}</div>
-                        <div className="tf-update-snippet">{last.content}</div>
-                      </>
-                    ) : <span className="tf-muted">—</span>}
-                  </td>
-                  <td>
-                    <span className={`tf-open-count ${openCountOf(tf) > 0 ? 'has-open' : ''}`}>
-                      {openCountOf(tf)}
-                    </span>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </>
+    <div className="tf-table-scroll">
+      <table className="tf-table">
+        <thead>
+          <tr>
+            <th>TF Name</th>
+            <th>Status</th>
+            <th>Parts &amp; Teams</th>
+            <th>Owners</th>
+            <th>Last Update</th>
+            <th>Open Action Items</th>
+          </tr>
+        </thead>
+        <tbody>
+          {taskForces.map((tf) => {
+            const last = lastUpdateOf(tf);
+            return (
+              <tr key={tf.id} onClick={() => onSelect(tf.id)} className="tf-row">
+                <td className="tf-cell-name">{tf.name}</td>
+                <td><StatusBadge status={tf.status} /></td>
+                <td>
+                  <div className="tf-chip-row">
+                    {(tf.parts || []).map((p) => <span key={p} className="tf-chip part">{p}</span>)}
+                    {(tf.teams || []).map((t) => <span key={t} className="tf-chip team">{t}</span>)}
+                  </div>
+                </td>
+                <td>{(tf.owners || []).map((id) => nameById(users, id)).join(', ')}</td>
+                <td className="tf-cell-update">
+                  {last ? (
+                    <>
+                      <div className="tf-update-date">{shortDate(last.created_at)}</div>
+                      <div className="tf-update-snippet">{last.content}</div>
+                    </>
+                  ) : <span className="tf-muted">—</span>}
+                </td>
+                <td>
+                  <span className={`tf-open-count ${openCountOf(tf) > 0 ? 'has-open' : ''}`}>
+                    {openCountOf(tf)}
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
-function PocListView({ taskForces, onSelect }) {
-  if (taskForces.length === 0) {
-    return <div className="placeholder-panel"><p>You don't own any task forces yet.</p></div>;
-  }
+function CardListView({ taskForces, users, activeUserId, onSelect }) {
   return (
     <div className="tf-card-grid">
       {taskForces.map((tf) => {
         const last = lastUpdateOf(tf);
+        const myOpen = (tf.actionItems || []).filter(
+          (a) => a.assignee === activeUserId && !a.done
+        ).length;
         return (
           <button key={tf.id} className="tf-card" onClick={() => onSelect(tf.id)}>
             <div className="tf-card-top">
@@ -279,12 +246,13 @@ function PocListView({ taskForces, onSelect }) {
               <StatusBadge status={tf.status} />
             </div>
             <div className="tf-chip-row">
-              {tf.parts.map((p) => <span key={p} className="tf-chip part">{p}</span>)}
-              {tf.teams.map((t) => <span key={t} className="tf-chip team">{t}</span>)}
+              {(tf.parts || []).map((p) => <span key={p} className="tf-chip part">{p}</span>)}
+              {(tf.teams || []).map((t) => <span key={t} className="tf-chip team">{t}</span>)}
             </div>
             <div className="tf-card-meta">
               <span><strong>{openCountOf(tf)}</strong> open action items</span>
-              {last && <span>· last update {last.date}</span>}
+              {myOpen > 0 && <span className="tf-mine-open"> · <strong>{myOpen}</strong> mine</span>}
+              {last && <span> · last update {shortDate(last.created_at)}</span>}
             </div>
           </button>
         );
@@ -293,95 +261,114 @@ function PocListView({ taskForces, onSelect }) {
   );
 }
 
-function MemberView({ taskForces, activeUserId, onSelect }) {
-  if (taskForces.length === 0) {
-    return <div className="placeholder-panel"><p>You're not part of any task force yet.</p></div>;
-  }
-  return (
-    <>
-      <h3 className="tf-section-title">My Task Forces</h3>
-      <div className="tf-card-grid">
-        {taskForces.map((tf) => {
-          const last = lastUpdateOf(tf);
-          const myOpen = tf.actionItems.filter(
-            (a) => a.assignee === activeUserId && !a.done
-          ).length;
-          return (
-            <button key={tf.id} className="tf-card" onClick={() => onSelect(tf.id)}>
-              <div className="tf-card-top">
-                <div className="tf-card-title">{tf.name}</div>
-                <StatusBadge status={tf.status} />
-              </div>
-              {last && (
-                <div className="tf-card-update">
-                  <div className="tf-card-update-meta">
-                    {last.date} · {last.type}
-                  </div>
-                  <div className="tf-card-update-text">{last.content}</div>
-                </div>
-              )}
-              <div className="tf-card-meta">
-                <span className={myOpen > 0 ? 'tf-mine-open' : ''}>
-                  <strong>{myOpen}</strong> assigned to me
-                </span>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    </>
-  );
-}
-
-function DetailView({ tf, activeUserId, canEdit, isMember, onBack, onMutate }) {
+function DetailView({ tf, users, activeUser, canEdit, onBack, onChanged, onDelete }) {
   const [newUpdate, setNewUpdate] = useState({ type: 'Status', content: '' });
-  const [newAction, setNewAction] = useState({ text: '', assignee: tf.members[0] || tf.owners[0], due: '' });
+  const memberPool = Array.from(new Set([...(tf.owners || []), ...(tf.members || [])]));
+  const [newAction, setNewAction] = useState({ text: '', assignee: memberPool[0] || '', due: '' });
+  const [busy, setBusy] = useState(false);
+  const [completeTarget, setCompleteTarget] = useState(null); // action item being completed
+  const [completeComment, setCompleteComment] = useState('');
 
-  function logUpdate() {
+  const isMD = activeUser?.role === 'MD';
+  const isMember = activeUser?.role === 'Member';
+  const canDelete = isMD || (canEdit);
+
+  async function logUpdate() {
     if (!newUpdate.content.trim()) return;
-    const u = {
-      id: `up_${Date.now()}`,
-      date: new Date().toISOString().slice(0, 10),
-      type: newUpdate.type,
-      author: activeUserId,
-      content: newUpdate.content.trim(),
-    };
-    onMutate((cur) => ({ ...cur, updates: [u, ...cur.updates] }));
-    setNewUpdate({ type: 'Status', content: '' });
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/task-forces/${tf.id}/updates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: activeUser.id, type: newUpdate.type, content: newUpdate.content.trim() }),
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        alert(d.error || 'Failed to log update');
+        return;
+      }
+      setNewUpdate({ type: 'Status', content: '' });
+      onChanged();
+    } finally { setBusy(false); }
   }
 
-  function addAction() {
+  async function addAction() {
     if (!newAction.text.trim()) return;
-    const a = {
-      id: `a_${Date.now()}`,
-      text: newAction.text.trim(),
-      assignee: newAction.assignee,
-      due: newAction.due || '',
-      done: false,
-    };
-    onMutate((cur) => ({ ...cur, actionItems: [...cur.actionItems, a] }));
-    setNewAction({ text: '', assignee: tf.members[0] || tf.owners[0], due: '' });
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/task-forces/${tf.id}/action-items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: activeUser.id,
+          text: newAction.text.trim(),
+          assignee: newAction.assignee || null,
+          due: newAction.due || null,
+        }),
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        alert(d.error || 'Failed to add action item');
+        return;
+      }
+      setNewAction({ text: '', assignee: memberPool[0] || '', due: '' });
+      onChanged();
+    } finally { setBusy(false); }
   }
 
-  function toggleDone(actionId) {
-    onMutate((cur) => ({
-      ...cur,
-      actionItems: cur.actionItems.map((a) =>
-        a.id === actionId ? { ...a, done: !a.done } : a
-      ),
-    }));
+  async function patchAction(actionId, body) {
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/task-forces/${tf.id}/action-items/${actionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: activeUser.id, ...body }),
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        alert(d.error || 'Failed to update action item');
+        return false;
+      }
+      onChanged();
+      return true;
+    } finally { setBusy(false); }
   }
 
-  const updates = [...tf.updates].sort((a, b) => b.date.localeCompare(a.date));
+  function onCheckbox(item) {
+    if (item.done) {
+      // un-complete: no comment needed
+      patchAction(item.id, { done: false });
+    } else {
+      setCompleteTarget(item);
+      setCompleteComment('');
+    }
+  }
+
+  async function confirmComplete() {
+    const ok = await patchAction(completeTarget.id, { done: true, comment: completeComment });
+    if (ok) {
+      setCompleteTarget(null);
+      setCompleteComment('');
+    }
+  }
+
+  const updates = [...(tf.updates || [])].sort(
+    (a, b) => (b.created_at || '').localeCompare(a.created_at || '')
+  );
   const visibleActions = isMember
-    ? tf.actionItems.filter((a) => a.assignee === activeUserId)
-    : tf.actionItems;
-
-  const memberPool = Array.from(new Set([...tf.owners, ...tf.members]));
+    ? (tf.actionItems || []).filter((a) => a.assignee === activeUser.id)
+    : (tf.actionItems || []);
 
   return (
     <>
-      <button className="ghost-btn small" onClick={onBack}>← Back</button>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <button className="ghost-btn small" onClick={onBack}>← Back</button>
+        {canDelete && (
+          <button className="ghost-btn small" onClick={onDelete} style={{ color: '#c0392b' }}>
+            Delete TF
+          </button>
+        )}
+      </div>
 
       <div className="tf-detail-header">
         <div>
@@ -390,12 +377,12 @@ function DetailView({ tf, activeUserId, canEdit, isMember, onBack, onMutate }) {
             <StatusBadge status={tf.status} />
           </div>
           <div className="tf-chip-row" style={{ marginTop: 10 }}>
-            {tf.parts.map((p) => <span key={p} className="tf-chip part">{p}</span>)}
-            {tf.teams.map((t) => <span key={t} className="tf-chip team">{t}</span>)}
+            {(tf.parts || []).map((p) => <span key={p} className="tf-chip part">{p}</span>)}
+            {(tf.teams || []).map((t) => <span key={t} className="tf-chip team">{t}</span>)}
           </div>
           <div className="tf-detail-owners">
             <span className="tf-muted">Owners: </span>
-            {tf.owners.map(userName).join(', ')}
+            {(tf.owners || []).map((id) => nameById(users, id)).join(', ') || <span className="tf-muted">—</span>}
           </div>
         </div>
       </div>
@@ -426,7 +413,7 @@ function DetailView({ tf, activeUserId, canEdit, isMember, onBack, onMutate }) {
                   onChange={(e) => setNewUpdate({ ...newUpdate, content: e.target.value })}
                   style={{ flex: 1 }}
                 />
-                <button className="primary-btn" onClick={logUpdate}>Log</button>
+                <button className="primary-btn" onClick={logUpdate} disabled={busy}>Log</button>
               </div>
             </div>
           )}
@@ -435,15 +422,18 @@ function DetailView({ tf, activeUserId, canEdit, isMember, onBack, onMutate }) {
             {updates.map((u) => (
               <div key={u.id} className="tf-update-card">
                 <div className="tf-update-card-meta">
-                  <span className={`tf-update-type tf-update-type-${u.type.toLowerCase()}`}>
-                    {u.type}
+                  <span className={`tf-update-type tf-update-type-${(u.type || '').toLowerCase().replace('_','-')}`}>
+                    {u.type === 'ACTION_ITEM' ? 'Action Item' : u.type}
                   </span>
-                  <span className="tf-muted">{u.date}</span>
-                  <span className="tf-muted">· {userName(u.author)}</span>
+                  <span className="tf-muted">{shortDate(u.created_at)}</span>
+                  <span className="tf-muted">· {nameById(users, u.author)}</span>
                 </div>
                 <div className="tf-update-card-body">{u.content}</div>
               </div>
             ))}
+            {updates.length === 0 && (
+              <div className="tf-muted" style={{ padding: 12 }}>No updates yet.</div>
+            )}
           </div>
         </section>
 
@@ -467,8 +457,9 @@ function DetailView({ tf, activeUserId, canEdit, isMember, onBack, onMutate }) {
                 value={newAction.assignee}
                 onChange={(e) => setNewAction({ ...newAction, assignee: e.target.value })}
               >
+                <option value="">— Assignee —</option>
                 {memberPool.map((id) => (
-                  <option key={id} value={id}>{userName(id)}</option>
+                  <option key={id} value={id}>{nameById(users, id)}</option>
                 ))}
               </select>
               <input
@@ -476,7 +467,7 @@ function DetailView({ tf, activeUserId, canEdit, isMember, onBack, onMutate }) {
                 value={newAction.due}
                 onChange={(e) => setNewAction({ ...newAction, due: e.target.value })}
               />
-              <button className="primary-btn" onClick={addAction}>Add</button>
+              <button className="primary-btn" onClick={addAction} disabled={busy}>Add</button>
             </div>
           )}
 
@@ -492,8 +483,8 @@ function DetailView({ tf, activeUserId, canEdit, isMember, onBack, onMutate }) {
               </thead>
               <tbody>
                 {visibleActions.map((a) => {
-                  const mine = a.assignee === activeUserId;
-                  const canToggle = canEdit || mine;
+                  const mine = a.assignee === activeUser.id;
+                  const canToggle = isMD || canEdit || mine;
                   return (
                     <tr
                       key={a.id}
@@ -502,8 +493,8 @@ function DetailView({ tf, activeUserId, canEdit, isMember, onBack, onMutate }) {
                       <td>
                         <button
                           className={`action-checkbox ${a.done ? 'checked' : ''}`}
-                          disabled={!canToggle}
-                          onClick={() => toggleDone(a.id)}
+                          disabled={!canToggle || busy}
+                          onClick={() => onCheckbox(a)}
                           aria-label="toggle done"
                         >
                           {a.done && (
@@ -516,7 +507,7 @@ function DetailView({ tf, activeUserId, canEdit, isMember, onBack, onMutate }) {
                         </button>
                       </td>
                       <td>{a.text}</td>
-                      <td>{userName(a.assignee)}</td>
+                      <td>{nameById(users, a.assignee)}</td>
                       <td>{a.due || <span className="tf-muted">—</span>}</td>
                     </tr>
                   );
@@ -531,6 +522,187 @@ function DetailView({ tf, activeUserId, canEdit, isMember, onBack, onMutate }) {
           </div>
         </section>
       </div>
+
+      {completeTarget && (
+        <div className="modal-backdrop" onClick={() => setCompleteTarget(null)}>
+          <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 className="modal-title">Complete action item</h2>
+              <button className="modal-close" onClick={() => setCompleteTarget(null)}>×</button>
+            </div>
+            <div className="form-row">
+              <label>Item</label>
+              <input type="text" value={completeTarget.text} disabled />
+            </div>
+            <div className="form-row">
+              <label>Comment (will be logged in the TF feed)</label>
+              <textarea
+                rows={4}
+                value={completeComment}
+                onChange={(e) => setCompleteComment(e.target.value)}
+                placeholder="What was done, links, results, anything worth noting…"
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button className="ghost-btn" onClick={() => setCompleteTarget(null)}>Cancel</button>
+              <button className="primary-btn" onClick={confirmComplete} disabled={busy}>
+                Mark complete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
+  );
+}
+
+function CreateTfModal({ users, activeUserId, onClose, onCreated }) {
+  const [name, setName] = useState('');
+  const [status, setStatus] = useState('Active');
+  const [parts, setParts] = useState([]);
+  const [teams, setTeams] = useState([]);
+  const [members, setMembers] = useState([]);
+  const [busy, setBusy] = useState(false);
+
+  function toggle(arr, val, set) {
+    set(arr.includes(val) ? arr.filter((x) => x !== val) : [...arr, val]);
+  }
+
+  // Suggest auto co-owners (heads of selected parts/teams) for transparency.
+  const autoOwners = useMemo(() => {
+    const ids = new Set();
+    for (const p of parts) {
+      const head = users.find((u) => u.role === 'PartHead' && u.part === p);
+      if (head) ids.add(head.id);
+    }
+    for (const t of teams) {
+      const head = users.find((u) => u.role === 'TeamHead' && u.team === t);
+      if (head) ids.add(head.id);
+    }
+    ids.add(activeUserId);
+    return Array.from(ids);
+  }, [parts, teams, users, activeUserId]);
+
+  // Eligible members: anyone in the selected parts/teams who is a Member.
+  const eligibleMembers = useMemo(() => {
+    return users.filter((u) =>
+      u.role === 'Member' && (
+        (u.part && parts.includes(u.part)) ||
+        (u.team && teams.includes(u.team))
+      )
+    );
+  }, [users, parts, teams]);
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setBusy(true);
+    try {
+      const r = await fetch('/api/task-forces', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: activeUserId,
+          name: name.trim(),
+          status,
+          parts, teams, members,
+        }),
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        alert(d.error || 'Failed to create');
+        return;
+      }
+      onCreated();
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2 className="modal-title">New Task Force</h2>
+          <button className="modal-close" onClick={onClose}>×</button>
+        </div>
+        <form className="upload-form" onSubmit={submit}>
+          <div className="form-row">
+            <label>Name</label>
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)} required />
+          </div>
+          <div className="form-row">
+            <label>Status</label>
+            <select value={status} onChange={(e) => setStatus(e.target.value)}>
+              <option>Active</option>
+              <option>On Hold</option>
+              <option>Closed</option>
+            </select>
+          </div>
+          <div className="form-row">
+            <label>Parts involved</label>
+            <div className="tf-chip-row">
+              {PARTS.map((p) => (
+                <button
+                  type="button"
+                  key={p}
+                  className={`tf-chip part ${parts.includes(p) ? '' : 'tf-chip-off'}`}
+                  onClick={() => toggle(parts, p, setParts)}
+                  style={{ opacity: parts.includes(p) ? 1 : 0.45, cursor: 'pointer', border: 'none' }}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="form-row">
+            <label>External teams involved</label>
+            <div className="tf-chip-row">
+              {TEAMS.map((t) => (
+                <button
+                  type="button"
+                  key={t}
+                  className={`tf-chip team ${teams.includes(t) ? '' : 'tf-chip-off'}`}
+                  onClick={() => toggle(teams, t, setTeams)}
+                  style={{ opacity: teams.includes(t) ? 1 : 0.45, cursor: 'pointer', border: 'none' }}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="form-row">
+            <label>Members</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {eligibleMembers.length === 0 && (
+                <span className="tf-muted" style={{ fontSize: 13 }}>
+                  Select parts/teams above to choose members.
+                </span>
+              )}
+              {eligibleMembers.map((u) => (
+                <label key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
+                  <input
+                    type="checkbox"
+                    checked={members.includes(u.id)}
+                    onChange={() => toggle(members, u.id, setMembers)}
+                  />
+                  {u.name} <span className="tf-muted">· {u.part || u.team}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="form-row">
+            <label>Owners (auto)</label>
+            <div className="tf-muted" style={{ fontSize: 13 }}>
+              {autoOwners.map((id) => users.find((u) => u.id === id)?.name).filter(Boolean).join(', ') || '—'}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
+            <button type="button" className="ghost-btn" onClick={onClose}>Cancel</button>
+            <button type="submit" className="primary-btn" disabled={busy}>
+              {busy ? 'Creating…' : 'Create Task Force'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
