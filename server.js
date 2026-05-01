@@ -289,7 +289,10 @@ async function upsertActionItemCard(card) {
       items: card.items,
       updated_at: new Date().toISOString(),
     });
-    if (error) console.warn('action_items upsert error:', error.message);
+    if (error) {
+      console.error('action_items upsert error:', error.message);
+      throw new Error('action_items upsert failed: ' + error.message);
+    }
   }
 }
 
