@@ -195,7 +195,7 @@ export default function App() {
         {active === 'home'    && <HomeTab users={users} activeUserId={activeUserId} onNavigate={setActive} />}
         {active === 'feed'    && <FeedTab activePart={activePart} />}
         {active === 'files'   && <RetrievalTab parts={parts} activePart={activePart} users={users} activeUserId={activeUserId} />}
-        {active === 'chat'    && <ChatTab activePart={activePart} />}
+        {active === 'chat'    && <ChatTab activePart={activePart} activeUserId={activeUserId} activeUser={activeUser} />}
         {active === 'actions' && <ActionItemsTab users={users} activeUserId={activeUserId} />}
         {active === 'minutes' && <MinutesTab />}
         {active === 'reports' && <ReportGeneratorTab activePart={activePart} />}

@@ -29,8 +29,10 @@ function SourcesList({ sources }) {
   );
 }
 
-export default function ChatTab({ activePart }) {
-  const part = activePart;
+export default function ChatTab({ activePart, activeUserId, activeUser }) {
+  const scopeLabel = activeUser?.role === 'MD'
+    ? 'All documents'
+    : (activeUser?.part || activeUser?.team || activePart || '…');
   const [messages, setMessages] = useState([]); // {role, content, sources?}
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -44,7 +46,7 @@ export default function ChatTab({ activePart }) {
     e?.preventDefault();
     const q = input.trim();
     if (!q || sending) return;
-    if (!part) return;
+    if (!activeUserId) return;
 
     const newUser = { role: 'user', content: q };
     const history = messages
@@ -59,7 +61,7 @@ export default function ChatTab({ activePart }) {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: q, part, conversation_history: history }),
+        body: JSON.stringify({ query: q, user_id: activeUserId, conversation_history: history }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Request failed');
@@ -85,7 +87,7 @@ export default function ChatTab({ activePart }) {
           <div className="sub">Ask questions across your team's documents.</div>
         </div>
         <div className="chat-controls">
-          <span className="part-badge">{part || '…'}</span>
+          <span className="part-badge">{scopeLabel}</span>
           <button className="ghost-btn" onClick={() => setMessages([])} disabled={messages.length === 0}>
             Clear
           </button>

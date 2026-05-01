@@ -472,14 +472,36 @@ app.get('/api/parts', (_req, res) => {
   res.json({ parts: config.parts || [] });
 });
 
+// User-scoped visibility:
+//   - MD: sees everything (no scope filter)
+//   - PartHead / Member with a part: sees files where accessible_to contains that part
+//   - TeamHead / Member with a team: sees files where accessible_to contains that team
+// Returns { scope: string|null, isAll: boolean }. scope=null + isAll=true means MD.
+function userScope(user) {
+  if (!user) return { scope: null, isAll: false };
+  if (user.role === 'MD') return { scope: null, isAll: true };
+  return { scope: user.part || user.team || null, isAll: false };
+}
+
 // ---------- Tab 2: list uploaded files ----------
 app.get('/api/files', async (req, res) => {
   const ready = ragReady();
   if (!ready.ok) return res.status(503).json({ error: `RAG not configured: missing ${ready.missing.join(', ')}` });
+  const userId = req.query.user_id;
   const part = req.query.part;
   try {
     let q = supabase.from('files').select('*').order('uploaded_at', { ascending: false });
-    if (part) q = q.contains('accessible_to', [part]);
+    if (userId) {
+      const user = await loadUser(userId);
+      if (!user) return res.status(400).json({ error: 'unknown user' });
+      const { scope, isAll } = userScope(user);
+      if (!isAll) {
+        if (!scope) return res.json({ files: [] });
+        q = q.contains('accessible_to', [scope]);
+      }
+    } else if (part) {
+      q = q.contains('accessible_to', [part]);
+    }
     const { data, error } = await q;
     if (error) throw error;
     res.json({ files: data });
@@ -532,14 +554,29 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
   if (!ready.ok) return res.status(503).json({ error: `RAG not configured: missing ${ready.missing.join(', ')}` });
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
-  const uploadedBy = req.body.uploaded_by;
-  let accessibleTo = req.body.accessible_to;
-  if (typeof accessibleTo === 'string') {
-    try { accessibleTo = JSON.parse(accessibleTo); } catch { accessibleTo = [accessibleTo]; }
+  // The uploader is identified by user_id; their part/team determines who else
+  // can see this file. MD uploads are visible to everyone (all parts + teams).
+  const userId = req.body.user_id;
+  if (!userId) return res.status(400).json({ error: 'user_id is required' });
+  const uploader = await loadUser(userId);
+  if (!uploader) return res.status(400).json({ error: 'unknown user' });
+
+  let accessibleTo;
+  if (uploader.role === 'MD') {
+    // Allow MD to upload to any subset, falling back to "everyone".
+    let raw = req.body.accessible_to;
+    if (typeof raw === 'string') {
+      try { raw = JSON.parse(raw); } catch { raw = [raw]; }
+    }
+    accessibleTo = Array.isArray(raw) && raw.length
+      ? raw
+      : [...(config.parts || []), 'Team 1', 'Team 2', 'Team 3'];
+  } else {
+    const scope = uploader.part || uploader.team;
+    if (!scope) return res.status(400).json({ error: 'uploader has no part/team' });
+    accessibleTo = [scope];
   }
-  if (!uploadedBy || !Array.isArray(accessibleTo) || accessibleTo.length === 0) {
-    return res.status(400).json({ error: 'uploaded_by and accessible_to are required' });
-  }
+  const uploadedBy = uploader.name;
   // Opt-in flag: only extract action items if the uploader explicitly asked for it.
   const extractActions = req.body.extract_action_items === 'true' || req.body.extract_action_items === true;
 
@@ -651,7 +688,7 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
 });
 
 // ---------- Tab 2/3: Retrieve ----------
-async function retrieve({ query, part }) {
+async function retrieve({ query, partFilter }) {
   const ready = ragReady();
   if (!ready.ok) {
     const e = new Error(`RAG not configured: missing ${ready.missing.join(', ')}`);
@@ -662,7 +699,7 @@ async function retrieve({ query, part }) {
 
   const { data, error } = await supabase.rpc('match_chunks', {
     query_embedding: queryEmbedding,
-    part_filter: part,
+    part_filter: partFilter,
     match_count: config.rag.vector_search_top_k,
   });
   if (error) throw new Error('vector search failed: ' + error.message);
@@ -672,11 +709,34 @@ async function retrieve({ query, part }) {
   return reranked.slice(0, config.rag.rerank_top_n);
 }
 
+// Resolve the access-scope filter for a request from `user_id` (preferred) or
+// the legacy `part` body field. Returns string|null (null = unrestricted).
+async function resolvePartFilter({ user_id, part }) {
+  if (user_id) {
+    const user = await loadUser(user_id);
+    if (!user) {
+      const e = new Error('unknown user');
+      e.status = 400;
+      throw e;
+    }
+    const { scope, isAll } = userScope(user);
+    if (isAll) return null;
+    if (!scope) {
+      const e = new Error('user has no part/team scope');
+      e.status = 400;
+      throw e;
+    }
+    return scope;
+  }
+  return part || null;
+}
+
 app.post('/api/retrieve', async (req, res) => {
-  const { query, part } = req.body || {};
-  if (!query || !part) return res.status(400).json({ error: 'query and part are required' });
+  const { query, part, user_id } = req.body || {};
+  if (!query) return res.status(400).json({ error: 'query is required' });
   try {
-    const chunks = await retrieve({ query, part });
+    const partFilter = await resolvePartFilter({ user_id, part });
+    const chunks = await retrieve({ query, partFilter });
     res.json({ chunks });
   } catch (err) {
     console.error('[retrieve] error:', err);
@@ -689,10 +749,11 @@ const CHAT_SYSTEM =
   "You are a knowledge assistant with access to internal documents. Answer the user's question using only the context provided below. If the answer is not present in the context, say 'I could not find this in the uploaded documents' — do not use general knowledge. Always cite the source filename at the end of your answer.";
 
 app.post('/api/chat', async (req, res) => {
-  const { query, part, conversation_history } = req.body || {};
-  if (!query || !part) return res.status(400).json({ error: 'query and part are required' });
+  const { query, part, user_id, conversation_history } = req.body || {};
+  if (!query) return res.status(400).json({ error: 'query is required' });
   try {
-    const chunks = await retrieve({ query, part });
+    const partFilter = await resolvePartFilter({ user_id, part });
+    const chunks = await retrieve({ query, partFilter });
 
     const contextBlock = chunks.length
       ? chunks

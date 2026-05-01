@@ -429,11 +429,14 @@ function ActionItemReviewModal({ pending, users, activeUserId, onClose, onSaved 
 }
 
 export default function RetrievalTab({ parts, activePart, users = [], activeUserId }) {
+  const activeUser = users.find((u) => u.id === activeUserId);
+  const isMD = activeUser?.role === 'MD';
+  const userScope = activeUser?.part || activeUser?.team || null;
+
   // Upload state
   const [showUpload, setShowUpload] = useState(false);
   const [file, setFile] = useState(null);
-  const [uploadedBy, setUploadedBy] = useState('');
-  const [accessibleTo, setAccessibleTo] = useState([]);
+  const [accessibleTo, setAccessibleTo] = useState([]); // MD only
   const [extractActions, setExtractActions] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState(null);
@@ -455,10 +458,11 @@ export default function RetrievalTab({ parts, activePart, users = [], activeUser
   const [pendingItems, setPendingItems] = useState(null);
 
   const loadLibrary = useCallback(async () => {
+    if (!activeUserId) return;
     setLibraryLoading(true);
     setLibraryErr(null);
     try {
-      const res = await fetch('/api/files');
+      const res = await fetch(`/api/files?user_id=${encodeURIComponent(activeUserId)}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `Server returned ${res.status}`);
       setLibrary(json.files || []);
@@ -467,13 +471,7 @@ export default function RetrievalTab({ parts, activePart, users = [], activeUser
     } finally {
       setLibraryLoading(false);
     }
-  }, []);
-
-  useEffect(() => {
-    if (parts.length) {
-      setUploadedBy((p) => p || activePart || parts[0]);
-    }
-  }, [parts, activePart]);
+  }, [activeUserId]);
 
   useEffect(() => { loadLibrary(); }, [loadLibrary]);
 
@@ -483,16 +481,18 @@ export default function RetrievalTab({ parts, activePart, users = [], activeUser
   const handleUpload = async (e) => {
     e.preventDefault();
     if (!file) return setUploadMsg({ type: 'error', text: 'Choose a file first.' });
-    if (!uploadedBy) return setUploadMsg({ type: 'error', text: 'Pick an "uploaded by" Part.' });
-    if (accessibleTo.length === 0) return setUploadMsg({ type: 'error', text: 'Select at least one Part with access.' });
+    if (!activeUserId) return setUploadMsg({ type: 'error', text: 'No active user.' });
+    if (isMD && accessibleTo.length === 0) {
+      return setUploadMsg({ type: 'error', text: 'Pick at least one Part/Team that should see this document.' });
+    }
 
     setUploading(true);
     setUploadMsg({ type: 'info', text: 'Uploading and processing — this can take 30–90s for larger files…' });
     try {
       const fd = new FormData();
       fd.append('file', file);
-      fd.append('uploaded_by', uploadedBy);
-      fd.append('accessible_to', JSON.stringify(accessibleTo));
+      fd.append('user_id', activeUserId);
+      if (isMD) fd.append('accessible_to', JSON.stringify(accessibleTo));
       fd.append('extract_action_items', String(extractActions));
       const res = await fetch('/api/upload', { method: 'POST', body: fd });
       const json = await res.json();
@@ -520,7 +520,7 @@ export default function RetrievalTab({ parts, activePart, users = [], activeUser
   const handleSearch = async (e) => {
     e?.preventDefault();
     if (!query.trim()) return;
-    if (!searchPart) return setSearchErr('Select a Part to search within.');
+    if (!activeUserId) return setSearchErr('No active user.');
     setSearching(true);
     setSearchErr(null);
     setResults(null);
@@ -528,7 +528,7 @@ export default function RetrievalTab({ parts, activePart, users = [], activeUser
       const res = await fetch('/api/retrieve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, part: searchPart, mode: 'files' }),
+        body: JSON.stringify({ query, user_id: activeUserId, mode: 'files' }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Search failed');
@@ -555,7 +555,7 @@ export default function RetrievalTab({ parts, activePart, users = [], activeUser
 
       {/* 1. SEARCH FIRST */}
       <section className="panel">
-        <h2 className="panel-title">Search · {searchPart}</h2>
+        <h2 className="panel-title">Search · {isMD ? 'All documents' : (userScope || '…')}</h2>
         <form className="search-form" onSubmit={handleSearch}>
           <input
             className="search-input"
@@ -613,27 +613,30 @@ export default function RetrievalTab({ parts, activePart, users = [], activeUser
                   onChange={(e) => setFile(e.target.files?.[0] || null)}
                 />
               </div>
-              <div className="form-row">
-                <label>Uploaded by</label>
-                <select value={uploadedBy} onChange={(e) => setUploadedBy(e.target.value)}>
-                  {parts.map((p) => <option key={p} value={p}>{p}</option>)}
-                </select>
-              </div>
-              <div className="form-row">
-                <label>Accessible to</label>
-                <div className="checkbox-row">
-                  {parts.map((p) => (
-                    <label key={p} className="checkbox-pill">
-                      <input
-                        type="checkbox"
-                        checked={accessibleTo.includes(p)}
-                        onChange={() => toggleAccessible(p)}
-                      />
-                      <span>{p}</span>
-                    </label>
-                  ))}
+              {isMD ? (
+                <div className="form-row">
+                  <label>Accessible to</label>
+                  <div className="checkbox-row">
+                    {[...parts, 'Team 1', 'Team 2', 'Team 3'].map((p) => (
+                      <label key={p} className="checkbox-pill">
+                        <input
+                          type="checkbox"
+                          checked={accessibleTo.includes(p)}
+                          onChange={() => toggleAccessible(p)}
+                        />
+                        <span>{p}</span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="form-row">
+                  <label>Visibility</label>
+                  <div className="sub" style={{ fontSize: 13 }}>
+                    This document will be visible to members of <strong>{userScope || 'your scope'}</strong>.
+                  </div>
+                </div>
+              )}
               <div className="form-row">
                 <label className="checkbox-pill" style={{ alignSelf: 'flex-start' }}>
                   <input

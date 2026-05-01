@@ -40,7 +40,7 @@ create index if not exists chunks_embedding_idx
 -- Filters by Part-level access *before* similarity, then returns top-k.
 create or replace function match_chunks(
   query_embedding vector(1024),
-  part_filter     text,
+  part_filter     text default null,
   match_count     int default 20
 )
 returns table (
@@ -74,7 +74,7 @@ as $$
     f.uploaded_by
   from chunks c
   join files f on f.id = c.file_id
-  where f.accessible_to @> array[part_filter]
+  where part_filter is null or f.accessible_to @> array[part_filter]
   order by c.embedding <=> query_embedding
   limit match_count;
 $$;
