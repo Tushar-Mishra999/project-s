@@ -104,6 +104,11 @@ create table if not exists action_items (
 
 create index if not exists action_items_file_id_idx on action_items(file_id);
 
+-- Assigner of an action-items card (the user who reviewed and saved the items).
+-- Items inside `items` have the shape:
+--   { id, text, completed, assignees: [user_id, ...] }
+alter table action_items add column if not exists assigned_by text;
+
 -- 9. Report templates — uploaded once, reused to generate filled reports.
 create table if not exists report_templates (
   id            uuid primary key default gen_random_uuid(),

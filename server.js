@@ -245,6 +245,38 @@ async function readActionItemCards(part) {
     .sort((a, b) => (b.created_at > a.created_at ? 1 : -1));
 }
 
+// Cards relevant to a given user: any card where the user is the assigner
+// OR is an assignee on at least one item.
+async function readUserActionItemCards(userId) {
+  let all = [];
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('action_items').select('*').order('created_at', { ascending: false });
+    if (error) {
+      console.warn('action_items read error:', error.message);
+      all = Array.from(memoryActionItems.values());
+    } else {
+      all = data || [];
+    }
+  } else {
+    all = Array.from(memoryActionItems.values());
+  }
+  return all
+    .filter((c) =>
+      c.assigned_by === userId ||
+      (c.items || []).some((it) => Array.isArray(it.assignees) && it.assignees.includes(userId))
+    )
+    .map((c) => {
+      const role = c.assigned_by === userId ? 'assigner' : 'assignee';
+      const items = (c.items || []).map((it) => {
+        const assignees = Array.isArray(it.assignees) ? it.assignees : [];
+        const editable = assignees.includes(userId);
+        return { ...it, assignees, editable };
+      });
+      return { ...c, items, viewer_role: role };
+    });
+}
+
 async function upsertActionItemCard(card) {
   memoryActionItems.set(card.file_id, card);
   if (supabase) {
@@ -253,6 +285,7 @@ async function upsertActionItemCard(card) {
       file_id: card.file_id,
       filename: card.filename,
       accessible_to: card.accessible_to,
+      assigned_by: card.assigned_by || null,
       items: card.items,
       updated_at: new Date().toISOString(),
     });
@@ -270,41 +303,29 @@ async function deleteActionItemCard(id) {
   }
 }
 
-async function extractAndSaveActionItems(fileRow, fullText, cfg) {
+// Returns the raw extracted items for review — does NOT save.
+// Items at this stage have shape { id, text, completed:false, assignees:[] }.
+async function extractItemsForReview(fileRow, fullText, cfg) {
   console.log(`[action-items] extracting from "${fileRow.filename}" (${fullText.length} chars)…`);
   const items = await extractActionItems(fullText, cfg.models.enrichment);
-  if (!items.length) {
-    console.log(`[action-items] no items found in "${fileRow.filename}"`);
-    return { items_count: 0 };
-  }
-  const card = {
-    id: randomUUID(),
-    file_id: fileRow.id,
-    filename: fileRow.filename,
-    accessible_to: fileRow.accessible_to,
-    items,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  };
-  await upsertActionItemCard(card);
-  console.log(`[action-items] saved ${items.length} items from "${fileRow.filename}"`);
-  return { items_count: items.length, card };
+  // extractActionItems already returns objects with id/text/completed; ensure assignees field.
+  const withAssignees = items.map((it) => ({ ...it, assignees: [] }));
+  console.log(`[action-items] extracted ${withAssignees.length} items from "${fileRow.filename}"`);
+  return withAssignees;
 }
 
-// Manual re-extraction trigger — re-runs extraction for an existing file.
-// Useful if the upload-time extraction silently produced 0 items.
+// Re-extract items from an already-uploaded file for REVIEW — does not save.
+// Returns { file_id, filename, accessible_to, items: [...] }.
 app.post('/api/action-items/extract/:file_id', async (req, res) => {
   const ready = ragReady();
   if (!ready.ok) return res.status(503).json({ error: `RAG not configured: missing ${ready.missing.join(', ')}` });
   const { file_id } = req.params;
   try {
-    // Look up file row
     const { data: fileRow, error: fileErr } = await supabase
       .from('files').select('*').eq('id', file_id).maybeSingle();
     if (fileErr) throw fileErr;
     if (!fileRow) return res.status(404).json({ error: 'file not found' });
 
-    // Reconstruct text from the file's chunks
     const { data: chunks, error: chunkErr } = await supabase
       .from('chunks').select('chunk_text').eq('file_id', file_id).order('chunk_index');
     if (chunkErr) throw chunkErr;
@@ -313,21 +334,70 @@ app.post('/api/action-items/extract/:file_id', async (req, res) => {
       return res.status(422).json({ error: 'No chunk text available for this file' });
     }
 
-    // Delete any existing card so we don't end up with duplicates
-    await supabase.from('action_items').delete().eq('file_id', file_id);
-
-    const result = await extractAndSaveActionItems(fileRow, fullText, config);
-    res.json({ success: true, ...result });
+    const items = await extractItemsForReview(fileRow, fullText, config);
+    res.json({
+      file_id: fileRow.id,
+      filename: fileRow.filename,
+      accessible_to: fileRow.accessible_to,
+      items,
+    });
   } catch (err) {
-    console.error('[action-items] manual extract error:', err);
+    console.error('[action-items] extract error:', err);
     res.status(500).json({ error: err.message || 'extraction failed' });
   }
 });
 
-app.get('/api/action-items', async (req, res) => {
-  const { part } = req.query;
-  if (!part) return res.status(400).json({ error: 'part query param is required' });
+// Save a reviewed-and-assigned action-items card.
+// Body: { file_id, filename, accessible_to, assigned_by, items: [{id?, text, assignees}] }
+app.post('/api/action-items', async (req, res) => {
+  const ready = ragReady();
+  if (!ready.ok) return res.status(503).json({ error: `RAG not configured: missing ${ready.missing.join(', ')}` });
+  const { file_id, filename, accessible_to, assigned_by, items } = req.body || {};
+  if (!file_id || !filename || !assigned_by || !Array.isArray(items)) {
+    return res.status(400).json({ error: 'file_id, filename, assigned_by, items required' });
+  }
   try {
+    // Drop any pre-existing card for this file so save replaces (not duplicates).
+    await supabase.from('action_items').delete().eq('file_id', file_id);
+    const cleanItems = items
+      .filter((it) => it && it.text?.trim())
+      .map((it) => ({
+        id: it.id || randomUUID(),
+        text: it.text.trim(),
+        completed: !!it.completed,
+        assignees: Array.isArray(it.assignees) ? it.assignees.filter(Boolean) : [],
+      }));
+    if (cleanItems.length === 0) {
+      return res.status(400).json({ error: 'no items to save' });
+    }
+    const card = {
+      id: randomUUID(),
+      file_id,
+      filename,
+      accessible_to: Array.isArray(accessible_to) ? accessible_to : [],
+      assigned_by,
+      items: cleanItems,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    await upsertActionItemCard(card);
+    res.status(201).json({ card });
+  } catch (err) {
+    console.error('[action-items] save error:', err);
+    res.status(500).json({ error: err.message || 'save failed' });
+  }
+});
+
+app.get('/api/action-items', async (req, res) => {
+  const { part, user_id } = req.query;
+  if (!part && !user_id) {
+    return res.status(400).json({ error: 'part or user_id query param is required' });
+  }
+  try {
+    if (user_id) {
+      const cards = await readUserActionItemCards(user_id);
+      return res.json({ cards });
+    }
     const cards = await readActionItemCards(part);
     res.json({ cards });
   } catch (err) {
@@ -336,30 +406,47 @@ app.get('/api/action-items', async (req, res) => {
   }
 });
 
+// Item-level patch — caller must be an assignee on the targeted item.
+// Body: { user_id, item_id, completed?, text? }
 app.patch('/api/action-items/:id', async (req, res) => {
   const { id } = req.params;
-  const { items } = req.body || {};
-  if (!Array.isArray(items)) return res.status(400).json({ error: 'items array required' });
+  const { user_id, item_id, completed, text } = req.body || {};
+  if (!user_id || !item_id) {
+    return res.status(400).json({ error: 'user_id and item_id required' });
+  }
   try {
+    let card = null;
     if (supabase) {
       const { data, error } = await supabase
-        .from('action_items')
-        .update({ items, updated_at: new Date().toISOString() })
-        .eq('id', id)
-        .select()
-        .single();
+        .from('action_items').select('*').eq('id', id).maybeSingle();
       if (error) throw error;
-      memoryActionItems.set(data.file_id, data);
-      return res.json({ card: data });
+      card = data;
+    } else {
+      for (const v of memoryActionItems.values()) if (v.id === id) { card = v; break; }
     }
-    for (const [key, val] of memoryActionItems) {
-      if (val.id === id) {
-        const updated = { ...val, items, updated_at: new Date().toISOString() };
-        memoryActionItems.set(key, updated);
-        return res.json({ card: updated });
-      }
+    if (!card) return res.status(404).json({ error: 'card not found' });
+
+    const items = (card.items || []).slice();
+    const idx = items.findIndex((it) => it.id === item_id);
+    if (idx < 0) return res.status(404).json({ error: 'item not found' });
+    const target = items[idx];
+    const assignees = Array.isArray(target.assignees) ? target.assignees : [];
+    if (!assignees.includes(user_id)) {
+      return res.status(403).json({ error: 'only assignees can edit this item' });
     }
-    res.status(404).json({ error: 'card not found' });
+    const next = { ...target };
+    if (typeof completed === 'boolean') next.completed = completed;
+    if (typeof text === 'string' && text.trim()) next.text = text.trim();
+    items[idx] = next;
+
+    const updatedCard = { ...card, items, updated_at: new Date().toISOString() };
+    if (supabase) {
+      const { error } = await supabase
+        .from('action_items').update({ items, updated_at: updatedCard.updated_at }).eq('id', id);
+      if (error) throw error;
+    }
+    memoryActionItems.set(updatedCard.file_id, updatedCard);
+    res.json({ card: updatedCard });
   } catch (err) {
     console.error('[action-items] patch error:', err);
     res.status(500).json({ error: err.message });
@@ -534,14 +621,26 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
     }
 
     console.log(`[upload] done. file_id=${fileRow.id}, ${inserted}/${chunks.length} chunks stored`);
+    let pendingItems = null;
     if (extractActions) {
-      // Opt-in: kick off action-item extraction in the background.
-      console.log(`[upload] action-item extraction requested for "${filename}"`);
-      extractAndSaveActionItems(fileRow, extracted.text, config).catch((err) =>
-        console.warn('[action-items] background extraction failed:', err.message)
-      );
+      try {
+        const items = await extractItemsForReview(fileRow, extracted.text, config);
+        pendingItems = {
+          file_id: fileRow.id,
+          filename: fileRow.filename,
+          accessible_to: fileRow.accessible_to,
+          items,
+        };
+      } catch (err) {
+        console.warn('[action-items] extraction failed:', err.message);
+      }
     }
-    res.json({ success: true, file_id: fileRow.id, chunk_count: inserted, action_items_extracted: extractActions });
+    res.json({
+      success: true,
+      file_id: fileRow.id,
+      chunk_count: inserted,
+      pending_action_items: pendingItems,
+    });
   } catch (err) {
     console.error('[upload] error:', err);
     res.status(500).json({ error: err.message || 'upload failed' });
