@@ -5,7 +5,7 @@ import ChatTab from './tabs/ChatTab.jsx';
 import ActionItemsTab from './tabs/ActionItemsTab.jsx';
 import ReportGeneratorTab from './tabs/ReportGeneratorTab.jsx';
 import AIQuizzesTab from './tabs/AIQuizzesTab.jsx';
-import TaskForceTab, { USERS } from './tabs/TaskForceTab.jsx';
+import TaskForceTab, { userLabel } from './tabs/TaskForceTab.jsx';
 import HomeTab from './tabs/HomeTab.jsx';
 import MinutesTab from './tabs/MinutesTab.jsx';
 
@@ -117,28 +117,34 @@ function IdeaModal({ open, onClose, activeUser }) {
 export default function App() {
   const [active, setActive] = useState('home');
   const [parts, setParts] = useState([]);
+  const [users, setUsers] = useState([]);
   const [activeUserId, setActiveUserId] = useState('u_md');
   const [ideaOpen, setIdeaOpen] = useState(false);
 
-  const activeUser = USERS.find((u) => u.id === activeUserId);
+  const activeUser = useMemo(() => {
+    const u = users.find((x) => x.id === activeUserId);
+    return u ? { ...u, label: userLabel(u) } : null;
+  }, [users, activeUserId]);
 
   useEffect(() => {
     fetch('/api/parts')
       .then((r) => r.json())
       .then((d) => setParts(d.parts || []))
       .catch(() => setParts([]));
+    fetch('/api/users')
+      .then((r) => r.json())
+      .then((d) => setUsers(d.users || []))
+      .catch(() => setUsers([]));
   }, []);
 
-  // Derive the active "part" from the selected user. If the user's label
-  // matches a known part (e.g. PRISM, PMO, Data Management, Tech Management),
-  // use it; otherwise fall back to the first available part so the rest of
-  // the app keeps working for MD / Member roles.
+  // Derive the active "part" from the selected user. Internal users have a
+  // `part` directly; external team users / MD fall back to the first available
+  // part so the rest of the app (which is part-scoped) keeps working.
   const activePart = useMemo(() => {
-    const u = USERS.find((x) => x.id === activeUserId);
-    if (u && parts.includes(u.label)) return u.label;
-    if (u && u.role === 'TechMgmt' && parts.includes('Tech Management')) return 'Tech Management';
+    const u = users.find((x) => x.id === activeUserId);
+    if (u?.part && parts.includes(u.part)) return u.part;
     return parts[0] || '';
-  }, [activeUserId, parts]);
+  }, [activeUserId, users, parts]);
 
   return (
     <div className="app-shell">
@@ -162,9 +168,9 @@ export default function App() {
                   onChange={(e) => setActiveUserId(e.target.value)}
                   className="part-select"
                 >
-                  {USERS.map((u) => (
+                  {users.map((u) => (
                     <option key={u.id} value={u.id}>
-                      {u.name} — {u.label}
+                      {u.name} — {userLabel(u)}
                     </option>
                   ))}
                 </select>
@@ -186,7 +192,7 @@ export default function App() {
       </nav>
 
       <main>
-        {active === 'home'    && <HomeTab activeUserId={activeUserId} onNavigate={setActive} />}
+        {active === 'home'    && <HomeTab users={users} activeUserId={activeUserId} onNavigate={setActive} />}
         {active === 'feed'    && <FeedTab activePart={activePart} />}
         {active === 'files'   && <RetrievalTab parts={parts} activePart={activePart} />}
         {active === 'chat'    && <ChatTab activePart={activePart} />}
@@ -194,7 +200,7 @@ export default function App() {
         {active === 'minutes' && <MinutesTab />}
         {active === 'reports' && <ReportGeneratorTab activePart={activePart} />}
         {active === 'quizzes' && <AIQuizzesTab activePart={activePart} />}
-        {active === 'taskforce' && <TaskForceTab activeUserId={activeUserId} />}
+        {active === 'taskforce' && <TaskForceTab users={users} activeUserId={activeUserId} />}
       </main>
 
       <IdeaModal open={ideaOpen} onClose={() => setIdeaOpen(false)} activeUser={activeUser} />
