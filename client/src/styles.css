@@ -307,6 +307,9 @@ main { flex: 1; }
   display: flex; align-items: center; justify-content: space-between;
   gap: 12px; flex-wrap: wrap; margin-top: 4px;
 }
+.card-actions-left {
+  display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
 .link-btn {
   background: transparent; border: 1px dashed var(--border-strong);
   color: var(--text-mid); font-size: 12px; font-weight: 500;

@@ -55,6 +55,7 @@ function Card({ item, isPrism }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [content, setContent] = useState(null);
+  const [summaryOpen, setSummaryOpen] = useState(false);
 
   const generate = useCallback(async () => {
     setLoading(true);
@@ -107,13 +108,25 @@ function Card({ item, isPrism }) {
       <a className="title" href={item.url} target="_blank" rel="noopener noreferrer">
         {item.title}
       </a>
-      <p className="summary">{item.summary}</p>
+      {summaryOpen && item.summary && (
+        <p className="summary">{item.summary}</p>
+      )}
       <div className="card-actions">
-        {isPrism ? (
-          <button className="link-btn" onClick={handleClick}>
-            {open ? 'Hide worklet' : '＋ Create Worklet'}
-          </button>
-        ) : <span />}
+        <div className="card-actions-left">
+          {item.summary && (
+            <button
+              className="link-btn"
+              onClick={() => setSummaryOpen((v) => !v)}
+            >
+              {summaryOpen ? 'Hide summary' : 'View summary'}
+            </button>
+          )}
+          {isPrism && (
+            <button className="link-btn" onClick={handleClick}>
+              {open ? 'Hide worklet' : '＋ Create Worklet'}
+            </button>
+          )}
+        </div>
         <a className="more" href={item.url} target="_blank" rel="noopener noreferrer">
           Read more →
         </a>
