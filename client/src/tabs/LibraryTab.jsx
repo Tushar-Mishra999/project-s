@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 function FileIcon({ ext }) {
   const e = (ext || '').toUpperCase();
@@ -55,6 +55,13 @@ const IconUnlock = () => (
     <path d="M8 11V7a4 4 0 0 1 7.9-1" />
   </svg>
 );
+const IconUpload = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    <polyline points="17 8 12 3 7 8" />
+    <line x1="12" y1="3" x2="12" y2="15" />
+  </svg>
+);
 
 function IconBtn({ title, onClick, disabled, danger, active, children, as = 'button', href, download }) {
   const cls = `icon-btn${danger ? ' icon-btn-danger' : ''}${active ? ' icon-btn-active' : ''}`;
@@ -72,13 +79,15 @@ function IconBtn({ title, onClick, disabled, danger, active, children, as = 'but
   );
 }
 
-function LibraryRow({ file, activeUserId, onDeleted, onExtracted, onLockChange }) {
+function LibraryRow({ file, activeUserId, onDeleted, onExtracted, onLockChange, onReplaced }) {
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const [locking, setLocking] = useState(false);
+  const [replacing, setReplacing] = useState(false);
   const [extractMsg, setExtractMsg] = useState(null);
   const [err, setErr] = useState(null);
+  const replaceInputRef = useRef(null);
   const ext = (file.filetype || '').toLowerCase();
 
   const lockedByMe = file.locked_by_id && file.locked_by_id === activeUserId;
@@ -141,6 +150,27 @@ function LibraryRow({ file, activeUserId, onDeleted, onExtracted, onLockChange }
     }
   };
 
+  const handleReplace = async (e) => {
+    const newFile = e.target.files?.[0];
+    e.target.value = '';
+    if (!newFile) return;
+    setReplacing(true);
+    setErr(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', newFile);
+      fd.append('user_id', activeUserId);
+      const res = await fetch(`/api/files/${file.id}/replace`, { method: 'POST', body: fd });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `Replace failed (${res.status})`);
+      onReplaced?.(json.file);
+    } catch (ex) {
+      setErr(ex.message);
+    } finally {
+      setReplacing(false);
+    }
+  };
+
   const handleReleaseLock = async () => {
     setLocking(true);
     setErr(null);
@@ -171,6 +201,12 @@ function LibraryRow({ file, activeUserId, onDeleted, onExtracted, onLockChange }
           <span>Uploaded by <strong>{file.uploaded_by}</strong></span>
           <span>·</span>
           <span>{formatDate(file.uploaded_at)}</span>
+          {file.version > 1 && (
+            <>
+              <span>·</span>
+              <span>v{file.version}{file.updated_by ? ` by ${file.updated_by}` : ''} {file.updated_at ? `· ${formatDate(file.updated_at)}` : ''}</span>
+            </>
+          )}
         </div>
         <div className="library-row-access">
           {(file.accessible_to || []).map((p) => (
@@ -204,14 +240,31 @@ function LibraryRow({ file, activeUserId, onDeleted, onExtracted, onLockChange }
         </IconBtn>
 
         {lockedByMe ? (
-          <IconBtn
-            title="Release lock"
-            onClick={handleReleaseLock}
-            disabled={locking}
-            active
-          >
-            <IconUnlock />
-          </IconBtn>
+          <>
+            <input
+              ref={replaceInputRef}
+              type="file"
+              accept=".pdf,.docx,.pptx,.txt"
+              style={{ display: 'none' }}
+              onChange={handleReplace}
+            />
+            <IconBtn
+              title={replacing ? 'Uploading new version…' : 'Upload new version'}
+              onClick={() => replaceInputRef.current?.click()}
+              disabled={replacing}
+              active
+            >
+              <IconUpload />
+            </IconBtn>
+            <IconBtn
+              title="Release lock"
+              onClick={handleReleaseLock}
+              disabled={locking || replacing}
+              active
+            >
+              <IconUnlock />
+            </IconBtn>
+          </>
         ) : (
           <IconBtn
             title={lockedByOther ? `Locked by ${file.locked_by_name}` : 'Download & Edit (lock)'}
@@ -427,6 +480,9 @@ export default function LibraryTab({ users = [], activeUserId }) {
                 onDeleted={(id) => setLibrary((curr) => curr.filter((x) => x.id !== id))}
                 onExtracted={(payload) => setPendingItems(payload)}
                 onLockChange={(updated) =>
+                  setLibrary((curr) => curr.map((x) => (x.id === updated.id ? { ...x, ...updated } : x)))
+                }
+                onReplaced={(updated) =>
                   setLibrary((curr) => curr.map((x) => (x.id === updated.id ? { ...x, ...updated } : x)))
                 }
               />

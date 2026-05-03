@@ -27,6 +27,11 @@ alter table files add column if not exists locked_by_id text;
 alter table files add column if not exists locked_by_name text;
 alter table files add column if not exists locked_at timestamptz;
 
+-- Versioning: track in-place replacements done via "Upload new version".
+alter table files add column if not exists version integer not null default 1;
+alter table files add column if not exists updated_by text;
+alter table files add column if not exists updated_at timestamptz;
+
 -- 3. chunks table
 create table if not exists chunks (
   id                     uuid primary key default gen_random_uuid(),

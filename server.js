@@ -771,6 +771,132 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
   }
 });
 
+// ---------- Library: replace file in place (new version) ----------
+// Upload a fresh version of an existing file. Keeps the same files.id, bumps
+// version, replaces storage object + chunks, releases lock. Caller must hold
+// the lock (or be MD).
+app.post('/api/files/:id/replace', upload.single('file'), async (req, res) => {
+  const ready = ragReady();
+  if (!ready.ok) return res.status(503).json({ error: `RAG not configured: missing ${ready.missing.join(', ')}` });
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  const { id } = req.params;
+  const userId = req.body.user_id;
+  if (!userId) return res.status(400).json({ error: 'user_id is required' });
+
+  try {
+    const user = await loadUser(userId);
+    if (!user) return res.status(400).json({ error: 'unknown user' });
+
+    const { data: existing, error: exErr } = await supabase
+      .from('files').select('*').eq('id', id).maybeSingle();
+    if (exErr) throw exErr;
+    if (!existing) return res.status(404).json({ error: 'file not found' });
+
+    const isMD = user.role === 'MD';
+    if (existing.locked_by_id && existing.locked_by_id !== userId && !isMD) {
+      return res.status(403).json({
+        error: `Locked by ${existing.locked_by_name || 'another user'}`,
+      });
+    }
+
+    const newName = req.file.originalname;
+    const ext = extname(newName).slice(1).toLowerCase();
+    const filetype = req.file.mimetype || ext;
+    console.log(`\n[replace] file_id=${id} -> ${newName} (${filetype}) by ${user.name}`);
+
+    // 1. Extract new content
+    const extracted = await extractText(req.file.buffer, filetype);
+    if (!extracted.text || extracted.text.trim().length < 30) {
+      return res.status(422).json({ error: 'No extractable text found in file' });
+    }
+
+    // 2. Chunk
+    const rawChunks = chunkDocument(extracted, config.rag);
+    const chunks = addContextPrefix(rawChunks);
+    console.log(`[replace] ${chunks.length} chunks`);
+
+    // 3. Upload new storage object
+    const storagePath = `${randomUUID()}-${newName.replace(/[^\w.\-]+/g, '_')}`;
+    const { error: storageErr } = await supabase
+      .storage.from('documents')
+      .upload(storagePath, req.file.buffer, { contentType: filetype, upsert: false });
+    if (storageErr) throw new Error('storage upload failed: ' + storageErr.message);
+    const { data: pub } = supabase.storage.from('documents').getPublicUrl(storagePath);
+    const newFileUrl = pub.publicUrl;
+
+    // 4. Best-effort delete of old storage object
+    if (existing.file_url) {
+      const oldPath = existing.file_url.split('/documents/')[1];
+      if (oldPath) {
+        const { error: rmErr } = await supabase.storage.from('documents').remove([oldPath]);
+        if (rmErr) console.warn('[replace] old storage remove failed:', rmErr.message);
+      }
+    }
+
+    // 5. Wipe existing chunks for this file
+    const { error: delErr } = await supabase.from('chunks').delete().eq('file_id', id);
+    if (delErr) throw new Error('failed to clear old chunks: ' + delErr.message);
+
+    // 6. Update files row (preserve uploader, accessible_to; bump version, clear lock)
+    const newVersion = (existing.version || 1) + 1;
+    const nowIso = new Date().toISOString();
+    const { data: updated, error: upErr } = await supabase
+      .from('files')
+      .update({
+        filename: newName,
+        filetype: ext || filetype,
+        file_url: newFileUrl,
+        version: newVersion,
+        updated_by: user.name,
+        updated_at: nowIso,
+        locked_by_id: null,
+        locked_by_name: null,
+        locked_at: null,
+      })
+      .eq('id', id)
+      .select()
+      .single();
+    if (upErr) throw upErr;
+
+    // 7. Re-index chunks
+    let inserted = 0;
+    for (let i = 0; i < chunks.length; i++) {
+      const c = chunks[i];
+      let enriched = { summary: '', keywords: [], hypothetical_questions: [] };
+      try {
+        enriched = await enrichChunk(c.text, config.models.enrichment);
+      } catch (err) {
+        console.warn(`[replace] enrichment failed for chunk ${i}: ${err.message}`);
+      }
+      const embeddingInput = buildEmbeddingInput(enriched) || c.text.slice(0, 2000);
+      let embedding;
+      try {
+        embedding = await embedText(embeddingInput, config.embeddingModel, 'document');
+      } catch (err) {
+        console.warn(`[replace] embed failed for chunk ${i}: ${err.message}`);
+        continue;
+      }
+      const { error: chunkErr } = await supabase.from('chunks').insert({
+        file_id: id,
+        chunk_text: c.text,
+        chunk_summary: enriched.summary,
+        keywords: enriched.keywords,
+        hypothetical_questions: enriched.hypothetical_questions,
+        embedding,
+        chunk_index: i,
+      });
+      if (chunkErr) console.warn(`[replace] chunk insert failed (${i}): ${chunkErr.message}`);
+      else inserted += 1;
+    }
+
+    console.log(`[replace] done. file_id=${id} v${newVersion}, ${inserted}/${chunks.length} chunks stored`);
+    res.json({ success: true, file: updated, chunk_count: inserted });
+  } catch (err) {
+    console.error('[replace] error:', err);
+    res.status(500).json({ error: err.message || 'replace failed' });
+  }
+});
+
 // ---------- Tab 2/3: Retrieve ----------
 async function retrieve({ query, partFilter }) {
   const ready = ragReady();
