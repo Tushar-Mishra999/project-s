@@ -1374,8 +1374,7 @@ app.delete('/api/minutes/:id', (req, res) => {
 });
 
 // ---------- Render markdown to .docx ----------
-import { marked } from 'marked';
-import HTMLtoDOCX from 'html-to-docx';
+import { markdownToDocxBuffer } from './lib/mdToDocx.js';
 
 app.post('/api/render-docx', async (req, res) => {
   const { markdown, filename = 'report.docx' } = req.body || {};
@@ -1383,35 +1382,17 @@ app.post('/api/render-docx', async (req, res) => {
     return res.status(400).json({ error: 'markdown is required' });
   }
   try {
-    const html = await marked.parse(markdown);
-    // Wrap with minimal HTML so html-to-docx gets a valid document.
-    const wrapped = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${html}</body></html>`;
-    let out = await HTMLtoDOCX(wrapped, null, {
-      orientation: 'portrait',
-      margins: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
-      table: { row: { cantSplit: true } },
-      font: 'Calibri',
-      fontSize: 22, // half-points (=11pt)
-    });
-    // html-to-docx can return a Blob, ArrayBuffer, or Buffer depending on
-    // version/runtime. Normalise to a Buffer so res.send sends the exact
-    // binary (and sets Content-Length correctly) — otherwise Word reports
-    // the file as corrupt.
-    if (!Buffer.isBuffer(out)) {
-      if (typeof out?.arrayBuffer === 'function') {
-        out = Buffer.from(await out.arrayBuffer());
-      } else if (out instanceof ArrayBuffer) {
-        out = Buffer.from(out);
-      } else if (ArrayBuffer.isView(out)) {
-        out = Buffer.from(out.buffer, out.byteOffset, out.byteLength);
-      } else {
-        throw new Error('html-to-docx returned an unsupported type: ' + typeof out);
-      }
+    const out = await markdownToDocxBuffer(markdown);
+    // Sanity-check: a valid .docx is a ZIP, so the first two bytes must be "PK".
+    if (out.length < 4 || out[0] !== 0x50 || out[1] !== 0x4b) {
+      console.error('[render-docx] output is not a valid ZIP/docx');
+      return res.status(500).json({ error: 'docx renderer produced invalid output' });
     }
     const safeName = String(filename).replace(/[^\w.\-]+/g, '_');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
-    res.send(out);
+    res.setHeader('Content-Length', String(out.length));
+    res.end(out);
   } catch (err) {
     console.error('[render-docx] error:', err);
     res.status(500).json({ error: err.message || 'docx render failed' });
