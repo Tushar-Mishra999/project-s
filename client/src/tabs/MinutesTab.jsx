@@ -190,13 +190,11 @@ function TranscriptPanel({ initialTranscript, onParsed, onBack }) {
 // ─── MoM Preview Panel ─────────────────────────────────────────────────────
 function MomPreviewPanel({ minutes, transcript, activeUser, parts, onSaved, onBack }) {
   const [saving, setSaving] = useState(false);
-  const [phase, setPhase] = useState(null); // 'mom' | 'hub'
   const [error, setError] = useState(null);
   const fallbackScope = activeUser?.part || activeUser?.team || '';
   const [accessibleTo, setAccessibleTo] = useState(
     fallbackScope ? [fallbackScope] : []
   );
-  const [alsoSaveToHub, setAlsoSaveToHub] = useState(false);
 
   const toggle = (p) =>
     setAccessibleTo((curr) => (curr.includes(p) ? curr.filter((x) => x !== p) : [...curr, p]));
@@ -208,7 +206,6 @@ function MomPreviewPanel({ minutes, transcript, activeUser, parts, onSaved, onBa
     }
     setSaving(true);
     setError(null);
-    setPhase('mom');
     try {
       const res = await fetch('/api/minutes', {
         method: 'POST',
@@ -222,33 +219,11 @@ function MomPreviewPanel({ minutes, transcript, activeUser, parts, onSaved, onBa
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `Server error ${res.status}`);
-
-      if (alsoSaveToHub) {
-        setPhase('hub');
-        try {
-          const hubRes = await fetch(`/api/minutes/${json.minute.id}/save-to-hub`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              user_id: activeUser.id,
-              accessible_to: accessibleTo,
-            }),
-          });
-          if (!hubRes.ok) {
-            const hubJson = await hubRes.json().catch(() => ({}));
-            console.warn('[mom-save] save-to-hub failed:', hubJson.error || hubRes.status);
-          }
-        } catch (hubErr) {
-          console.warn('[mom-save] save-to-hub threw:', hubErr.message);
-        }
-      }
-
       onSaved(json.minute);
     } catch (e) {
       setError(e.message);
     } finally {
       setSaving(false);
-      setPhase(null);
     }
   };
 
@@ -257,7 +232,7 @@ function MomPreviewPanel({ minutes, transcript, activeUser, parts, onSaved, onBa
   return (
     <div className="mom-panel">
       <div className="panel-title">Generated Minutes</div>
-      <MomContent minutes={minutes} />
+      <MomContent minutes={minutes} showActionItems={false} />
 
       <div className="form-row" style={{ marginTop: 18 }}>
         <label>Accessible to</label>
@@ -275,23 +250,10 @@ function MomPreviewPanel({ minutes, transcript, activeUser, parts, onSaved, onBa
         </div>
       </div>
 
-      <div className="form-row" style={{ marginTop: 8 }}>
-        <label className="checkbox-pill" style={{ alignSelf: 'flex-start' }}>
-          <input
-            type="checkbox"
-            checked={alsoSaveToHub}
-            onChange={(e) => setAlsoSaveToHub(e.target.checked)}
-          />
-          <span>Also save a copy as a .docx in the Knowledge Hub Library</span>
-        </label>
-      </div>
-
       {error && <div className="inline-msg error" style={{ marginTop: 12 }}>{error}</div>}
       <div className="mom-btn-row" style={{ marginTop: 24 }}>
         <button className="primary-btn" onClick={save} disabled={saving}>
-          {saving
-            ? (phase === 'hub' ? 'Saving to Library…' : 'Saving…')
-            : 'Save Minutes'}
+          {saving ? 'Saving…' : 'Save Minutes'}
         </button>
         <button className="ghost-btn" onClick={onBack} disabled={saving}>Back</button>
       </div>
@@ -300,7 +262,7 @@ function MomPreviewPanel({ minutes, transcript, activeUser, parts, onSaved, onBa
 }
 
 // ─── Shared MoM content renderer ──────────────────────────────────────────
-function MomContent({ minutes }) {
+function MomContent({ minutes, showActionItems = true }) {
   return (
     <div className="mom-content">
       <h2 className="mom-content-title">{minutes.title}</h2>
@@ -328,7 +290,7 @@ function MomContent({ minutes }) {
         </div>
       )}
 
-      {minutes.action_items?.length > 0 && (
+      {showActionItems && minutes.action_items?.length > 0 && (
         <div className="mom-section">
           <div className="mom-section-label">Action Items</div>
           <ul className="mom-item-list">
@@ -523,7 +485,6 @@ function MomCard({ minute, activeUser, users, onDelete, onPendingItems }) {
   });
 
   const decCount = minute.decisions?.length ?? 0;
-  const aiCount = minute.action_items?.length ?? 0;
 
   return (
     <div className="mom-card">
@@ -537,9 +498,6 @@ function MomCard({ minute, activeUser, users, onDelete, onPendingItems }) {
           <div className="mom-card-chips">
             {decCount > 0 && (
               <span className="mom-chip">{decCount} decision{decCount !== 1 ? 's' : ''}</span>
-            )}
-            {aiCount > 0 && (
-              <span className="mom-chip mom-chip-action">{aiCount} action item{aiCount !== 1 ? 's' : ''}</span>
             )}
           </div>
         </div>
