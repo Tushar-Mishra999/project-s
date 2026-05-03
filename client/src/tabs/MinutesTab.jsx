@@ -190,23 +190,25 @@ function TranscriptPanel({ initialTranscript, onParsed, onBack }) {
 // ─── MoM Preview Panel ─────────────────────────────────────────────────────
 function MomPreviewPanel({ minutes, transcript, activeUser, parts, onSaved, onBack }) {
   const [saving, setSaving] = useState(false);
+  const [phase, setPhase] = useState(null); // 'mom' | 'hub'
   const [error, setError] = useState(null);
-  const isMD = activeUser?.role === 'MD';
   const fallbackScope = activeUser?.part || activeUser?.team || '';
   const [accessibleTo, setAccessibleTo] = useState(
-    isMD ? [] : (fallbackScope ? [fallbackScope] : [])
+    fallbackScope ? [fallbackScope] : []
   );
+  const [alsoSaveToHub, setAlsoSaveToHub] = useState(false);
 
   const toggle = (p) =>
     setAccessibleTo((curr) => (curr.includes(p) ? curr.filter((x) => x !== p) : [...curr, p]));
 
   const save = async () => {
     if (!activeUser?.id) return setError('No active user.');
-    if (isMD && accessibleTo.length === 0) {
+    if (accessibleTo.length === 0) {
       return setError('Pick at least one Part/Team that should see these minutes.');
     }
     setSaving(true);
     setError(null);
+    setPhase('mom');
     try {
       const res = await fetch('/api/minutes', {
         method: 'POST',
@@ -215,50 +217,81 @@ function MomPreviewPanel({ minutes, transcript, activeUser, parts, onSaved, onBa
           ...minutes,
           transcript,
           user_id: activeUser.id,
-          accessible_to: isMD ? accessibleTo : undefined,
+          accessible_to: accessibleTo,
         }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `Server error ${res.status}`);
+
+      if (alsoSaveToHub) {
+        setPhase('hub');
+        try {
+          const hubRes = await fetch(`/api/minutes/${json.minute.id}/save-to-hub`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              user_id: activeUser.id,
+              accessible_to: accessibleTo,
+            }),
+          });
+          if (!hubRes.ok) {
+            const hubJson = await hubRes.json().catch(() => ({}));
+            console.warn('[mom-save] save-to-hub failed:', hubJson.error || hubRes.status);
+          }
+        } catch (hubErr) {
+          console.warn('[mom-save] save-to-hub threw:', hubErr.message);
+        }
+      }
+
       onSaved(json.minute);
     } catch (e) {
       setError(e.message);
     } finally {
       setSaving(false);
+      setPhase(null);
     }
   };
+
+  const everyone = [...(parts || []), 'Team 1', 'Team 2', 'Team 3'];
 
   return (
     <div className="mom-panel">
       <div className="panel-title">Generated Minutes</div>
       <MomContent minutes={minutes} />
+
       <div className="form-row" style={{ marginTop: 18 }}>
-        {isMD ? (
-          <>
-            <label>Accessible to</label>
-            <div className="checkbox-row">
-              {[...(parts || []), 'Team 1', 'Team 2', 'Team 3'].map((p) => (
-                <label key={p} className="checkbox-pill">
-                  <input
-                    type="checkbox"
-                    checked={accessibleTo.includes(p)}
-                    onChange={() => toggle(p)}
-                  />
-                  <span>{p}</span>
-                </label>
-              ))}
-            </div>
-          </>
-        ) : (
-          <div className="sub" style={{ fontSize: 13 }}>
-            Visibility: <strong>{fallbackScope || 'your scope'}</strong>.
-          </div>
-        )}
+        <label>Accessible to</label>
+        <div className="checkbox-row">
+          {everyone.map((p) => (
+            <label key={p} className="checkbox-pill">
+              <input
+                type="checkbox"
+                checked={accessibleTo.includes(p)}
+                onChange={() => toggle(p)}
+              />
+              <span>{p}</span>
+            </label>
+          ))}
+        </div>
       </div>
+
+      <div className="form-row" style={{ marginTop: 8 }}>
+        <label className="checkbox-pill" style={{ alignSelf: 'flex-start' }}>
+          <input
+            type="checkbox"
+            checked={alsoSaveToHub}
+            onChange={(e) => setAlsoSaveToHub(e.target.checked)}
+          />
+          <span>Also save a copy as a .docx in the Knowledge Hub Library</span>
+        </label>
+      </div>
+
       {error && <div className="inline-msg error" style={{ marginTop: 12 }}>{error}</div>}
       <div className="mom-btn-row" style={{ marginTop: 24 }}>
         <button className="primary-btn" onClick={save} disabled={saving}>
-          {saving ? 'Saving…' : 'Save Minutes'}
+          {saving
+            ? (phase === 'hub' ? 'Saving to Library…' : 'Saving…')
+            : 'Save Minutes'}
         </button>
         <button className="ghost-btn" onClick={onBack} disabled={saving}>Back</button>
       </div>
@@ -424,7 +457,7 @@ function MomActionItemsModal({ pending, users, activeUserId, onClose, onSaved })
 }
 
 // ─── Saved Meeting Card ────────────────────────────────────────────────────
-function MomCard({ minute, activeUser, users, onDelete, onPendingItems, onSavedToHub }) {
+function MomCard({ minute, activeUser, users, onDelete, onPendingItems }) {
   const [expanded, setExpanded] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [extracting, setExtracting] = useState(false);
@@ -439,6 +472,25 @@ function MomCard({ minute, activeUser, users, onDelete, onPendingItems, onSavedT
       onDelete(minute.id);
     } catch {
       setDeleting(false);
+    }
+  };
+
+  const handleSaveToHub = async () => {
+    setSavingHub(true);
+    setMsg(null);
+    try {
+      const res = await fetch(`/api/minutes/${minute.id}/save-to-hub`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: activeUser?.id }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `Server error ${res.status}`);
+      setMsg({ type: 'success', text: `Saved as “${json.file?.filename}” in the Library.` });
+    } catch (e) {
+      setMsg({ type: 'error', text: e.message });
+    } finally {
+      setSavingHub(false);
     }
   };
 
@@ -465,25 +517,6 @@ function MomCard({ minute, activeUser, users, onDelete, onPendingItems, onSavedT
     }
   };
 
-  const handleSaveToHub = async () => {
-    setSavingHub(true);
-    setMsg(null);
-    try {
-      const res = await fetch(`/api/minutes/${minute.id}/save-to-hub`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: activeUser?.id }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || `Server error ${res.status}`);
-      setMsg({ type: 'success', text: `Saved as “${json.file?.filename}” in the Library (${json.chunk_count} chunks indexed).` });
-      onSavedToHub?.(json.file);
-    } catch (e) {
-      setMsg({ type: 'error', text: e.message });
-    } finally {
-      setSavingHub(false);
-    }
-  };
 
   const date = new Date(minute.created_at).toLocaleDateString(undefined, {
     year: 'numeric', month: 'long', day: 'numeric',
@@ -528,7 +561,7 @@ function MomCard({ minute, activeUser, users, onDelete, onPendingItems, onSavedT
             disabled={savingHub}
             title="Save this MoM as a .docx in the Library"
           >
-            {savingHub ? 'Saving…' : 'Save to Knowledge Hub'}
+            {savingHub ? 'Saving…' : 'Save to Library'}
           </button>
           <button
             className="ghost-btn mom-sm-btn mom-danger-btn"
