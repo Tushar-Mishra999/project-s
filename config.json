@@ -4,7 +4,7 @@
       "name": "Hugging Face Blog",
       "url": "https://huggingface.co/blog",
       "rss": "https://huggingface.co/blog/feed.xml",
-      "parts": ["Tech Management"]
+      "parts": ["Tech Management","PRISM"]
     },
     {
       "name": "MarkTechPost",
@@ -16,39 +16,39 @@
       "name": "TechCrunch AI",
       "url": "https://techcrunch.com/category/artificial-intelligence/",
       "rss": "https://techcrunch.com/category/artificial-intelligence/feed/",
-      "parts": ["Tech Management"]
+      "parts": ["Tech Management","PRISM"]
     },
     {
       "name": "Economic Times Tech",
       "url": "https://economictimes.indiatimes.com/tech",
       "rss": "https://economictimes.indiatimes.com/tech/rssfeeds/13357270.cms",
-      "parts": ["Tech Management"]
+      "parts": ["Tech Management","PRISM"]
     },
     {
       "name": "Times of India Tech",
       "url": "https://timesofindia.indiatimes.com/technology",
       "rss": "https://timesofindia.indiatimes.com/rssfeeds/66949542.cms",
-      "parts": ["Tech Management"]
+      "parts": ["Tech Management","PRISM"]
     },
     {
       "name": "Google AI Blog",
       "url": "https://blog.research.google/",
-      "parts": ["Tech Management"]
+      "parts": ["Tech Management","PRISM"]
     },
     {
       "name": "Anthropic News",
       "url": "https://www.anthropic.com/news",
-      "parts": ["Tech Management"]
+      "parts": ["Tech Management","PRISM"]
     },
     {
       "name": "OpenAI News",
       "url": "https://openai.com/news/",
-      "parts": ["Tech Management"]
+      "parts": ["Tech Management","PRISM"]
     },
     {
       "name": "NASSCOM",
       "url": "http://community.nasscom.in/blogs",
-      "parts": ["Tech Management"]
+      "parts": ["Tech Management","PRISM"]
     },
 
     {
