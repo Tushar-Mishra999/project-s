@@ -22,11 +22,11 @@ const TABS = [
 ];
 
 function PrismStatsBar() {
-  // Placeholder counts — replace with live data when worklet tracking lands.
+  // Mock counts — replace with live data when worklet tracking lands.
   const stats = [
-    { label: 'Total', value: 0 },
-    { label: 'Ongoing', value: 0 },
-    { label: 'Completed', value: 0 },
+    { label: 'Total', value: 47 },
+    { label: 'Ongoing', value: 12 },
+    { label: 'Completed', value: 35 },
   ];
   return (
     <div className="prism-stats">
