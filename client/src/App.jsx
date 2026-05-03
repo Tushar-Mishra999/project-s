@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import FeedTab from './tabs/FeedTab.jsx';
+import FeedTab, { feedTabLabel } from './tabs/FeedTab.jsx';
 import RetrievalTab from './tabs/RetrievalTab.jsx';
 import ChatTab from './tabs/ChatTab.jsx';
 import ActionItemsTab from './tabs/ActionItemsTab.jsx';
@@ -21,95 +21,29 @@ const TABS = [
   { id: 'quizzes',  label: 'AI Quizzes' },
 ];
 
-const TECH_AREAS = [
-  'Edge AI / Inference',
-  'Generative AI / LLMs',
-  'Retrieval & RAG',
-  'Computer Vision',
-  'Synthetic Data',
-  'MLOps & Infra',
-  'Security & Privacy',
-  'Hardware / Silicon',
-  'Other',
-];
-
-function IdeaModal({ open, onClose, activeUser }) {
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [techArea, setTechArea] = useState(TECH_AREAS[0]);
-  const [submitted, setSubmitted] = useState(false);
-
-  if (!open) return null;
-
-  const submittingFrom = activeUser
-    ? `${activeUser.name} — ${activeUser.label}`
-    : '—';
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!title.trim() || !description.trim()) return;
-    // Mock submission — just log and confirm.
-    console.log('[worklet idea]', { title, description, techArea, submittingFrom });
-    setSubmitted(true);
-    setTimeout(() => {
-      onClose();
-      setTitle(''); setDescription(''); setTechArea(TECH_AREAS[0]); setSubmitted(false);
-    }, 1100);
-  };
-
+function PrismStatsBar() {
+  // Placeholder counts — replace with live data when worklet tracking lands.
+  const stats = [
+    { label: 'Total', value: 0 },
+    { label: 'Ongoing', value: 0 },
+    { label: 'Completed', value: 0 },
+  ];
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2 className="modal-title">Submit Worklet Idea</h2>
-          <button className="modal-close" onClick={onClose} aria-label="Close">×</button>
+    <div className="prism-stats">
+      {stats.map((s) => (
+        <div key={s.label} className="prism-stat">
+          <span className="prism-stat-value">{s.value}</span>
+          <span className="prism-stat-label">{s.label}</span>
         </div>
-
-        {submitted ? (
-          <div className="modal-success">
-            <div className="modal-success-icon">✓</div>
-            <div>Thanks — your worklet idea has been submitted for review.</div>
-          </div>
-        ) : (
-          <form className="upload-form" onSubmit={handleSubmit}>
-            <div className="form-row">
-              <label>Title</label>
-              <input
-                type="text"
-                placeholder="e.g. Quantising Whisper for on-device meeting transcription"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                required
-              />
-            </div>
-            <div className="form-row">
-              <label>Description</label>
-              <textarea
-                className="modal-textarea"
-                placeholder="A short description — what problem this addresses, the rough approach, and why it's worth doing now."
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={5}
-                required
-              />
-            </div>
-            <div className="form-row">
-              <label>Relevant Tech Area</label>
-              <select value={techArea} onChange={(e) => setTechArea(e.target.value)}>
-                {TECH_AREAS.map((a) => <option key={a} value={a}>{a}</option>)}
-              </select>
-            </div>
-            <div className="form-row">
-              <label>Submitting Part / Team</label>
-              <input type="text" value={submittingFrom} disabled />
-            </div>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
-              <button type="button" className="ghost-btn" onClick={onClose}>Cancel</button>
-              <button type="submit" className="primary-btn">Submit Idea</button>
-            </div>
-          </form>
-        )}
-      </div>
+      ))}
+      <a
+        className="prism-stat-link"
+        href="https://samsungprism.com/login"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        More info →
+      </a>
     </div>
   );
 }
@@ -119,7 +53,6 @@ export default function App() {
   const [parts, setParts] = useState([]);
   const [users, setUsers] = useState([]);
   const [activeUserId, setActiveUserId] = useState('u_md');
-  const [ideaOpen, setIdeaOpen] = useState(false);
 
   const activeUser = useMemo(() => {
     const u = users.find((x) => x.id === activeUserId);
@@ -146,6 +79,13 @@ export default function App() {
     return parts[0] || '';
   }, [activeUserId, users, parts]);
 
+  const isPrism = activePart === 'PRISM';
+
+  const tabs = useMemo(
+    () => TABS.map((t) => t.id === 'feed' ? { ...t, label: feedTabLabel(activePart) } : t),
+    [activePart]
+  );
+
   return (
     <div className="app-shell">
       <nav className="tabs">
@@ -153,14 +93,7 @@ export default function App() {
           <div className="brand-row">
             <div className="brand">Kernel</div>
             <div className="nav-right">
-              <button
-                className="idea-btn"
-                onClick={() => setIdeaOpen(true)}
-                title="Submit Worklet Idea"
-              >
-                <span className="idea-btn-plus">+</span>
-                <span className="idea-btn-label">Idea</span>
-              </button>
+              {isPrism && <PrismStatsBar />}
               <div className="part-switcher">
                 <span className="part-switcher-label">Viewing as</span>
                 <select
@@ -178,7 +111,7 @@ export default function App() {
             </div>
           </div>
           <div className="tab-buttons">
-            {TABS.map((t) => (
+            {tabs.map((t) => (
               <button
                 key={t.id}
                 className={`tab-btn ${active === t.id ? 'active' : ''}`}
@@ -202,8 +135,6 @@ export default function App() {
         {active === 'quizzes' && <AIQuizzesTab activePart={activePart} />}
         {active === 'taskforce' && <TaskForceTab users={users} activeUserId={activeUserId} />}
       </main>
-
-      <IdeaModal open={ideaOpen} onClose={() => setIdeaOpen(false)} activeUser={activeUser} />
     </div>
   );
 }

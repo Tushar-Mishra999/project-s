@@ -101,20 +101,25 @@ app.get('/api/feed', async (_req, res) => {
   res.json({ ...(cached || { sources: {}, count: 0, generatedAt: null }), pipelineRunning });
 });
 
-app.get('/api/feed/sources', (_req, res) => {
+app.get('/api/feed/sources', (req, res) => {
   const cfg = JSON.parse(readFileSync(join(__dirname, 'config.json'), 'utf-8'));
-  res.json({ sources: cfg.sources });
+  const part = req.query.part;
+  const sources = part
+    ? cfg.sources.filter((s) => Array.isArray(s.parts) ? s.parts.includes(part) : part === 'Tech Management')
+    : cfg.sources;
+  res.json({ sources });
 });
 
 app.post('/api/feed/sources', (req, res) => {
-  const { name, url } = req.body || {};
+  const { name, url, parts } = req.body || {};
   if (!name || !url) return res.status(400).json({ error: 'name and url are required' });
   const cfgPath = join(__dirname, 'config.json');
   const cfg = JSON.parse(readFileSync(cfgPath, 'utf-8'));
   if (cfg.sources.some(s => s.name === name)) {
     return res.status(409).json({ error: 'A source with that name already exists' });
   }
-  cfg.sources.push({ name, url });
+  const partsArr = Array.isArray(parts) && parts.length ? parts : ['Tech Management'];
+  cfg.sources.push({ name, url, parts: partsArr });
   writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
   config.sources = cfg.sources;
   res.json({ sources: cfg.sources });
