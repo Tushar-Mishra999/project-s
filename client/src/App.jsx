@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import FeedTab, { feedTabLabel } from './tabs/FeedTab.jsx';
 import RetrievalTab from './tabs/RetrievalTab.jsx';
+import LibraryTab from './tabs/LibraryTab.jsx';
 import ChatTab from './tabs/ChatTab.jsx';
 import ActionItemsTab from './tabs/ActionItemsTab.jsx';
 import ReportGeneratorTab from './tabs/ReportGeneratorTab.jsx';
@@ -13,6 +14,7 @@ const TABS = [
   { id: 'home',     label: 'Home' },
   { id: 'feed',     label: 'Tech Sensing' },
   { id: 'files',    label: 'Knowledge Hub' },
+  { id: 'library',  label: 'Library' },
   { id: 'chat',     label: 'Insights Chat' },
   { id: 'actions',  label: 'Action Items' },
   { id: 'taskforce',label: 'Task Force' },
@@ -128,6 +130,7 @@ export default function App() {
         {active === 'home'    && <HomeTab users={users} activeUserId={activeUserId} onNavigate={setActive} />}
         {active === 'feed'    && <FeedTab activePart={activePart} />}
         {active === 'files'   && <RetrievalTab parts={parts} activePart={activePart} users={users} activeUserId={activeUserId} />}
+        {active === 'library' && <LibraryTab users={users} activeUserId={activeUserId} />}
         {active === 'chat'    && <ChatTab activePart={activePart} activeUserId={activeUserId} activeUser={activeUser} />}
         {active === 'actions' && <ActionItemsTab users={users} activeUserId={activeUserId} />}
         {active === 'minutes' && <MinutesTab />}

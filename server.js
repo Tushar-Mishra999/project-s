@@ -516,6 +516,73 @@ app.get('/api/files', async (req, res) => {
   }
 });
 
+// ---------- Tab 2: lock / unlock file (Library "Download & Edit") ----------
+app.post('/api/files/:id/lock', async (req, res) => {
+  const ready = ragReady();
+  if (!ready.ok) return res.status(503).json({ error: `RAG not configured: missing ${ready.missing.join(', ')}` });
+  const { id } = req.params;
+  const { user_id } = req.body || {};
+  if (!user_id) return res.status(400).json({ error: 'user_id required' });
+  try {
+    const user = await loadUser(user_id);
+    if (!user) return res.status(400).json({ error: 'unknown user' });
+    const { data: file, error: fErr } = await supabase
+      .from('files').select('id, locked_by_id, locked_by_name, locked_at').eq('id', id).maybeSingle();
+    if (fErr) throw fErr;
+    if (!file) return res.status(404).json({ error: 'file not found' });
+    if (file.locked_by_id && file.locked_by_id !== user_id) {
+      return res.status(409).json({
+        error: `Locked by ${file.locked_by_name || 'another user'}`,
+        locked_by_id: file.locked_by_id,
+        locked_by_name: file.locked_by_name,
+        locked_at: file.locked_at,
+      });
+    }
+    const lockedAt = new Date().toISOString();
+    const { data: updated, error: uErr } = await supabase
+      .from('files')
+      .update({ locked_by_id: user_id, locked_by_name: user.name, locked_at: lockedAt })
+      .eq('id', id)
+      .select()
+      .single();
+    if (uErr) throw uErr;
+    res.json({ file: updated });
+  } catch (err) {
+    console.error('[files/lock] error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/files/:id/unlock', async (req, res) => {
+  const ready = ragReady();
+  if (!ready.ok) return res.status(503).json({ error: `RAG not configured: missing ${ready.missing.join(', ')}` });
+  const { id } = req.params;
+  const { user_id } = req.body || {};
+  if (!user_id) return res.status(400).json({ error: 'user_id required' });
+  try {
+    const user = await loadUser(user_id);
+    if (!user) return res.status(400).json({ error: 'unknown user' });
+    const { data: file, error: fErr } = await supabase
+      .from('files').select('id, locked_by_id').eq('id', id).maybeSingle();
+    if (fErr) throw fErr;
+    if (!file) return res.status(404).json({ error: 'file not found' });
+    if (file.locked_by_id && file.locked_by_id !== user_id && user.role !== 'MD') {
+      return res.status(403).json({ error: 'only the lock holder or MD can release this lock' });
+    }
+    const { data: updated, error: uErr } = await supabase
+      .from('files')
+      .update({ locked_by_id: null, locked_by_name: null, locked_at: null })
+      .eq('id', id)
+      .select()
+      .single();
+    if (uErr) throw uErr;
+    res.json({ file: updated });
+  } catch (err) {
+    console.error('[files/unlock] error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---------- Tab 2: delete file (cascades to chunks + action_items) ----------
 app.delete('/api/files/:id', async (req, res) => {
   const ready = ragReady();
@@ -666,6 +733,18 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
     }
 
     console.log(`[upload] done. file_id=${fileRow.id}, ${inserted}/${chunks.length} chunks stored`);
+
+    // Auto-release any locks held by this user — uploading a new version
+    // implies their edit session is finished.
+    try {
+      const { error: relErr } = await supabase
+        .from('files')
+        .update({ locked_by_id: null, locked_by_name: null, locked_at: null })
+        .eq('locked_by_id', userId);
+      if (relErr) console.warn('[upload] auto-release locks failed:', relErr.message);
+    } catch (err) {
+      console.warn('[upload] auto-release locks error:', err.message);
+    }
     let pendingItems = null;
     if (extractActions) {
       try {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { renderPdfThumbnail } from '../lib/pdfPreview.js';
 
 function FileIcon({ ext }) {
@@ -195,103 +195,6 @@ function dedupeByFile(chunks) {
   return Array.from(seen.values());
 }
 
-function formatDate(d) {
-  if (!d) return '';
-  return new Date(d).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-}
-
-function LibraryRow({ file, onDeleted, onExtracted }) {
-  const [confirming, setConfirming] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [extracting, setExtracting] = useState(false);
-  const [extractMsg, setExtractMsg] = useState(null);
-  const [err, setErr] = useState(null);
-  const ext = (file.filetype || '').toLowerCase();
-
-  const handleDelete = async () => {
-    setDeleting(true);
-    setErr(null);
-    try {
-      const res = await fetch(`/api/files/${file.id}`, { method: 'DELETE' });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || `Delete failed (${res.status})`);
-      onDeleted(file.id);
-    } catch (e) {
-      setErr(e.message);
-      setDeleting(false);
-    }
-  };
-
-  const handleExtract = async () => {
-    setExtracting(true);
-    setExtractMsg(null);
-    try {
-      const res = await fetch(`/api/action-items/extract/${file.id}`, { method: 'POST' });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || `Extraction failed (${res.status})`);
-      const n = (json.items || []).length;
-      if (n === 0) {
-        setExtractMsg({ type: 'info', text: 'No action items found in this document.' });
-      } else {
-        onExtracted?.(json);
-      }
-    } catch (e) {
-      setExtractMsg({ type: 'error', text: e.message });
-    } finally {
-      setExtracting(false);
-    }
-  };
-
-  return (
-    <div className="library-row">
-      <div className="library-row-icon">
-        <FileIcon ext={ext} />
-      </div>
-      <div className="library-row-main">
-        <div className="library-row-title">{file.filename}</div>
-        <div className="library-row-meta">
-          <span>Uploaded by <strong>{file.uploaded_by}</strong></span>
-          <span>·</span>
-          <span>{formatDate(file.uploaded_at)}</span>
-        </div>
-        <div className="library-row-access">
-          {(file.accessible_to || []).map((p) => (
-            <span key={p} className="access-chip">{p}</span>
-          ))}
-        </div>
-        {err && <div className="inline-msg error" style={{ marginTop: 8 }}>{err}</div>}
-        {extractMsg && (
-          <div className={`inline-msg ${extractMsg.type}`} style={{ marginTop: 8 }}>
-            {extractMsg.text}
-          </div>
-        )}
-      </div>
-      <div className="library-row-actions">
-        <a className="ghost-btn" href={file.file_url} target="_blank" rel="noopener noreferrer" download>
-          Download
-        </a>
-        <button className="ghost-btn small" onClick={handleExtract} disabled={extracting}>
-          {extracting ? 'Extracting…' : 'Extract action items'}
-        </button>
-        {confirming ? (
-          <>
-            <button className="ghost-btn small danger" onClick={handleDelete} disabled={deleting}>
-              {deleting ? 'Deleting…' : 'Confirm'}
-            </button>
-            <button className="ghost-btn small" onClick={() => setConfirming(false)} disabled={deleting}>
-              Cancel
-            </button>
-          </>
-        ) : (
-          <button className="ghost-btn small danger" onClick={() => setConfirming(true)}>
-            Delete
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function ActionItemReviewModal({ pending, users, activeUserId, onClose, onSaved }) {
   const [items, setItems] = useState(() =>
     (pending.items || []).map((it) => ({
@@ -449,31 +352,8 @@ export default function RetrievalTab({ parts, activePart, users = [], activeUser
   const [searchErr, setSearchErr] = useState(null);
   const searchPart = activePart;
 
-  // Library
-  const [library, setLibrary] = useState([]);
-  const [libraryLoading, setLibraryLoading] = useState(true);
-  const [libraryErr, setLibraryErr] = useState(null);
-
-  // Pending action-items review (post-upload or post-extract).
+  // Pending action-items review (post-upload).
   const [pendingItems, setPendingItems] = useState(null);
-
-  const loadLibrary = useCallback(async () => {
-    if (!activeUserId) return;
-    setLibraryLoading(true);
-    setLibraryErr(null);
-    try {
-      const res = await fetch(`/api/files?user_id=${encodeURIComponent(activeUserId)}`);
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || `Server returned ${res.status}`);
-      setLibrary(json.files || []);
-    } catch (err) {
-      setLibraryErr(err.message);
-    } finally {
-      setLibraryLoading(false);
-    }
-  }, [activeUserId]);
-
-  useEffect(() => { loadLibrary(); }, [loadLibrary]);
 
   const toggleAccessible = (p) =>
     setAccessibleTo((curr) => (curr.includes(p) ? curr.filter((x) => x !== p) : [...curr, p]));
@@ -503,7 +383,6 @@ export default function RetrievalTab({ parts, activePart, users = [], activeUser
       });
       setFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
-      loadLibrary();
       // If extraction was requested and items came back, open the review modal.
       if (json.pending_action_items && (json.pending_action_items.items || []).length > 0) {
         setPendingItems(json.pending_action_items);
@@ -653,35 +532,6 @@ export default function RetrievalTab({ parts, activePart, users = [], activeUser
               {uploadMsg && <div className={`inline-msg ${uploadMsg.type}`}>{uploadMsg.text}</div>}
             </form>
           </>
-        )}
-      </section>
-
-      {/* 3. LIBRARY */}
-      <section className="panel">
-        <div className="panel-title-row">
-          <h2 className="panel-title">Library · {library.length} document{library.length === 1 ? '' : 's'}</h2>
-          <button className="ghost-btn" onClick={loadLibrary} disabled={libraryLoading}>
-            {libraryLoading ? 'Refreshing…' : 'Refresh'}
-          </button>
-        </div>
-        {libraryLoading && <div className="state"><div className="spinner" /></div>}
-        {libraryErr && <div className="inline-msg error">{libraryErr}</div>}
-        {!libraryLoading && !libraryErr && library.length === 0 && (
-          <div className="state-text" style={{ marginTop: 8 }}>
-            No documents uploaded yet.
-          </div>
-        )}
-        {!libraryLoading && library.length > 0 && (
-          <div className="library-list">
-            {library.map((f) => (
-              <LibraryRow
-                key={f.id}
-                file={f}
-                onDeleted={(id) => setLibrary((curr) => curr.filter((x) => x.id !== id))}
-                onExtracted={(payload) => setPendingItems(payload)}
-              />
-            ))}
-          </div>
         )}
       </section>
 

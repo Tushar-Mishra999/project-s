@@ -16,8 +16,16 @@ create table if not exists files (
   file_url     text,
   uploaded_by  text not null,
   accessible_to text[] not null default '{}',
-  uploaded_at  timestamptz default now()
+  uploaded_at  timestamptz default now(),
+  locked_by_id text,
+  locked_by_name text,
+  locked_at    timestamptz
 );
+
+-- Add lock columns to existing databases (no-ops if already present).
+alter table files add column if not exists locked_by_id text;
+alter table files add column if not exists locked_by_name text;
+alter table files add column if not exists locked_at timestamptz;
 
 -- 3. chunks table
 create table if not exists chunks (
