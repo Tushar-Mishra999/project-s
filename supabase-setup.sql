@@ -122,6 +122,26 @@ create index if not exists action_items_file_id_idx on action_items(file_id);
 --   { id, text, completed, assignees: [user_id, ...] }
 alter table action_items add column if not exists assigned_by text;
 
+-- Action items can come from a file (default) or from a saved MoM.
+-- For MoM-sourced cards, file_id stays NULL and source_type/source_id are set.
+alter table action_items add column if not exists source_type text default 'file';
+alter table action_items add column if not exists source_id   uuid;
+
+-- Minutes of Meeting — persisted with access control.
+create table if not exists minutes (
+  id            uuid primary key default gen_random_uuid(),
+  title         text not null,
+  summary       text default '',
+  attendees     jsonb default '[]',
+  decisions     jsonb default '[]',
+  action_items  jsonb default '[]',
+  transcript    text default '',
+  created_by    text,
+  accessible_to text[] not null default '{}',
+  created_at    timestamptz default now()
+);
+create index if not exists minutes_accessible_idx on minutes using gin(accessible_to);
+
 -- 9. Report templates — uploaded once, reused to generate filled reports.
 create table if not exists report_templates (
   id            uuid primary key default gen_random_uuid(),

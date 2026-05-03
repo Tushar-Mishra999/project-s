@@ -283,15 +283,19 @@ async function readUserActionItemCards(userId) {
 }
 
 async function upsertActionItemCard(card) {
-  memoryActionItems.set(card.file_id, card);
+  // Memory cache key: file_id for file-sourced, source_id otherwise.
+  const memKey = card.file_id || `${card.source_type || 'file'}:${card.source_id}`;
+  memoryActionItems.set(memKey, card);
   if (supabase) {
     const { error } = await supabase.from('action_items').upsert({
       id: card.id,
-      file_id: card.file_id,
+      file_id: card.file_id || null,
       filename: card.filename,
       accessible_to: card.accessible_to,
       assigned_by: card.assigned_by || null,
       items: card.items,
+      source_type: card.source_type || 'file',
+      source_id: card.source_id || null,
       updated_at: new Date().toISOString(),
     });
     if (error) {
@@ -360,13 +364,31 @@ app.post('/api/action-items/extract/:file_id', async (req, res) => {
 app.post('/api/action-items', async (req, res) => {
   const ready = ragReady();
   if (!ready.ok) return res.status(503).json({ error: `RAG not configured: missing ${ready.missing.join(', ')}` });
-  const { file_id, filename, accessible_to, assigned_by, items } = req.body || {};
-  if (!file_id || !filename || !assigned_by || !Array.isArray(items)) {
-    return res.status(400).json({ error: 'file_id, filename, assigned_by, items required' });
+  const {
+    file_id, filename, accessible_to, assigned_by, items,
+    source_type, source_id,
+  } = req.body || {};
+  const sourceType = source_type || 'file';
+  const isMomSource = sourceType === 'mom';
+  if (!filename || !assigned_by || !Array.isArray(items)) {
+    return res.status(400).json({ error: 'filename, assigned_by, items required' });
+  }
+  if (!isMomSource && !file_id) {
+    return res.status(400).json({ error: 'file_id required for file-sourced action items' });
+  }
+  if (isMomSource && !source_id) {
+    return res.status(400).json({ error: 'source_id required for MoM-sourced action items' });
   }
   try {
-    // Drop any pre-existing card for this file so save replaces (not duplicates).
-    await supabase.from('action_items').delete().eq('file_id', file_id);
+    // Replace prior card for the same source so saves are idempotent.
+    if (isMomSource) {
+      await supabase.from('action_items')
+        .delete()
+        .eq('source_type', 'mom')
+        .eq('source_id', source_id);
+    } else {
+      await supabase.from('action_items').delete().eq('file_id', file_id);
+    }
     const cleanItems = items
       .filter((it) => it && it.text?.trim())
       .map((it) => ({
@@ -380,11 +402,13 @@ app.post('/api/action-items', async (req, res) => {
     }
     const card = {
       id: randomUUID(),
-      file_id,
+      file_id: isMomSource ? null : file_id,
       filename,
       accessible_to: Array.isArray(accessible_to) ? accessible_to : [],
       assigned_by,
       items: cleanItems,
+      source_type: sourceType,
+      source_id: isMomSource ? source_id : null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -1342,35 +1366,244 @@ app.post('/api/minutes/parse', async (req, res) => {
   }
 });
 
-app.get('/api/minutes', (_req, res) => {
-  const list = Array.from(memoryMinutes.values())
-    .sort((a, b) => (b.created_at > a.created_at ? 1 : -1));
-  res.json({ minutes: list });
+function momMarkdown(m) {
+  const lines = [];
+  lines.push(`# ${m.title || 'Meeting Minutes'}`);
+  if (m.created_at) lines.push(`*${new Date(m.created_at).toLocaleDateString()}*`);
+  if (Array.isArray(m.attendees) && m.attendees.length) {
+    lines.push('', '**Attendees:** ' + m.attendees.join(', '));
+  }
+  if (m.summary) lines.push('', '## Summary', '', m.summary);
+  if (Array.isArray(m.decisions) && m.decisions.length) {
+    lines.push('', '## Decisions', '', ...m.decisions.map((d) => `- ${d}`));
+  }
+  if (Array.isArray(m.action_items) && m.action_items.length) {
+    lines.push('', '## Action Items', '');
+    for (const a of m.action_items) {
+      lines.push(`- ${a.text}${a.owner ? ` — ${a.owner}` : ''}`);
+    }
+  }
+  if (m.transcript) {
+    lines.push('', '## Transcript', '', m.transcript);
+  }
+  return lines.join('\n');
+}
+
+async function loadMinute(id) {
+  const { data, error } = await supabase.from('minutes').select('*').eq('id', id).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+function userCanSeeMinute(user, minute) {
+  if (!user || !minute) return false;
+  if (user.role === 'MD') return true;
+  if (minute.created_by === user.id) return true;
+  const scope = user.part || user.team;
+  if (!scope) return false;
+  return Array.isArray(minute.accessible_to) && minute.accessible_to.includes(scope);
+}
+
+app.get('/api/minutes', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Supabase not configured' });
+  const userId = req.query.user_id;
+  try {
+    let q = supabase.from('minutes').select('*').order('created_at', { ascending: false });
+    if (userId) {
+      const user = await loadUser(userId);
+      if (!user) return res.status(400).json({ error: 'unknown user' });
+      if (user.role !== 'MD') {
+        const scope = user.part || user.team;
+        if (!scope) return res.json({ minutes: [] });
+        // Visibility: created by this user OR accessible_to contains user scope
+        q = q.or(`created_by.eq.${user.id},accessible_to.cs.{${scope}}`);
+      }
+    }
+    const { data, error } = await q;
+    if (error) throw error;
+    res.json({ minutes: data || [] });
+  } catch (err) {
+    console.error('[minutes] list error:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.post('/api/minutes', (req, res) => {
-  const { title, summary, attendees, decisions, action_items, transcript } = req.body || {};
+app.post('/api/minutes', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Supabase not configured' });
+  const {
+    title, summary, attendees, decisions, action_items, transcript,
+    user_id, accessible_to,
+  } = req.body || {};
   if (!title) return res.status(400).json({ error: 'title required' });
-  const id = randomUUID();
-  const record = {
-    id,
-    title,
-    summary: summary || '',
-    attendees: attendees || [],
-    decisions: decisions || [],
-    action_items: action_items || [],
-    transcript: transcript || '',
-    created_at: new Date().toISOString(),
-  };
-  memoryMinutes.set(id, record);
-  res.status(201).json({ minute: record });
+  if (!user_id) return res.status(400).json({ error: 'user_id required' });
+  try {
+    const user = await loadUser(user_id);
+    if (!user) return res.status(400).json({ error: 'unknown user' });
+
+    // Default scope: uploader's part/team. MD can pick explicitly via accessible_to.
+    const fallbackScope = user.part || user.team;
+    const accessList = Array.isArray(accessible_to) && accessible_to.length
+      ? accessible_to
+      : (fallbackScope ? [fallbackScope] : []);
+
+    const { data, error } = await supabase
+      .from('minutes')
+      .insert({
+        title,
+        summary: summary || '',
+        attendees: attendees || [],
+        decisions: decisions || [],
+        action_items: action_items || [],
+        transcript: transcript || '',
+        created_by: user_id,
+        accessible_to: accessList,
+      })
+      .select().single();
+    if (error) throw error;
+    res.status(201).json({ minute: data });
+  } catch (err) {
+    console.error('[minutes] create error:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.delete('/api/minutes/:id', (req, res) => {
+app.delete('/api/minutes/:id', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Supabase not configured' });
   const { id } = req.params;
-  if (!memoryMinutes.has(id)) return res.status(404).json({ error: 'not found' });
-  memoryMinutes.delete(id);
-  res.json({ ok: true });
+  const userId = req.query.user_id || req.body?.user_id;
+  try {
+    const user = await loadUser(userId);
+    if (!user) return res.status(400).json({ error: 'valid user_id required' });
+    const minute = await loadMinute(id);
+    if (!minute) return res.status(404).json({ error: 'not found' });
+    if (user.role !== 'MD' && minute.created_by !== user.id) {
+      return res.status(403).json({ error: 'only the creator or MD can delete' });
+    }
+    const { error } = await supabase.from('minutes').delete().eq('id', id);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[minutes] delete error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Return MoM action items pre-shaped for the action-item review modal.
+app.post('/api/minutes/:id/extract-action-items', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Supabase not configured' });
+  const { id } = req.params;
+  const userId = req.body?.user_id;
+  try {
+    const user = await loadUser(userId);
+    if (!user) return res.status(400).json({ error: 'valid user_id required' });
+    const minute = await loadMinute(id);
+    if (!minute) return res.status(404).json({ error: 'not found' });
+    if (!userCanSeeMinute(user, minute)) return res.status(403).json({ error: 'not permitted' });
+
+    const items = (minute.action_items || []).map((a) => ({
+      id: randomUUID(),
+      text: a.text + (a.owner ? ` (mentioned: ${a.owner})` : ''),
+      completed: false,
+      assignees: [],
+    }));
+    res.json({
+      source_type: 'mom',
+      source_id: minute.id,
+      filename: `MoM: ${minute.title}`,
+      accessible_to: minute.accessible_to || [],
+      items,
+    });
+  } catch (err) {
+    console.error('[minutes] extract-action-items error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Render the MoM as markdown -> docx, store in Supabase, create a files row
+// (and chunks) so it's discoverable in Library/Search.
+app.post('/api/minutes/:id/save-to-hub', async (req, res) => {
+  const ready = ragReady();
+  if (!ready.ok) return res.status(503).json({ error: `RAG not configured: missing ${ready.missing.join(', ')}` });
+  const { id } = req.params;
+  const userId = req.body?.user_id;
+  const accessibleToOverride = req.body?.accessible_to;
+  try {
+    const user = await loadUser(userId);
+    if (!user) return res.status(400).json({ error: 'valid user_id required' });
+    const minute = await loadMinute(id);
+    if (!minute) return res.status(404).json({ error: 'not found' });
+    if (!userCanSeeMinute(user, minute)) return res.status(403).json({ error: 'not permitted' });
+
+    const md = momMarkdown(minute);
+    const docx = await markdownToDocxBuffer(md);
+
+    const safeTitle = (minute.title || 'meeting-minutes').replace(/[^\w.\-]+/g, '_');
+    const stamp = new Date().toISOString().slice(0, 10);
+    const filename = `${safeTitle}-${stamp}.docx`;
+    const storagePath = `${randomUUID()}-${filename}`;
+    const { error: storageErr } = await supabase
+      .storage.from('documents')
+      .upload(storagePath, docx, {
+        contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        upsert: false,
+      });
+    if (storageErr) throw new Error('storage upload failed: ' + storageErr.message);
+    const { data: pub } = supabase.storage.from('documents').getPublicUrl(storagePath);
+
+    const accessibleTo = Array.isArray(accessibleToOverride) && accessibleToOverride.length
+      ? accessibleToOverride
+      : (minute.accessible_to && minute.accessible_to.length ? minute.accessible_to : (user.part ? [user.part] : []));
+
+    const { data: fileRow, error: fileErr } = await supabase
+      .from('files')
+      .insert({
+        filename,
+        filetype: 'docx',
+        file_url: pub.publicUrl,
+        uploaded_by: user.name,
+        accessible_to: accessibleTo,
+      })
+      .select().single();
+    if (fileErr) throw new Error('files insert failed: ' + fileErr.message);
+
+    // Chunk the markdown text so the new file is searchable.
+    const rawChunks = chunkDocument({ text: md, kind: 'md' }, config.rag);
+    const chunks = addContextPrefix(rawChunks);
+    let inserted = 0;
+    for (let i = 0; i < chunks.length; i++) {
+      const c = chunks[i];
+      let enriched = { summary: '', keywords: [], hypothetical_questions: [] };
+      try {
+        enriched = await enrichChunk(c.text, config.models.enrichment);
+      } catch (err) {
+        console.warn(`[minutes/save-to-hub] enrichment failed for chunk ${i}: ${err.message}`);
+      }
+      const embeddingInput = buildEmbeddingInput(enriched) || c.text.slice(0, 2000);
+      let embedding;
+      try {
+        embedding = await embedText(embeddingInput, config.embeddingModel, 'document');
+      } catch (err) {
+        console.warn(`[minutes/save-to-hub] embed failed for chunk ${i}: ${err.message}`);
+        continue;
+      }
+      const { error: chunkErr } = await supabase.from('chunks').insert({
+        file_id: fileRow.id,
+        chunk_text: c.text,
+        chunk_summary: enriched.summary,
+        keywords: enriched.keywords,
+        hypothetical_questions: enriched.hypothetical_questions,
+        embedding,
+        chunk_index: i,
+      });
+      if (chunkErr) console.warn(`[minutes/save-to-hub] chunk insert failed (${i}): ${chunkErr.message}`);
+      else inserted += 1;
+    }
+
+    res.status(201).json({ file: fileRow, chunk_count: inserted });
+  } catch (err) {
+    console.error('[minutes/save-to-hub] error:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ---------- Render markdown to .docx ----------

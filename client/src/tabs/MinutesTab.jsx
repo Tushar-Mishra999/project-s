@@ -188,18 +188,35 @@ function TranscriptPanel({ initialTranscript, onParsed, onBack }) {
 }
 
 // ─── MoM Preview Panel ─────────────────────────────────────────────────────
-function MomPreviewPanel({ minutes, transcript, onSaved, onBack }) {
+function MomPreviewPanel({ minutes, transcript, activeUser, parts, onSaved, onBack }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const isMD = activeUser?.role === 'MD';
+  const fallbackScope = activeUser?.part || activeUser?.team || '';
+  const [accessibleTo, setAccessibleTo] = useState(
+    isMD ? [] : (fallbackScope ? [fallbackScope] : [])
+  );
+
+  const toggle = (p) =>
+    setAccessibleTo((curr) => (curr.includes(p) ? curr.filter((x) => x !== p) : [...curr, p]));
 
   const save = async () => {
+    if (!activeUser?.id) return setError('No active user.');
+    if (isMD && accessibleTo.length === 0) {
+      return setError('Pick at least one Part/Team that should see these minutes.');
+    }
     setSaving(true);
     setError(null);
     try {
       const res = await fetch('/api/minutes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...minutes, transcript }),
+        body: JSON.stringify({
+          ...minutes,
+          transcript,
+          user_id: activeUser.id,
+          accessible_to: isMD ? accessibleTo : undefined,
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `Server error ${res.status}`);
@@ -215,6 +232,29 @@ function MomPreviewPanel({ minutes, transcript, onSaved, onBack }) {
     <div className="mom-panel">
       <div className="panel-title">Generated Minutes</div>
       <MomContent minutes={minutes} />
+      <div className="form-row" style={{ marginTop: 18 }}>
+        {isMD ? (
+          <>
+            <label>Accessible to</label>
+            <div className="checkbox-row">
+              {[...(parts || []), 'Team 1', 'Team 2', 'Team 3'].map((p) => (
+                <label key={p} className="checkbox-pill">
+                  <input
+                    type="checkbox"
+                    checked={accessibleTo.includes(p)}
+                    onChange={() => toggle(p)}
+                  />
+                  <span>{p}</span>
+                </label>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="sub" style={{ fontSize: 13 }}>
+            Visibility: <strong>{fallbackScope || 'your scope'}</strong>.
+          </div>
+        )}
+      </div>
       {error && <div className="inline-msg error" style={{ marginTop: 12 }}>{error}</div>}
       <div className="mom-btn-row" style={{ marginTop: 24 }}>
         <button className="primary-btn" onClick={save} disabled={saving}>
@@ -272,19 +312,176 @@ function MomContent({ minutes }) {
   );
 }
 
+// ─── Action items review (MoM-flavoured) ──────────────────────────────────
+function MomActionItemsModal({ pending, users, activeUserId, onClose, onSaved }) {
+  const [items, setItems] = useState(() =>
+    (pending.items || []).map((it) => ({
+      id: it.id,
+      text: it.text,
+      assignees: Array.isArray(it.assignees) && it.assignees.length ? it.assignees : [activeUserId].filter(Boolean),
+    }))
+  );
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const toggleAssignee = (idx, uid) =>
+    setItems((prev) => prev.map((it, i) => {
+      if (i !== idx) return it;
+      const has = it.assignees.includes(uid);
+      return { ...it, assignees: has ? it.assignees.filter((u) => u !== uid) : [...it.assignees, uid] };
+    }));
+
+  const setText = (idx, text) =>
+    setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, text } : it)));
+
+  const remove = (idx) => setItems((prev) => prev.filter((_, i) => i !== idx));
+
+  const save = async () => {
+    if (items.length === 0) return setErr('Add at least one item before saving.');
+    if (items.some((it) => it.assignees.length === 0)) return setErr('Each item needs at least one assignee.');
+    setSaving(true);
+    setErr(null);
+    try {
+      const res = await fetch('/api/action-items', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source_type: pending.source_type,
+          source_id: pending.source_id,
+          filename: pending.filename,
+          accessible_to: pending.accessible_to,
+          assigned_by: activeUserId,
+          items,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Save failed');
+      onSaved(json.card);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 720 }}>
+        <div className="modal-header">
+          <h2 className="modal-title">Review action items</h2>
+          <button className="modal-close" onClick={onClose}>×</button>
+        </div>
+        <div className="sub" style={{ marginBottom: 12 }}>
+          {items.length} item{items.length === 1 ? '' : 's'} from <strong>{pending.filename}</strong>.
+          Assign each item, then save.
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxHeight: '50vh', overflowY: 'auto' }}>
+          {items.map((it, idx) => (
+            <div key={it.id} style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 12 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                <textarea
+                  rows={2}
+                  value={it.text}
+                  onChange={(e) => setText(idx, e.target.value)}
+                  style={{ flex: 1, fontSize: 14 }}
+                />
+                <button className="ghost-btn small danger" onClick={() => remove(idx)}>×</button>
+              </div>
+              <div style={{ marginTop: 8, fontSize: 12, color: '#666', marginBottom: 4 }}>
+                Assignees ({it.assignees.length}):
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {users.map((u) => {
+                  const checked = it.assignees.includes(u.id);
+                  return (
+                    <label
+                      key={u.id}
+                      className="checkbox-pill"
+                      style={{ background: checked ? '#dbeafe' : '#f3f4f6', cursor: 'pointer', fontSize: 12 }}
+                    >
+                      <input type="checkbox" checked={checked} onChange={() => toggleAssignee(idx, u.id)} />
+                      <span>{u.name}{u.id === activeUserId ? ' (you)' : ''}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+          {items.length === 0 && (
+            <div className="state-text" style={{ padding: 20, textAlign: 'center' }}>All items removed.</div>
+          )}
+        </div>
+        {err && <div className="inline-msg error" style={{ marginTop: 12 }}>{err}</div>}
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
+          <button className="ghost-btn" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="primary-btn" onClick={save} disabled={saving}>
+            {saving ? 'Saving…' : `Save ${items.length} action item${items.length === 1 ? '' : 's'}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Saved Meeting Card ────────────────────────────────────────────────────
-function MomCard({ minute, onDelete }) {
+function MomCard({ minute, activeUser, users, onDelete, onPendingItems, onSavedToHub }) {
   const [expanded, setExpanded] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [extracting, setExtracting] = useState(false);
+  const [savingHub, setSavingHub] = useState(false);
+  const [msg, setMsg] = useState(null);
 
   const handleDelete = async () => {
     if (!confirm('Delete these meeting minutes? This cannot be undone.')) return;
     setDeleting(true);
     try {
-      await fetch(`/api/minutes/${minute.id}`, { method: 'DELETE' });
+      await fetch(`/api/minutes/${minute.id}?user_id=${encodeURIComponent(activeUser?.id || '')}`, { method: 'DELETE' });
       onDelete(minute.id);
     } catch {
       setDeleting(false);
+    }
+  };
+
+  const handleExtract = async () => {
+    setExtracting(true);
+    setMsg(null);
+    try {
+      const res = await fetch(`/api/minutes/${minute.id}/extract-action-items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: activeUser?.id }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `Server error ${res.status}`);
+      if (!json.items || json.items.length === 0) {
+        setMsg({ type: 'info', text: 'No action items in this meeting.' });
+      } else {
+        onPendingItems(json);
+      }
+    } catch (e) {
+      setMsg({ type: 'error', text: e.message });
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  const handleSaveToHub = async () => {
+    setSavingHub(true);
+    setMsg(null);
+    try {
+      const res = await fetch(`/api/minutes/${minute.id}/save-to-hub`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: activeUser?.id }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `Server error ${res.status}`);
+      setMsg({ type: 'success', text: `Saved as “${json.file?.filename}” in the Library (${json.chunk_count} chunks indexed).` });
+      onSavedToHub?.(json.file);
+    } catch (e) {
+      setMsg({ type: 'error', text: e.message });
+    } finally {
+      setSavingHub(false);
     }
   };
 
@@ -318,6 +515,22 @@ function MomCard({ minute, onDelete }) {
             {expanded ? 'Collapse' : 'View'}
           </button>
           <button
+            className="ghost-btn mom-sm-btn"
+            onClick={handleExtract}
+            disabled={extracting}
+            title="Extract action items from this meeting"
+          >
+            {extracting ? 'Extracting…' : 'Extract action items'}
+          </button>
+          <button
+            className="ghost-btn mom-sm-btn"
+            onClick={handleSaveToHub}
+            disabled={savingHub}
+            title="Save this MoM as a .docx in the Library"
+          >
+            {savingHub ? 'Saving…' : 'Save to Knowledge Hub'}
+          </button>
+          <button
             className="ghost-btn mom-sm-btn mom-danger-btn"
             onClick={handleDelete}
             disabled={deleting}
@@ -327,9 +540,22 @@ function MomCard({ minute, onDelete }) {
         </div>
       </div>
 
+      {msg && (
+        <div className={`inline-msg ${msg.type}`} style={{ margin: '8px 16px 0' }}>
+          {msg.text}
+        </div>
+      )}
+
       {expanded && (
         <div className="mom-card-body">
           <MomContent minutes={minute} />
+          {Array.isArray(minute.accessible_to) && minute.accessible_to.length > 0 && (
+            <div className="library-row-access" style={{ marginTop: 10 }}>
+              {minute.accessible_to.map((p) => (
+                <span key={p} className="access-chip">{p}</span>
+              ))}
+            </div>
+          )}
           {minute.transcript && (
             <details className="mom-transcript-details">
               <summary className="mom-transcript-toggle">Raw Transcript</summary>
@@ -343,20 +569,24 @@ function MomCard({ minute, onDelete }) {
 }
 
 // ─── Main Tab ──────────────────────────────────────────────────────────────
-export default function MinutesTab() {
+export default function MinutesTab({ parts = [], users = [], activeUserId }) {
+  const activeUser = users.find((u) => u.id === activeUserId) || null;
   // view: 'list' | 'record' | 'transcript' | 'preview'
   const [view, setView] = useState('list');
   const [savedMinutes, setSavedMinutes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [transcript, setTranscript] = useState('');
   const [parsedMom, setParsedMom] = useState(null);
+  const [pendingItems, setPendingItems] = useState(null);
 
   useEffect(() => {
-    fetch('/api/minutes')
+    if (!activeUserId) return;
+    setLoading(true);
+    fetch(`/api/minutes?user_id=${encodeURIComponent(activeUserId)}`)
       .then((r) => r.json())
       .then((d) => { setSavedMinutes(d.minutes || []); setLoading(false); })
       .catch(() => setLoading(false));
-  }, []);
+  }, [activeUserId]);
 
   const handleTranscribed = useCallback((text) => {
     setTranscript(text);
@@ -422,6 +652,8 @@ export default function MinutesTab() {
         <MomPreviewPanel
           minutes={parsedMom}
           transcript={transcript}
+          activeUser={activeUser}
+          parts={parts}
           onSaved={handleSaved}
           onBack={() => setView('transcript')}
         />
@@ -445,11 +677,28 @@ export default function MinutesTab() {
           {!loading && savedMinutes.length > 0 && (
             <div className="mom-cards-list">
               {savedMinutes.map((m) => (
-                <MomCard key={m.id} minute={m} onDelete={handleDelete} />
+                <MomCard
+                  key={m.id}
+                  minute={m}
+                  activeUser={activeUser}
+                  users={users}
+                  onDelete={handleDelete}
+                  onPendingItems={setPendingItems}
+                />
               ))}
             </div>
           )}
         </>
+      )}
+
+      {pendingItems && (
+        <MomActionItemsModal
+          pending={pendingItems}
+          users={users}
+          activeUserId={activeUserId}
+          onClose={() => setPendingItems(null)}
+          onSaved={() => setPendingItems(null)}
+        />
       )}
     </div>
   );

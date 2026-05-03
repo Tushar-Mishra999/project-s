@@ -133,7 +133,7 @@ export default function App() {
         {active === 'library' && <LibraryTab users={users} activeUserId={activeUserId} />}
         {active === 'chat'    && <ChatTab activePart={activePart} activeUserId={activeUserId} activeUser={activeUser} />}
         {active === 'actions' && <ActionItemsTab users={users} activeUserId={activeUserId} />}
-        {active === 'minutes' && <MinutesTab />}
+        {active === 'minutes' && <MinutesTab parts={parts} users={users} activeUserId={activeUserId} />}
         {active === 'reports' && <ReportGeneratorTab activePart={activePart} activeUserId={activeUserId} />}
         {active === 'quizzes' && <AIQuizzesTab activePart={activePart} />}
         {active === 'taskforce' && <TaskForceTab users={users} activeUserId={activeUserId} />}
