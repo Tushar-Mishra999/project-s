@@ -1028,18 +1028,32 @@ app.post('/api/render-docx', async (req, res) => {
     const html = await marked.parse(markdown);
     // Wrap with minimal HTML so html-to-docx gets a valid document.
     const wrapped = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${html}</body></html>`;
-    const buffer = await HTMLtoDOCX(wrapped, null, {
+    let out = await HTMLtoDOCX(wrapped, null, {
       orientation: 'portrait',
       margins: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
       table: { row: { cantSplit: true } },
       font: 'Calibri',
       fontSize: 22, // half-points (=11pt)
     });
+    // html-to-docx can return a Blob, ArrayBuffer, or Buffer depending on
+    // version/runtime. Normalise to a Buffer so res.send sends the exact
+    // binary (and sets Content-Length correctly) — otherwise Word reports
+    // the file as corrupt.
+    if (!Buffer.isBuffer(out)) {
+      if (typeof out?.arrayBuffer === 'function') {
+        out = Buffer.from(await out.arrayBuffer());
+      } else if (out instanceof ArrayBuffer) {
+        out = Buffer.from(out);
+      } else if (ArrayBuffer.isView(out)) {
+        out = Buffer.from(out.buffer, out.byteOffset, out.byteLength);
+      } else {
+        throw new Error('html-to-docx returned an unsupported type: ' + typeof out);
+      }
+    }
     const safeName = String(filename).replace(/[^\w.\-]+/g, '_');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
-    res.setHeader('Content-Length', buffer.length);
-    res.send(buffer);
+    res.send(out);
   } catch (err) {
     console.error('[render-docx] error:', err);
     res.status(500).json({ error: err.message || 'docx render failed' });
