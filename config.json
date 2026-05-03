@@ -52,11 +52,6 @@
     },
 
     {
-      "name": "CIO Project Management",
-      "url": "https://www.cio.com/project-management/",
-      "parts": ["PMO"]
-    },
-    {
       "name": "Atlassian — AI at Work",
       "url": "https://www.atlassian.com/blog/ai-at-work",
       "parts": ["PMO"]
@@ -82,7 +77,8 @@
     { "name": "Reuters Technology", "url": "https://www.reuters.com/technology/" },
     { "name": "Meta AI Blog", "url": "https://ai.meta.com/blog/" },
     { "name": "Zinnov", "url": "https://zinnov.com/blog/" },
-    { "name": "PIB India", "url": "https://www.pib.gov.in/indexd.aspx?reg=3&lang=1" }
+    { "name": "PIB India", "url": "https://www.pib.gov.in/indexd.aspx?reg=3&lang=1" },
+    { "name": "CIO Project Management", "url": "https://www.cio.com/project-management/", "parts": ["PMO"], "_disabled_reason": "403 Forbidden — Cloudflare bot block" }
   ],
   "scoringThreshold": 7,
   "maxItemsPerSource": 5,
