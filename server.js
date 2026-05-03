@@ -54,40 +54,48 @@ const upload = multer({
 });
 
 // ---------- Tab 1: Tech Sensing Feed ----------
-// Cache strategy: store the most recent run in Supabase (or memory fallback).
-// GET  /api/feed         -> return cached payload (or null if never run)
-// POST /api/feed/refresh -> run the pipeline, overwrite cache, return result
-let memoryFeedCache = null;
-let pipelineRunning = false;
+// Cache strategy: per-part. Each part runs and stores its own feed
+// independently; refreshing as PMO doesn't wipe TM's cache.
+// GET  /api/feed?part=X         -> return cached payload for that part
+// POST /api/feed/refresh        -> run only the sources tagged for the
+//                                  caller's part, overwrite that cache
+const memoryFeedCache = new Map();   // part -> payload
+const pipelineRunning = new Set();   // set of parts currently being scraped
 
-async function readFeedCache() {
+function cacheId(part) {
+  return part ? `part:${part}` : 'latest';
+}
+
+async function readFeedCache(part) {
+  const key = cacheId(part);
   if (supabase) {
     const { data, error } = await supabase
       .from('feed_cache')
       .select('data, generated_at')
-      .eq('id', 'latest')
+      .eq('id', key)
       .maybeSingle();
     if (error) {
       console.warn('feed_cache read error:', error.message);
-      return memoryFeedCache;
+      return memoryFeedCache.get(key) || null;
     }
     const fromDB = data ? { ...data.data, generatedAt: data.generated_at } : null;
-    // Prefer the most recent data — memory may be newer if a Supabase write failed.
-    if (memoryFeedCache && (!fromDB || memoryFeedCache.generatedAt > fromDB.generatedAt)) {
-      return memoryFeedCache;
+    const fromMem = memoryFeedCache.get(key);
+    if (fromMem && (!fromDB || fromMem.generatedAt > fromDB.generatedAt)) {
+      return fromMem;
     }
     return fromDB;
   }
-  return memoryFeedCache;
+  return memoryFeedCache.get(key) || null;
 }
 
-async function writeFeedCache(payload) {
-  memoryFeedCache = payload;
+async function writeFeedCache(part, payload) {
+  const key = cacheId(part);
+  memoryFeedCache.set(key, payload);
   if (supabase) {
     const { error } = await supabase
       .from('feed_cache')
       .upsert({
-        id: 'latest',
+        id: key,
         data: payload,
         generated_at: payload.generatedAt,
         updated_at: new Date().toISOString(),
@@ -96,9 +104,13 @@ async function writeFeedCache(payload) {
   }
 }
 
-app.get('/api/feed', async (_req, res) => {
-  const cached = await readFeedCache();
-  res.json({ ...(cached || { sources: {}, count: 0, generatedAt: null }), pipelineRunning });
+app.get('/api/feed', async (req, res) => {
+  const part = req.query.part || null;
+  const cached = await readFeedCache(part);
+  res.json({
+    ...(cached || { sources: {}, count: 0, generatedAt: null }),
+    pipelineRunning: pipelineRunning.has(cacheId(part)),
+  });
 });
 
 app.get('/api/feed/sources', (req, res) => {
@@ -125,30 +137,46 @@ app.post('/api/feed/sources', (req, res) => {
   res.json({ sources: cfg.sources });
 });
 
-app.post('/api/feed/refresh', (_req, res) => {
-  if (pipelineRunning) return res.status(202).json({ status: 'running' });
-  pipelineRunning = true;
+app.post('/api/feed/refresh', (req, res) => {
+  const part = (req.body && req.body.part) || req.query.part || null;
+  const key = cacheId(part);
+  if (pipelineRunning.has(key)) return res.status(202).json({ status: 'running' });
+  pipelineRunning.add(key);
   const started = Date.now();
-  console.log(`\n=== /api/feed/refresh at ${new Date().toISOString()} ===`);
-  runFeedPipeline(config)
+
+  // Scope sources to the requested part. If no part given, run everything
+  // (back-compat for any caller that hasn't migrated yet).
+  const scoped = {
+    ...config,
+    sources: part
+      ? config.sources.filter((s) =>
+          Array.isArray(s.parts)
+            ? s.parts.includes(part)
+            : part === 'Tech Management')
+      : config.sources,
+  };
+
+  console.log(`\n=== /api/feed/refresh part=${part || '(all)'} sources=${scoped.sources.length} at ${new Date().toISOString()} ===`);
+  runFeedPipeline(scoped)
     .then(async ({ grouped, total, errors = [] }) => {
       const elapsed = ((Date.now() - started) / 1000).toFixed(1);
-      console.log(`Done in ${elapsed}s. ${total} items / ${Object.keys(grouped).length} sources. ${errors.length} errors.`);
+      console.log(`[${part || 'all'}] Done in ${elapsed}s. ${total} items / ${Object.keys(grouped).length} sources. ${errors.length} errors.`);
       const payload = {
         generatedAt: new Date().toISOString(),
+        part,
         count: total,
         sources: grouped,
         errors,
       };
-      await writeFeedCache(payload);
+      await writeFeedCache(part, payload);
     })
     .catch((err) => {
-      console.error('feed pipeline error:', err);
+      console.error(`[${part || 'all'}] feed pipeline error:`, err);
     })
     .finally(() => {
-      pipelineRunning = false;
+      pipelineRunning.delete(key);
     });
-  res.status(202).json({ status: 'started' });
+  res.status(202).json({ status: 'started', part });
 });
 
 // ---------- Worklet generator ----------

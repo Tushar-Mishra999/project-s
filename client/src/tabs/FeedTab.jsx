@@ -243,12 +243,14 @@ export default function FeedTab({ activePart }) {
     setSourceFilter('All');
   }, [activePart]);
 
+  const partQs = activePart ? `?part=${encodeURIComponent(activePart)}` : '';
+
   const startPolling = useCallback(async (prevGeneratedAt, isCancelled = () => false) => {
     for (let i = 0; i < 100; i++) {
       await new Promise(r => setTimeout(r, 3000));
       if (isCancelled()) return;
       try {
-        const pollRes = await fetch('/api/feed');
+        const pollRes = await fetch(`/api/feed${partQs}`);
         if (pollRes.ok) {
           const json = await pollRes.json();
           if (!json.pipelineRunning && json.generatedAt && json.generatedAt !== prevGeneratedAt) {
@@ -261,13 +263,16 @@ export default function FeedTab({ activePart }) {
     }
     setError('Feed pipeline is taking longer than expected. Reload the page to check results.');
     setRefreshing(false);
-  }, []);
+  }, [partQs]);
 
   useEffect(() => {
     let cancelled = false;
+    setData(null);
+    setLoadingCache(true);
+    setError(null);
     (async () => {
       try {
-        const res = await fetch('/api/feed');
+        const res = await fetch(`/api/feed${partQs}`);
         const json = await res.json();
         if (cancelled) return;
         if (json?.generatedAt) setData(json);
@@ -281,14 +286,18 @@ export default function FeedTab({ activePart }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [startPolling]);
+  }, [startPolling, partQs]);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
     setError(null);
     const prevGeneratedAt = data?.generatedAt ?? null;
     try {
-      const triggerRes = await fetch('/api/feed/refresh', { method: 'POST' });
+      const triggerRes = await fetch('/api/feed/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ part: activePart || null }),
+      });
       if (!triggerRes.ok) {
         const body = await triggerRes.text();
         throw new Error(`Server returned ${triggerRes.status}: ${body.slice(0, 200)}`);
@@ -298,7 +307,7 @@ export default function FeedTab({ activePart }) {
       setError(err.message || 'Failed to refresh feed');
       setRefreshing(false);
     }
-  }, [data, startPolling]);
+  }, [data, startPolling, activePart]);
 
   const partSourceNames = useMemo(
     () => new Set(configSources.map((s) => s.name)),
