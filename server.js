@@ -1133,6 +1133,154 @@ app.post('/api/report-templates/:id/generate', async (req, res) => {
   }
 });
 
+// ---------- Report Generator: NL file picker ----------
+const FILE_MATCH_SYSTEM = `You are an assistant that selects relevant files from a document library based on a natural-language instruction.
+
+You will be given:
+1. The user's instruction describing the report they want.
+2. A JSON list of available files, each with id, filename, uploaded_by, accessible_to (parts/teams), and uploaded_at.
+
+Pick the files that are most relevant to fulfilling the instruction. Match on filename keywords, uploader, the parts/teams scope, and date hints in the instruction (e.g. "April", "Q1", "last sprint").
+
+Return ONLY a JSON object with this exact shape — no markdown fences, no extra fields:
+{"file_ids": ["<id>", "<id>", ...], "rationale": "<one short sentence explaining the match>"}
+
+If nothing matches, return {"file_ids": [], "rationale": "no files matched the instruction"}.`;
+
+app.post('/api/files/match', async (req, res) => {
+  const ready = ragReady();
+  if (!ready.ok) return res.status(503).json({ error: `RAG not configured: missing ${ready.missing.join(', ')}` });
+  const { instruction, user_id } = req.body || {};
+  if (!instruction || !instruction.trim()) {
+    return res.status(400).json({ error: 'instruction is required' });
+  }
+  try {
+    // Reuse the same scoping rules as /api/files
+    let q = supabase.from('files').select('id, filename, uploaded_by, accessible_to, uploaded_at').order('uploaded_at', { ascending: false });
+    if (user_id) {
+      const user = await loadUser(user_id);
+      if (!user) return res.status(400).json({ error: 'unknown user' });
+      const { scope, isAll } = userScope(user);
+      if (!isAll) {
+        if (!scope) return res.json({ matched: [], all: [], rationale: 'user has no scope' });
+        q = q.contains('accessible_to', [scope]);
+      }
+    }
+    const { data: files, error } = await q;
+    if (error) throw error;
+    if (!files || files.length === 0) {
+      return res.json({ matched: [], all: [], rationale: 'no files in your scope' });
+    }
+
+    const payload = files.map((f) => ({
+      id: f.id,
+      filename: f.filename,
+      uploaded_by: f.uploaded_by,
+      accessible_to: f.accessible_to,
+      uploaded_at: f.uploaded_at,
+    }));
+    const userMsg = `Instruction: ${instruction}\n\nAvailable files (JSON):\n${JSON.stringify(payload)}`;
+    const raw = await generateText({
+      model: config.models.scoring,
+      system: FILE_MATCH_SYSTEM,
+      user: userMsg,
+      jsonMode: true,
+      maxTokens: 1024,
+    });
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (parseErr) {
+      console.error('[files/match] JSON parse failed. raw:\n', raw);
+      throw new Error('matcher returned invalid JSON');
+    }
+    const matchedIds = new Set(Array.isArray(parsed.file_ids) ? parsed.file_ids : []);
+    const matched = files.filter((f) => matchedIds.has(f.id));
+    res.json({
+      matched,
+      all: files,
+      rationale: parsed.rationale || '',
+    });
+  } catch (err) {
+    console.error('[files/match] error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/report-templates/:id/generate-from-files', async (req, res) => {
+  const ready = ragReady();
+  if (!ready.ok) return res.status(503).json({ error: `not configured: missing ${ready.missing.join(', ')}` });
+  const { id } = req.params;
+  const { instruction, file_ids } = req.body || {};
+  if (!Array.isArray(file_ids) || file_ids.length === 0) {
+    return res.status(400).json({ error: 'file_ids array is required' });
+  }
+  try {
+    const { data: tmpl, error: tErr } = await supabase
+      .from('report_templates').select('*').eq('id', id).maybeSingle();
+    if (tErr) throw tErr;
+    if (!tmpl) return res.status(404).json({ error: 'template not found' });
+
+    const { data: files, error: fErr } = await supabase
+      .from('files').select('id, filename').in('id', file_ids);
+    if (fErr) throw fErr;
+    if (!files || files.length === 0) {
+      return res.status(404).json({ error: 'no files found for the provided ids' });
+    }
+
+    // Stitch together chunk_text per file (chunks already hold extracted text).
+    const fileById = new Map(files.map((f) => [f.id, f]));
+    const { data: chunks, error: cErr } = await supabase
+      .from('chunks')
+      .select('file_id, chunk_index, chunk_text')
+      .in('file_id', file_ids)
+      .order('chunk_index', { ascending: true });
+    if (cErr) throw cErr;
+    const byFile = new Map();
+    for (const c of chunks || []) {
+      if (!byFile.has(c.file_id)) byFile.set(c.file_id, []);
+      byFile.get(c.file_id).push(c.chunk_text || '');
+    }
+
+    const PER_FILE_LIMIT = 12000; // chars; rough tokens ~3000/file
+    const sections = file_ids
+      .map((fid) => {
+        const f = fileById.get(fid);
+        if (!f) return null;
+        const text = (byFile.get(fid) || []).join('\n\n').slice(0, PER_FILE_LIMIT);
+        if (!text.trim()) return null;
+        return `### Source: ${f.filename}\n${text}`;
+      })
+      .filter(Boolean);
+
+    if (sections.length === 0) {
+      return res.status(422).json({ error: 'selected files have no extractable content' });
+    }
+
+    const inputData = [
+      instruction ? `User instruction: ${instruction}` : null,
+      'Source documents:',
+      sections.join('\n\n---\n\n'),
+    ].filter(Boolean).join('\n\n');
+
+    const userMsg = `--- TEMPLATE (${tmpl.filename}) ---\n${tmpl.template_text}\n\n--- INPUT DATA ---\n${inputData}`;
+    const report = await generateText({
+      model: config.models.summarisation,
+      system: REPORT_SYSTEM,
+      user: userMsg,
+      maxTokens: 4096,
+    });
+    res.json({
+      report,
+      template_filename: tmpl.filename,
+      used_files: files.map((f) => ({ id: f.id, filename: f.filename })),
+    });
+  } catch (err) {
+    console.error('[report-generate-from-files] error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---------- Minutes of Meeting ----------
 const memoryMinutes = new Map();
 

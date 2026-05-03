@@ -91,7 +91,7 @@ function TemplateRow({ tmpl, isSelected, onSelect, onDeleted }) {
   );
 }
 
-export default function ReportGeneratorTab({ activePart }) {
+export default function ReportGeneratorTab({ activePart, activeUserId }) {
   // Templates list
   const [templates, setTemplates] = useState([]);
   const [loadingList, setLoadingList] = useState(true);
@@ -112,6 +112,69 @@ export default function ReportGeneratorTab({ activePart }) {
   const [generateErr, setGenerateErr] = useState(null);
   const [downloadingDocx, setDownloadingDocx] = useState(false);
   const [downloadErr, setDownloadErr] = useState(null);
+
+  // NL "describe your report" flow
+  const [instruction, setInstruction] = useState('');
+  const [matching, setMatching] = useState(false);
+  const [matchErr, setMatchErr] = useState(null);
+  const [matchAll, setMatchAll] = useState([]);   // every file in scope
+  const [matchPicked, setMatchPicked] = useState(new Set()); // ids checked
+  const [matchRationale, setMatchRationale] = useState('');
+  const [matchActive, setMatchActive] = useState(false);
+
+  const handleFindFiles = async (e) => {
+    e?.preventDefault();
+    if (!instruction.trim()) return setMatchErr('Type an instruction first.');
+    setMatching(true);
+    setMatchErr(null);
+    try {
+      const res = await fetch('/api/files/match', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instruction, user_id: activeUserId }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `Match failed (${res.status})`);
+      setMatchAll(json.all || []);
+      setMatchPicked(new Set((json.matched || []).map((f) => f.id)));
+      setMatchRationale(json.rationale || '');
+      setMatchActive(true);
+    } catch (err) {
+      setMatchErr(err.message);
+    } finally {
+      setMatching(false);
+    }
+  };
+
+  const togglePick = (id) => {
+    setMatchPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleConfirmAndGenerate = async () => {
+    if (!selectedId) return setGenerateErr('Select a template first.');
+    if (matchPicked.size === 0) return setGenerateErr('Pick at least one source file.');
+    setGenerating(true);
+    setGenerateErr(null);
+    setReport(null);
+    try {
+      const res = await fetch(`/api/report-templates/${selectedId}/generate-from-files`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instruction, file_ids: Array.from(matchPicked) }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `Generation failed (${res.status})`);
+      setReport({ text: json.report, templateName: json.template_filename, usedFiles: json.used_files });
+    } catch (err) {
+      setGenerateErr(err.message);
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   const loadTemplates = useCallback(async () => {
     setLoadingList(true);
@@ -272,6 +335,117 @@ export default function ReportGeneratorTab({ activePart }) {
             Pick a template from the list above first.
           </div>
         )}
+
+        {/* NL flow */}
+        <form className="upload-form" onSubmit={handleFindFiles} style={{ marginBottom: 18 }}>
+          <div className="form-row">
+            <label>Describe your report — Kernel will pick matching files from the Library</label>
+            <textarea
+              className="search-input"
+              style={{ minHeight: 70, resize: 'vertical', padding: 12 }}
+              placeholder='e.g. "Make a Q1 summary from the Vision CoE monthly reports" or "Summarise all PMO submissions from April."'
+              value={instruction}
+              onChange={(e) => setInstruction(e.target.value)}
+              disabled={matching}
+            />
+          </div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <button className="primary-btn" type="submit" disabled={matching || !instruction.trim()}>
+              {matching ? 'Finding files…' : 'Find matching files'}
+            </button>
+            {matchActive && (
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={() => { setMatchActive(false); setMatchPicked(new Set()); setMatchAll([]); setMatchRationale(''); }}
+              >
+                Clear match
+              </button>
+            )}
+          </div>
+          {matchErr && <div className="inline-msg error">{matchErr}</div>}
+        </form>
+
+        {matchActive && (
+          <div className="panel" style={{ marginBottom: 18, padding: 14, background: 'var(--surface-2)' }}>
+            <div className="panel-title-row" style={{ marginBottom: 8 }}>
+              <h3 className="panel-title" style={{ fontSize: 14 }}>
+                {matchPicked.size} of {matchAll.length} file{matchAll.length === 1 ? '' : 's'} selected
+              </h3>
+            </div>
+            {matchRationale && (
+              <div className="sub" style={{ fontSize: 12, marginBottom: 10 }}>
+                <em>{matchRationale}</em>
+              </div>
+            )}
+            {matchAll.length === 0 ? (
+              <div className="state-text">No files in your scope.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto' }}>
+                {matchAll.map((f) => {
+                  const checked = matchPicked.has(f.id);
+                  return (
+                    <label
+                      key={f.id}
+                      className="checkbox-pill"
+                      style={{
+                        display: 'flex', alignItems: 'flex-start', gap: 8,
+                        padding: '8px 12px',
+                        background: checked ? 'var(--blue-soft-2)' : 'var(--surface)',
+                        border: `1px solid ${checked ? 'rgba(59,130,246,.45)' : 'var(--border)'}`,
+                        borderRadius: 8,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => togglePick(f.id)}
+                        style={{ marginTop: 3 }}
+                      />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 500, fontSize: 13, color: 'var(--text)' }}>{f.filename}</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                          {f.uploaded_by} · {formatDate(f.uploaded_at)}
+                          {Array.isArray(f.accessible_to) && f.accessible_to.length
+                            ? ` · ${f.accessible_to.join(', ')}`
+                            : ''}
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
+              <button
+                className="primary-btn"
+                onClick={handleConfirmAndGenerate}
+                disabled={!selectedId || matchPicked.size === 0 || generating}
+              >
+                {generating ? 'Generating…' : `Confirm & generate from ${matchPicked.size} file${matchPicked.size === 1 ? '' : 's'}`}
+              </button>
+              <button
+                type="button"
+                className="ghost-btn small"
+                onClick={() => setMatchPicked(new Set(matchAll.map((f) => f.id)))}
+              >
+                Select all
+              </button>
+              <button
+                type="button"
+                className="ghost-btn small"
+                onClick={() => setMatchPicked(new Set())}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="sub" style={{ fontSize: 12, marginBottom: 6 }}>
+          Or paste your own input below:
+        </div>
         <form className="upload-form" onSubmit={handleGenerate}>
           <div className="form-row">
             <label>Input data — paste the facts, notes, or context you want written up</label>
@@ -294,7 +468,13 @@ export default function ReportGeneratorTab({ activePart }) {
 
         {report && (
           <div className="report-output">
-            <div className="panel-title-row" style={{ marginTop: 24 }}>
+            {report.usedFiles && report.usedFiles.length > 0 && (
+              <div className="sub" style={{ marginTop: 16, fontSize: 12 }}>
+                Built from {report.usedFiles.length} file{report.usedFiles.length === 1 ? '' : 's'}:{' '}
+                {report.usedFiles.map((f) => f.filename).join(', ')}
+              </div>
+            )}
+            <div className="panel-title-row" style={{ marginTop: 8 }}>
               <h3 className="panel-title">Generated report</h3>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <button
