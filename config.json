@@ -52,33 +52,13 @@
     },
 
     {
-      "name": "HBR Project Management",
-      "url": "https://hbr.org/topic/subject/project-management",
+      "name": "CIO Project Management",
+      "url": "https://www.cio.com/project-management/",
       "parts": ["PMO"]
     },
     {
-      "name": "McKinsey Insights",
-      "url": "https://www.mckinsey.com/featured-insights",
-      "parts": ["PMO"]
-    },
-    {
-      "name": "PMI Blog",
-      "url": "https://www.pmi.org/blog",
-      "parts": ["PMO"]
-    },
-    {
-      "name": "Gartner (PM/AI)",
-      "url": "https://www.gartner.com/en/insights",
-      "parts": ["PMO"]
-    },
-    {
-      "name": "MIT Sloan Management Review",
-      "url": "https://sloanreview.mit.edu/",
-      "parts": ["PMO"]
-    },
-    {
-      "name": "Forbes CIO",
-      "url": "https://www.forbes.com/cio/",
+      "name": "Atlassian — AI at Work",
+      "url": "https://www.atlassian.com/blog/ai-at-work",
       "parts": ["PMO"]
     },
 
