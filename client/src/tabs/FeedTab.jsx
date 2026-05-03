@@ -18,11 +18,12 @@ function formatDate(d) {
   });
 }
 
-function relevanceBucket(score) {
-  if (score == null) return null;
-  if (score >= 8) return { label: 'High', cls: 'high' };
-  if (score >= 5) return { label: 'Medium', cls: 'medium' };
-  return { label: 'Low', cls: 'low' };
+function relevanceBucket(label) {
+  if (!label) return null;
+  if (label === 'High') return { label: 'High', cls: 'high' };
+  if (label === 'Medium') return { label: 'Medium', cls: 'medium' };
+  if (label === 'Low') return { label: 'Low', cls: 'low' };
+  return null;
 }
 
 function WorkletPanel({ open, loading, error, content, onRetry }) {
@@ -88,7 +89,7 @@ function Card({ item, isPrism }) {
     }
   };
 
-  const bucket = isPrism ? relevanceBucket(item.score) : null;
+  const bucket = isPrism ? relevanceBucket(item.workletRelevance) : null;
 
   return (
     <article className="card">
