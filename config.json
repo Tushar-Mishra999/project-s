@@ -4,13 +4,13 @@
       "name": "Hugging Face Blog",
       "url": "https://huggingface.co/blog",
       "rss": "https://huggingface.co/blog/feed.xml",
-      "parts": ["Tech Management"]
+      "parts": ["Tech Management", "PRISM"]
     },
     {
       "name": "MarkTechPost",
       "url": "https://www.marktechpost.com/",
       "rss": "https://www.marktechpost.com/feed/",
-      "parts": ["Tech Management"]
+      "parts": ["Tech Management", "PRISM"]
     },
     {
       "name": "TechCrunch AI",
@@ -52,47 +52,27 @@
     },
 
     {
-      "name": "GitHub Trending",
-      "url": "https://github.com/trending",
-      "parts": ["PRISM"]
-    },
-    {
-      "name": "arXiv cs.AI",
-      "url": "https://arxiv.org/list/cs.AI/recent",
-      "rss": "http://export.arxiv.org/rss/cs.AI",
-      "parts": ["PRISM"]
-    },
-    {
-      "name": "arXiv cs.CV",
-      "url": "https://arxiv.org/list/cs.CV/recent",
-      "rss": "http://export.arxiv.org/rss/cs.CV",
-      "parts": ["PRISM"]
-    },
-    {
-      "name": "arXiv cs.LG",
-      "url": "https://arxiv.org/list/cs.LG/recent",
-      "rss": "http://export.arxiv.org/rss/cs.LG",
-      "parts": ["PRISM"]
-    },
-    {
-      "name": "Hugging Face Papers",
-      "url": "https://huggingface.co/papers",
-      "parts": ["PRISM"]
-    },
-    {
-      "name": "Papers With Code",
-      "url": "https://paperswithcode.com/",
-      "parts": ["PRISM"]
-    },
-    {
-      "name": "Product Hunt (AI)",
-      "url": "https://www.producthunt.com/topics/artificial-intelligence",
-      "parts": ["PRISM"]
-    },
-    {
       "name": "Hacker News",
       "url": "https://news.ycombinator.com/",
       "rss": "https://hnrss.org/frontpage",
+      "parts": ["PRISM"]
+    },
+    {
+      "name": "BAIR Blog",
+      "url": "https://bair.berkeley.edu/blog/",
+      "rss": "https://bair.berkeley.edu/blog/feed.xml",
+      "parts": ["PRISM"]
+    },
+    {
+      "name": "The Gradient",
+      "url": "https://thegradient.pub/",
+      "rss": "https://thegradient.pub/rss/",
+      "parts": ["PRISM"]
+    },
+    {
+      "name": "KDnuggets",
+      "url": "https://www.kdnuggets.com/",
+      "rss": "https://www.kdnuggets.com/feed",
       "parts": ["PRISM"]
     },
 
