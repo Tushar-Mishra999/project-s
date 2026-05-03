@@ -1,10 +1,28 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+
+const PART_LABELS = {
+  'Tech Management': 'Tech Sensing',
+  'PRISM': 'Worklet Radar',
+  'PMO': 'PM Intelligence',
+  'Data Management': 'Data Intelligence',
+};
+
+export function feedTabLabel(part) {
+  return PART_LABELS[part] || 'Tech Sensing';
+}
 
 function formatDate(d) {
   return new Date(d).toLocaleDateString(undefined, {
     year: 'numeric', month: 'long', day: 'numeric',
   });
+}
+
+function relevanceBucket(score) {
+  if (score == null) return null;
+  if (score >= 8) return { label: 'High', cls: 'high' };
+  if (score >= 5) return { label: 'Medium', cls: 'medium' };
+  return { label: 'Low', cls: 'low' };
 }
 
 function WorkletPanel({ open, loading, error, content, onRetry }) {
@@ -31,7 +49,7 @@ function WorkletPanel({ open, loading, error, content, onRetry }) {
   );
 }
 
-function Card({ item }) {
+function Card({ item, isPrism }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -70,17 +88,31 @@ function Card({ item }) {
     }
   };
 
+  const bucket = isPrism ? relevanceBucket(item.score) : null;
+
   return (
     <article className="card">
-      {item.date ? <div className="meta">{item.date}</div> : null}
+      <div className="card-top-row">
+        {item.date ? <div className="meta">{item.date}</div> : <div className="meta" />}
+        {bucket && (
+          <span
+            className={`relevance-badge relevance-${bucket.cls}`}
+            title="AI-scored relevance for worklet creation"
+          >
+            {bucket.label} relevance
+          </span>
+        )}
+      </div>
       <a className="title" href={item.url} target="_blank" rel="noopener noreferrer">
         {item.title}
       </a>
       <p className="summary">{item.summary}</p>
       <div className="card-actions">
-        <button className="link-btn" onClick={handleClick}>
-          {open ? 'Hide worklet' : '＋ Create a worklet'}
-        </button>
+        {isPrism ? (
+          <button className="link-btn" onClick={handleClick}>
+            {open ? 'Hide worklet' : '＋ Create Worklet'}
+          </button>
+        ) : <span />}
         <a className="more" href={item.url} target="_blank" rel="noopener noreferrer">
           Read more →
         </a>
@@ -96,7 +128,7 @@ function Card({ item }) {
   );
 }
 
-function AddSourcePanel({ onAdded, onClose }) {
+function AddSourcePanel({ activePart, onAdded, onClose }) {
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
   const [saving, setSaving] = useState(false);
@@ -111,7 +143,11 @@ function AddSourcePanel({ onAdded, onClose }) {
       const res = await fetch('/api/feed/sources', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), url: url.trim() }),
+        body: JSON.stringify({
+          name: name.trim(),
+          url: url.trim(),
+          parts: activePart ? [activePart] : undefined,
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `Server error ${res.status}`);
@@ -128,7 +164,7 @@ function AddSourcePanel({ onAdded, onClose }) {
   return (
     <div className="add-source-panel">
       <div className="add-source-header">
-        <span className="add-source-title">Add a new source</span>
+        <span className="add-source-title">Add a new source{activePart ? ` for ${activePart}` : ''}</span>
         <button className="add-source-close" onClick={onClose} aria-label="Close">✕</button>
       </div>
       {success ? (
@@ -170,7 +206,7 @@ function AddSourcePanel({ onAdded, onClose }) {
   );
 }
 
-export default function FeedTab() {
+export default function FeedTab({ activePart }) {
   const [data, setData] = useState(null);
   const [loadingCache, setLoadingCache] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -180,13 +216,18 @@ export default function FeedTab() {
   const [sourceFilter, setSourceFilter] = useState('All');
   const [showAddSource, setShowAddSource] = useState(false);
 
-  // Fetch configured sources for filter bar
+  const isPrism = activePart === 'PRISM';
+  const tabLabel = feedTabLabel(activePart);
+
+  // Fetch configured sources for the active part
   useEffect(() => {
-    fetch('/api/feed/sources')
+    const qs = activePart ? `?part=${encodeURIComponent(activePart)}` : '';
+    fetch(`/api/feed/sources${qs}`)
       .then(r => r.json())
       .then(({ sources }) => setConfigSources(sources || []))
       .catch(() => {});
-  }, []);
+    setSourceFilter('All');
+  }, [activePart]);
 
   const startPolling = useCallback(async (prevGeneratedAt, isCancelled = () => false) => {
     for (let i = 0; i < 100; i++) {
@@ -245,16 +286,29 @@ export default function FeedTab() {
     }
   }, [data, startPolling]);
 
+  const partSourceNames = useMemo(
+    () => new Set(configSources.map((s) => s.name)),
+    [configSources]
+  );
+
   const hasData = data && data.generatedAt;
-  const sources = data?.sources ?? {};
-  const total = data?.count ?? 0;
+  const allSources = data?.sources ?? {};
 
-  // Filter pills: use configSources names; fall back to data source names if config not loaded yet
-  const filterOptions = configSources.length > 0
-    ? configSources.map(s => s.name)
-    : Object.keys(sources);
+  // Restrict server-returned sources to those configured for the active part.
+  const sources = useMemo(() => {
+    if (!partSourceNames.size) return {};
+    return Object.fromEntries(
+      Object.entries(allSources).filter(([name]) => partSourceNames.has(name))
+    );
+  }, [allSources, partSourceNames]);
 
-  // Articles to display based on active filter
+  const total = useMemo(
+    () => Object.values(sources).reduce((n, items) => n + (items?.length || 0), 0),
+    [sources]
+  );
+
+  const filterOptions = configSources.map(s => s.name);
+
   const visibleSources = sourceFilter === 'All'
     ? sources
     : Object.fromEntries(Object.entries(sources).filter(([name]) => name === sourceFilter));
@@ -265,11 +319,11 @@ export default function FeedTab() {
     <div className="wrap">
       <div className="header">
         <div>
-          <h1>Tech Sensing Feed</h1>
+          <h1>{tabLabel} Feed</h1>
           <div className="sub">
             {hasData
               ? `Last run: ${formatDate(data.generatedAt)} · ${total} item${total === 1 ? '' : 's'}`
-              : `Click below to scrape today's tech news from ${configSources.length || 9} sources.`}
+              : `Click below to scrape today's news from ${configSources.length || 0} ${activePart || ''} source${(configSources.length || 0) === 1 ? '' : 's'}.`}
           </div>
         </div>
         <button className="primary-btn" onClick={refresh} disabled={refreshing || loadingCache}>
@@ -277,7 +331,6 @@ export default function FeedTab() {
         </button>
       </div>
 
-      {/* Source filter bar */}
       {(filterOptions.length > 0 || !loadingCache) && (
         <div className="source-toolbar">
           <div className="source-filter">
@@ -308,7 +361,14 @@ export default function FeedTab() {
 
       {showAddSource && (
         <AddSourcePanel
-          onAdded={(updated) => { setConfigSources(updated); }}
+          activePart={activePart}
+          onAdded={(updated) => {
+            // Server returns the full list; re-filter to active part for our local state.
+            const filtered = (updated || []).filter((s) =>
+              Array.isArray(s.parts) ? s.parts.includes(activePart) : activePart === 'Tech Management'
+            );
+            setConfigSources(filtered);
+          }}
           onClose={() => setShowAddSource(false)}
         />
       )}
@@ -358,7 +418,7 @@ export default function FeedTab() {
         ) : (
           <div className="state">
             <div className="state-text">
-              No items passed the relevance threshold. Try refreshing later.
+              No items from this part's sources passed the relevance threshold. Try refreshing later.
             </div>
           </div>
         )
@@ -377,7 +437,7 @@ export default function FeedTab() {
           <section className="source-section" key={name}>
             <h2 className="source-header">{name}</h2>
             <div className="cards">
-              {items.map((it, i) => <Card key={`${name}-${i}`} item={it} />)}
+              {items.map((it, i) => <Card key={`${name}-${i}`} item={it} isPrism={isPrism} />)}
             </div>
           </section>
         ))}
