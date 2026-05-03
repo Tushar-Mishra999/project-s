@@ -142,6 +142,16 @@ create table if not exists minutes (
 );
 create index if not exists minutes_accessible_idx on minutes using gin(accessible_to);
 
+-- AI Quiz scores — one row per user (latest attempt overrides earlier).
+create table if not exists quiz_scores (
+  user_id      text primary key,
+  user_name    text not null,
+  quiz_id      text not null default 'rag-basics',
+  score        integer not null,
+  total        integer not null default 5,
+  attempted_at timestamptz default now()
+);
+
 -- 9. Report templates — uploaded once, reused to generate filled reports.
 create table if not exists report_templates (
   id            uuid primary key default gen_random_uuid(),

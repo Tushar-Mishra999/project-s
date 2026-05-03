@@ -1922,6 +1922,51 @@ app.patch('/api/task-forces/:id/action-items/:aid', async (req, res) => {
   }
 });
 
+// ---------- AI Quizzes: scores + leaderboard ----------
+app.get('/api/quiz/leaderboard', async (_req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Supabase not configured' });
+  try {
+    const { data, error } = await supabase
+      .from('quiz_scores')
+      .select('*')
+      .order('score', { ascending: false })
+      .order('attempted_at', { ascending: true });
+    if (error) throw error;
+    res.json({ scores: data || [] });
+  } catch (err) {
+    console.error('[quiz] leaderboard error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/quiz/score', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Supabase not configured' });
+  const { user_id, score, quiz_id = 'rag-basics', total = 5 } = req.body || {};
+  if (!user_id || typeof score !== 'number') {
+    return res.status(400).json({ error: 'user_id and numeric score are required' });
+  }
+  try {
+    const user = await loadUser(user_id);
+    if (!user) return res.status(400).json({ error: 'unknown user' });
+    const { data, error } = await supabase
+      .from('quiz_scores')
+      .upsert({
+        user_id,
+        user_name: user.name,
+        quiz_id,
+        score,
+        total,
+        attempted_at: new Date().toISOString(),
+      }, { onConflict: 'user_id' })
+      .select().single();
+    if (error) throw error;
+    res.status(201).json({ score: data });
+  } catch (err) {
+    console.error('[quiz] score save error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/health', (_req, res) => res.json({ ok: true, rag: ragReady() }));
 
 if (process.env.NODE_ENV === 'production') {
