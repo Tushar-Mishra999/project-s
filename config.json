@@ -4,7 +4,7 @@
       "name": "Hugging Face Blog",
       "url": "https://huggingface.co/blog",
       "rss": "https://huggingface.co/blog/feed.xml",
-      "parts": ["Tech Management", "PRISM"]
+      "parts": ["Tech Management"]
     },
     {
       "name": "MarkTechPost",
@@ -49,31 +49,6 @@
       "name": "NASSCOM",
       "url": "http://community.nasscom.in/blogs",
       "parts": ["Tech Management"]
-    },
-
-    {
-      "name": "Hacker News",
-      "url": "https://news.ycombinator.com/",
-      "rss": "https://hnrss.org/frontpage",
-      "parts": ["PRISM"]
-    },
-    {
-      "name": "BAIR Blog",
-      "url": "https://bair.berkeley.edu/blog/",
-      "rss": "https://bair.berkeley.edu/blog/feed.xml",
-      "parts": ["PRISM"]
-    },
-    {
-      "name": "The Gradient",
-      "url": "https://thegradient.pub/",
-      "rss": "https://thegradient.pub/rss/",
-      "parts": ["PRISM"]
-    },
-    {
-      "name": "KDnuggets",
-      "url": "https://www.kdnuggets.com/",
-      "rss": "https://www.kdnuggets.com/feed",
-      "parts": ["PRISM"]
     },
 
     {
