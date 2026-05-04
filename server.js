@@ -158,6 +158,10 @@ app.post('/api/feed/refresh', (req, res) => {
             : part === 'Tech Management')
       : config.sources,
     scoringThreshold: partThreshold !== undefined ? partThreshold : config.scoringThreshold,
+    skipScoring: part != null && (config.skipScoringParts || []).includes(part),
+    maxItemsPerSource: (part != null && config.maxItemsPerSourceByPart?.[part] != null)
+      ? config.maxItemsPerSourceByPart[part]
+      : config.maxItemsPerSource,
   };
 
   console.log(`\n=== /api/feed/refresh part=${part || '(all)'} sources=${scoped.sources.length} at ${new Date().toISOString()} ===`);

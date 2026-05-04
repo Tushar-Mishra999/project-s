@@ -72,6 +72,12 @@
       "name": "Encord Blog",
       "url": "https://encord.com/blog/",
       "parts": ["Data Management"]
+    },
+    {
+      "name": "Qualcomm News Releases",
+      "url": "https://www.qualcomm.com/news/releases",
+      "scraper": "firecrawl",
+      "parts": ["MD"]
     }
   ],
   "_inactive_sources": [
@@ -83,10 +89,15 @@
   ],
   "scoringThreshold": 7,
   "partThresholds": {
-    "PMO": 0
+    "PMO": 0,
+    "MD": 0
   },
+  "skipScoringParts": ["MD"],
   "maxItemsPerSource": 5,
-  "parts": ["Tech Management", "PRISM", "PMO", "Data Management"],
+  "maxItemsPerSourceByPart": {
+    "MD": 3
+  },
+  "parts": ["Tech Management", "PRISM", "PMO", "Data Management", "MD"],
   "models": {
     "scoring": "gemini-2.5-flash",
     "summarisation": "gemini-2.5-flash",

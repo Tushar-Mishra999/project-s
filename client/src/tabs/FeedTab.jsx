@@ -231,20 +231,21 @@ export default function FeedTab({ activePart, activeUserRole }) {
   const [sourceFilter, setSourceFilter] = useState('All');
   const [showAddSource, setShowAddSource] = useState(false);
 
+  const effectivePart = activeUserRole === 'MD' ? 'MD' : activePart;
   const isPrism = activePart === 'PRISM';
   const tabLabel = feedTabLabel(activePart, activeUserRole);
 
   // Fetch configured sources for the active part
   useEffect(() => {
-    const qs = activePart ? `?part=${encodeURIComponent(activePart)}` : '';
+    const qs = effectivePart ? `?part=${encodeURIComponent(effectivePart)}` : '';
     fetch(`/api/feed/sources${qs}`)
       .then(r => r.json())
       .then(({ sources }) => setConfigSources(sources || []))
       .catch(() => {});
     setSourceFilter('All');
-  }, [activePart]);
+  }, [effectivePart]);
 
-  const partQs = activePart ? `?part=${encodeURIComponent(activePart)}` : '';
+  const partQs = effectivePart ? `?part=${encodeURIComponent(effectivePart)}` : '';
 
   const startPolling = useCallback(async (prevGeneratedAt, isCancelled = () => false) => {
     for (let i = 0; i < 100; i++) {
@@ -297,7 +298,7 @@ export default function FeedTab({ activePart, activeUserRole }) {
       const triggerRes = await fetch('/api/feed/refresh', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ part: activePart || null }),
+        body: JSON.stringify({ part: effectivePart || null }),
       });
       if (!triggerRes.ok) {
         const body = await triggerRes.text();
@@ -308,7 +309,7 @@ export default function FeedTab({ activePart, activeUserRole }) {
       setError(err.message || 'Failed to refresh feed');
       setRefreshing(false);
     }
-  }, [data, startPolling, activePart]);
+  }, [data, startPolling, effectivePart]);
 
   const partSourceNames = useMemo(
     () => new Set(configSources.map((s) => s.name)),
@@ -347,7 +348,7 @@ export default function FeedTab({ activePart, activeUserRole }) {
           <div className="sub">
             {hasData
               ? `Last run: ${formatDate(data.generatedAt)} · ${total} item${total === 1 ? '' : 's'}`
-              : `Click below to scrape today's news from ${configSources.length || 0} ${activePart || ''} source${(configSources.length || 0) === 1 ? '' : 's'}.`}
+              : `Click below to scrape today's news from ${configSources.length || 0} ${effectivePart || ''} source${(configSources.length || 0) === 1 ? '' : 's'}.`}
           </div>
         </div>
         <button className="primary-btn" onClick={refresh} disabled={refreshing || loadingCache}>
@@ -385,11 +386,10 @@ export default function FeedTab({ activePart, activeUserRole }) {
 
       {showAddSource && (
         <AddSourcePanel
-          activePart={activePart}
+          activePart={effectivePart}
           onAdded={(updated) => {
-            // Server returns the full list; re-filter to active part for our local state.
             const filtered = (updated || []).filter((s) =>
-              Array.isArray(s.parts) ? s.parts.includes(activePart) : activePart === 'Tech Management'
+              Array.isArray(s.parts) ? s.parts.includes(effectivePart) : effectivePart === 'Tech Management'
             );
             setConfigSources(filtered);
           }}
