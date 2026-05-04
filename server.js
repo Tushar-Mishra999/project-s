@@ -146,6 +146,9 @@ app.post('/api/feed/refresh', (req, res) => {
 
   // Scope sources to the requested part. If no part given, run everything
   // (back-compat for any caller that hasn't migrated yet).
+  const partThreshold = part != null
+    ? config.partThresholds?.[part]
+    : undefined;
   const scoped = {
     ...config,
     sources: part
@@ -154,6 +157,7 @@ app.post('/api/feed/refresh', (req, res) => {
             ? s.parts.includes(part)
             : part === 'Tech Management')
       : config.sources,
+    scoringThreshold: partThreshold !== undefined ? partThreshold : config.scoringThreshold,
   };
 
   console.log(`\n=== /api/feed/refresh part=${part || '(all)'} sources=${scoped.sources.length} at ${new Date().toISOString()} ===`);

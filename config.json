@@ -82,6 +82,9 @@
     { "name": "Atlassian — AI at Work", "url": "https://atlassianblog.wpengine.com/ai-at-work", "parts": ["PMO"], "_disabled_reason": "parked while CIO is the active PMO source" }
   ],
   "scoringThreshold": 7,
+  "partThresholds": {
+    "PMO": 0
+  },
   "maxItemsPerSource": 5,
   "parts": ["Tech Management", "PRISM", "PMO", "Data Management"],
   "models": {

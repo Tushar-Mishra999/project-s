@@ -8,7 +8,8 @@ const PART_LABELS = {
   'Data Management': 'Data Intelligence',
 };
 
-export function feedTabLabel(part) {
+export function feedTabLabel(part, role) {
+  if (role === 'MD') return 'Industry Insights';
   return PART_LABELS[part] || 'Tech Sensing';
 }
 
@@ -220,7 +221,7 @@ function AddSourcePanel({ activePart, onAdded, onClose }) {
   );
 }
 
-export default function FeedTab({ activePart }) {
+export default function FeedTab({ activePart, activeUserRole }) {
   const [data, setData] = useState(null);
   const [loadingCache, setLoadingCache] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -231,7 +232,7 @@ export default function FeedTab({ activePart }) {
   const [showAddSource, setShowAddSource] = useState(false);
 
   const isPrism = activePart === 'PRISM';
-  const tabLabel = feedTabLabel(activePart);
+  const tabLabel = feedTabLabel(activePart, activeUserRole);
 
   // Fetch configured sources for the active part
   useEffect(() => {

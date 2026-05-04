@@ -82,10 +82,11 @@ export default function App() {
   }, [activeUserId, users, parts]);
 
   const isPrism = activePart === 'PRISM';
+  const activeUserRole = activeUser?.role;
 
   const tabs = useMemo(
-    () => TABS.map((t) => t.id === 'feed' ? { ...t, label: feedTabLabel(activePart) } : t),
-    [activePart]
+    () => TABS.map((t) => t.id === 'feed' ? { ...t, label: feedTabLabel(activePart, activeUserRole) } : t),
+    [activePart, activeUserRole]
   );
 
   return (
@@ -128,7 +129,7 @@ export default function App() {
 
       <main>
         {active === 'home'    && <HomeTab users={users} activeUserId={activeUserId} onNavigate={setActive} />}
-        {active === 'feed'    && <FeedTab activePart={activePart} />}
+        {active === 'feed'    && <FeedTab activePart={activePart} activeUserRole={activeUserRole} />}
         {active === 'files'   && <RetrievalTab parts={parts} activePart={activePart} users={users} activeUserId={activeUserId} />}
         {active === 'library' && <LibraryTab users={users} activeUserId={activeUserId} />}
         {active === 'chat'    && <ChatTab activePart={activePart} activeUserId={activeUserId} activeUser={activeUser} />}
