@@ -26,6 +26,13 @@ const PRISM_STATS = [
   { label: 'Total', value: 47, accent: 'blue' },
   { label: 'Ongoing', value: 12, accent: 'amber' },
   { label: 'Completed', value: 35, accent: 'green' },
+  { label: 'Excellent', value: 18, accent: 'violet' },
+];
+
+const TOP_CONTRIBUTORS = [
+  { name: 'Ananya Sharma', count: 9 },
+  { name: 'Rohan Mehta', count: 7 },
+  { name: 'Priya Nair', count: 6 },
 ];
 
 function formatDate(d) {
@@ -104,9 +111,18 @@ function WorkletStatsWidget() {
           </div>
         ))}
       </div>
-      <p className="home-prism-stats-note">
-        Mock counts — live worklet tracking coming soon.
-      </p>
+      <div className="home-worklet-contributors">
+        <div className="home-worklet-contributors-title">Top Contributors</div>
+        <div className="home-worklet-contributors-list">
+          {TOP_CONTRIBUTORS.map((c, i) => (
+            <div key={c.name} className="home-worklet-contributor-row">
+              <span className={`home-worklet-rank home-worklet-rank-${i + 1}`}>{i + 1}</span>
+              <span className="home-worklet-contributor-name">{c.name}</span>
+              <span className="home-worklet-contributor-count">{c.count} worklets</span>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
