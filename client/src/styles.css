@@ -1291,6 +1291,31 @@ select {
   margin: 0;
 }
 
+/* MD task force list */
+.home-tf-list {
+  display: flex; flex-direction: column; gap: 8px;
+}
+.home-tf-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.home-tf-name {
+  font-size: 13px; font-weight: 500; color: var(--text);
+  flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.home-tf-status {
+  flex-shrink: 0;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+  padding: 3px 10px; border-radius: 999px;
+}
+.home-tf-status-green  { background: rgba(34,197,94,.12);  color: #4ADE80; border: 1px solid rgba(34,197,94,.25); }
+.home-tf-status-amber  { background: rgba(251,191,36,.12); color: #FBBF24; border: 1px solid rgba(251,191,36,.25); }
+.home-tf-status-grey   { background: rgba(148,163,184,.10); color: var(--text-muted); border: 1px solid var(--border); }
+
 /* CTA cards */
 .home-cta {
   position: relative; overflow: hidden;

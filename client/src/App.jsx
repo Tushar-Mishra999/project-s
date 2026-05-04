@@ -134,7 +134,7 @@ export default function App() {
       </nav>
 
       <main>
-        {active === 'home'    && <HomeTab users={users} activeUserId={activeUserId} activePart={activePart} onNavigate={setActive} />}
+        {active === 'home'    && <HomeTab users={users} activeUserId={activeUserId} activePart={activePart} activeUserRole={activeUserRole} onNavigate={setActive} />}
         {active === 'feed'    && <FeedTab activePart={activePart} activeUserRole={activeUserRole} />}
         {active === 'files'   && <RetrievalTab parts={parts} activePart={activePart} users={users} activeUserId={activeUserId} />}
         {active === 'library' && <LibraryTab users={users} activeUserId={activeUserId} />}
