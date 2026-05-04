@@ -54,7 +54,8 @@
     {
       "name": "Atlassian — AI at Work",
       "url": "https://atlassianblog.wpengine.com/ai-at-work",
-      "parts": ["PMO"]
+      "parts": ["PMO"],
+      "scraper": "firecrawl"
     },
 
     {
