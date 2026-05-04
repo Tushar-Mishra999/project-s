@@ -144,24 +144,27 @@ app.post('/api/feed/refresh', (req, res) => {
   pipelineRunning.add(key);
   const started = Date.now();
 
+  // Re-read config from disk so changes to config.json take effect without restart.
+  const liveConfig = JSON.parse(readFileSync(join(__dirname, 'config.json'), 'utf-8'));
+
   // Scope sources to the requested part. If no part given, run everything
   // (back-compat for any caller that hasn't migrated yet).
   const partThreshold = part != null
-    ? config.partThresholds?.[part]
+    ? liveConfig.partThresholds?.[part]
     : undefined;
   const scoped = {
-    ...config,
+    ...liveConfig,
     sources: part
-      ? config.sources.filter((s) =>
+      ? liveConfig.sources.filter((s) =>
           Array.isArray(s.parts)
             ? s.parts.includes(part)
             : part === 'Tech Management')
-      : config.sources,
-    scoringThreshold: partThreshold !== undefined ? partThreshold : config.scoringThreshold,
-    skipScoring: part != null && (config.skipScoringParts || []).includes(part),
-    maxItemsPerSource: (part != null && config.maxItemsPerSourceByPart?.[part] != null)
-      ? config.maxItemsPerSourceByPart[part]
-      : config.maxItemsPerSource,
+      : liveConfig.sources,
+    scoringThreshold: partThreshold !== undefined ? partThreshold : liveConfig.scoringThreshold,
+    skipScoring: part != null && (liveConfig.skipScoringParts || []).includes(part),
+    maxItemsPerSource: (part != null && liveConfig.maxItemsPerSourceByPart?.[part] != null)
+      ? liveConfig.maxItemsPerSourceByPart[part]
+      : liveConfig.maxItemsPerSource,
   };
 
   console.log(`\n=== /api/feed/refresh part=${part || '(all)'} sources=${scoped.sources.length} at ${new Date().toISOString()} ===`);
