@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { userLabel } from './TaskForceTab.jsx';
 
 // ----- Mock content -----
 const MOCK_NEWS = [
@@ -33,6 +32,86 @@ function formatDate(d) {
   if (!d) return '';
   return new Date(d).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
+
+// ---- MD-specific cards ----
+
+function MDTaskForcesWidget({ activeUser, onClick }) {
+  const [taskForces, setTaskForces] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!activeUser?.id) { setTaskForces([]); setLoading(false); return; }
+    let cancelled = false;
+    setLoading(true);
+    fetch(`/api/task-forces?user_id=${encodeURIComponent(activeUser.id)}`)
+      .then((r) => r.json())
+      .then((data) => { if (!cancelled) setTaskForces(data.task_forces || []); })
+      .catch(() => setTaskForces([]))
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [activeUser?.id]);
+
+  return (
+    <div className="home-card home-card-clickable" onClick={onClick} role="button" tabIndex={0}
+         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onClick()}>
+      <div className="home-card-header">
+        <h3 className="home-card-title">Task Forces</h3>
+        <span className="home-card-link">Open →</span>
+      </div>
+      {loading && <div className="home-empty">Loading…</div>}
+      {!loading && taskForces.length === 0 && (
+        <div className="home-empty">No task forces found.</div>
+      )}
+      {!loading && taskForces.length > 0 && (
+        <div className="home-tf-list">
+          {taskForces.map((tf) => {
+            const statusCls =
+              tf.status === 'Active' ? 'green' :
+              tf.status === 'On Hold' ? 'amber' : 'grey';
+            return (
+              <div key={tf.id} className="home-tf-item">
+                <span className="home-tf-name">{tf.name}</span>
+                <span className={`home-tf-status home-tf-status-${statusCls}`}>{tf.status}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WorkletStatsWidget() {
+  return (
+    <div className="home-card home-prism-stats-card">
+      <div className="home-card-header">
+        <h3 className="home-card-title">Worklet Radar</h3>
+        <a
+          className="home-card-link"
+          href="https://samsungprism.com/login"
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+        >
+          View on PRISM →
+        </a>
+      </div>
+      <div className="home-prism-stat-tiles">
+        {PRISM_STATS.map((s) => (
+          <div key={s.label} className={`home-prism-stat-tile home-prism-stat-tile-${s.accent}`}>
+            <span className="home-prism-stat-tile-value">{s.value}</span>
+            <span className="home-prism-stat-tile-label">{s.label}</span>
+          </div>
+        ))}
+      </div>
+      <p className="home-prism-stats-note">
+        Mock counts — live worklet tracking coming soon.
+      </p>
+    </div>
+  );
+}
+
+// ---- Shared cards ----
 
 function ActionItemsWidget({ activeUser, isPrism, onClick }) {
   const [partItems, setPartItems] = useState([]);
@@ -155,36 +234,6 @@ function ActionItemsWidget({ activeUser, isPrism, onClick }) {
   );
 }
 
-function PrismWorkletStatsWidget() {
-  return (
-    <div className="home-card home-prism-stats-card">
-      <div className="home-card-header">
-        <h3 className="home-card-title">Worklet Radar</h3>
-        <a
-          className="home-card-link"
-          href="https://samsungprism.com/login"
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(e) => e.stopPropagation()}
-        >
-          View on PRISM →
-        </a>
-      </div>
-      <div className="home-prism-stat-tiles">
-        {PRISM_STATS.map((s) => (
-          <div key={s.label} className={`home-prism-stat-tile home-prism-stat-tile-${s.accent}`}>
-            <span className="home-prism-stat-tile-value">{s.value}</span>
-            <span className="home-prism-stat-tile-label">{s.label}</span>
-          </div>
-        ))}
-      </div>
-      <p className="home-prism-stats-note">
-        Mock counts — live worklet tracking coming soon.
-      </p>
-    </div>
-  );
-}
-
 function TechSensingWidget({ onClick }) {
   return (
     <div className="home-card home-card-clickable" onClick={onClick} role="button" tabIndex={0}
@@ -269,9 +318,10 @@ function CtaCard({ eyebrow, title, body, ctaLabel, onClick, accent = 'blue' }) {
   );
 }
 
-export default function HomeTab({ users = [], activeUserId, activePart, onNavigate }) {
+export default function HomeTab({ users = [], activeUserId, activePart, activeUserRole, onNavigate }) {
   const activeUser = users.find((u) => u.id === activeUserId);
   const isPrism = activePart === 'PRISM';
+  const isMD = activeUserRole === 'MD';
 
   if (!activeUser) {
     return <div className="wrap home-wrap"><div className="placeholder-panel"><p>Loading…</p></div></div>;
@@ -289,9 +339,16 @@ export default function HomeTab({ users = [], activeUserId, activePart, onNaviga
       </div>
 
       <div className="home-grid">
-        <ActionItemsWidget activeUser={activeUser} isPrism={isPrism} onClick={() => onNavigate('actions')} />
+        {isMD ? (
+          <>
+            <MDTaskForcesWidget activeUser={activeUser} onClick={() => onNavigate('taskforce')} />
+            <WorkletStatsWidget />
+          </>
+        ) : (
+          <ActionItemsWidget activeUser={activeUser} isPrism={isPrism} onClick={() => onNavigate('actions')} />
+        )}
 
-        {isPrism && <PrismWorkletStatsWidget />}
+        {isPrism && !isMD && <WorkletStatsWidget />}
 
         <TechSensingWidget onClick={() => onNavigate('feed')} />
 
