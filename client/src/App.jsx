@@ -85,7 +85,14 @@ export default function App() {
   const activeUserRole = activeUser?.role;
 
   const tabs = useMemo(
-    () => TABS.map((t) => t.id === 'feed' ? { ...t, label: feedTabLabel(activePart, activeUserRole) } : t),
+    () => TABS
+      .filter((t) => {
+        if (t.id === 'taskforce') {
+          return activeUserRole === 'MD' || activePart === 'Tech Management';
+        }
+        return true;
+      })
+      .map((t) => t.id === 'feed' ? { ...t, label: feedTabLabel(activePart, activeUserRole) } : t),
     [activePart, activeUserRole]
   );
 
@@ -96,7 +103,6 @@ export default function App() {
           <div className="brand-row">
             <div className="brand">Kernel</div>
             <div className="nav-right">
-              {isPrism && <PrismStatsBar />}
               <div className="part-switcher">
                 <span className="part-switcher-label">Viewing as</span>
                 <select
@@ -128,7 +134,7 @@ export default function App() {
       </nav>
 
       <main>
-        {active === 'home'    && <HomeTab users={users} activeUserId={activeUserId} onNavigate={setActive} />}
+        {active === 'home'    && <HomeTab users={users} activeUserId={activeUserId} activePart={activePart} onNavigate={setActive} />}
         {active === 'feed'    && <FeedTab activePart={activePart} activeUserRole={activeUserRole} />}
         {active === 'files'   && <RetrievalTab parts={parts} activePart={activePart} users={users} activeUserId={activeUserId} />}
         {active === 'library' && <LibraryTab users={users} activeUserId={activeUserId} />}

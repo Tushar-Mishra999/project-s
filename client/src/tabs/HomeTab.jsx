@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { userLabel } from './TaskForceTab.jsx';
 
 // ----- Mock content -----
@@ -23,17 +23,22 @@ const MOCK_NEWS = [
   },
 ];
 
+const PRISM_STATS = [
+  { label: 'Total', value: 47, accent: 'blue' },
+  { label: 'Ongoing', value: 12, accent: 'amber' },
+  { label: 'Completed', value: 35, accent: 'green' },
+];
+
 function formatDate(d) {
   if (!d) return '';
   return new Date(d).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-function ActionItemsWidget({ activeUser, onClick }) {
+function ActionItemsWidget({ activeUser, isPrism, onClick }) {
   const [partItems, setPartItems] = useState([]);
   const [tfItems, setTfItems] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Pull action items assigned to this user (same source as Action Items tab).
   useEffect(() => {
     if (!activeUser?.id) { setPartItems([]); return; }
     let cancelled = false;
@@ -53,9 +58,8 @@ function ActionItemsWidget({ activeUser, onClick }) {
     return () => { cancelled = true; };
   }, [activeUser?.id]);
 
-  // TF action items assigned to this user — pulled from the same API the TF tab uses.
   useEffect(() => {
-    if (!activeUser?.id) { setTfItems([]); setLoading(false); return; }
+    if (isPrism || !activeUser?.id) { setTfItems([]); setLoading(false); return; }
     let cancelled = false;
     setLoading(true);
     fetch(`/api/task-forces?user_id=${encodeURIComponent(activeUser.id)}`)
@@ -76,24 +80,26 @@ function ActionItemsWidget({ activeUser, onClick }) {
       .catch(() => setTfItems([]))
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [activeUser?.id]);
+  }, [activeUser?.id, isPrism]);
+
+  const cardClass = `home-card home-card-clickable${isPrism ? '' : ' home-card-wide'}`;
 
   return (
-    <div className="home-card home-card-clickable home-card-wide" onClick={onClick} role="button" tabIndex={0}
+    <div className={cardClass} onClick={onClick} role="button" tabIndex={0}
          onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onClick()}>
       <div className="home-card-header">
         <h3 className="home-card-title">Action Items</h3>
         <span className="home-card-link">Open →</span>
       </div>
-      <div className="home-actions-grid">
-        <div className="home-actions-col">
+      {isPrism ? (
+        <div className="home-actions-col" style={{ background: 'transparent', border: 'none', padding: 0 }}>
           <div className="home-actions-subtitle">
-            My Action Items (from documents)
+            My Open Action Items
             <span className="home-pill">{loading ? '…' : partItems.length}</span>
           </div>
           {loading && <div className="home-empty">Loading…</div>}
           {!loading && partItems.length === 0 && (
-            <div className="home-empty">No open document action items assigned to you.</div>
+            <div className="home-empty">No open action items assigned to you.</div>
           )}
           <ul className="home-action-list">
             {partItems.map((it) => (
@@ -104,26 +110,77 @@ function ActionItemsWidget({ activeUser, onClick }) {
             ))}
           </ul>
         </div>
-        <div className="home-actions-col">
-          <div className="home-actions-subtitle">
-            My Task Force Action Items
-            <span className="home-pill">{tfItems.length}</span>
+      ) : (
+        <div className="home-actions-grid">
+          <div className="home-actions-col">
+            <div className="home-actions-subtitle">
+              My Action Items (from documents)
+              <span className="home-pill">{loading ? '…' : partItems.length}</span>
+            </div>
+            {loading && <div className="home-empty">Loading…</div>}
+            {!loading && partItems.length === 0 && (
+              <div className="home-empty">No open document action items assigned to you.</div>
+            )}
+            <ul className="home-action-list">
+              {partItems.map((it) => (
+                <li key={it.id}>
+                  <span className="home-action-text">{it.text}</span>
+                  <span className="home-action-source">{it.source}</span>
+                </li>
+              ))}
+            </ul>
           </div>
-          {tfItems.length === 0 && (
-            <div className="home-empty">No open TF items assigned to you.</div>
-          )}
-          <ul className="home-action-list">
-            {tfItems.map((it) => (
-              <li key={it.id}>
-                <span className="home-action-text">{it.text}</span>
-                <span className="home-action-source">
-                  {it.source}{it.due ? ` · due ${it.due}` : ''}
-                </span>
-              </li>
-            ))}
-          </ul>
+          <div className="home-actions-col">
+            <div className="home-actions-subtitle">
+              My Task Force Action Items
+              <span className="home-pill">{tfItems.length}</span>
+            </div>
+            {tfItems.length === 0 && (
+              <div className="home-empty">No open TF items assigned to you.</div>
+            )}
+            <ul className="home-action-list">
+              {tfItems.map((it) => (
+                <li key={it.id}>
+                  <span className="home-action-text">{it.text}</span>
+                  <span className="home-action-source">
+                    {it.source}{it.due ? ` · due ${it.due}` : ''}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+function PrismWorkletStatsWidget() {
+  return (
+    <div className="home-card home-prism-stats-card">
+      <div className="home-card-header">
+        <h3 className="home-card-title">Worklet Radar</h3>
+        <a
+          className="home-card-link"
+          href="https://samsungprism.com/login"
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+        >
+          View on PRISM →
+        </a>
       </div>
+      <div className="home-prism-stat-tiles">
+        {PRISM_STATS.map((s) => (
+          <div key={s.label} className={`home-prism-stat-tile home-prism-stat-tile-${s.accent}`}>
+            <span className="home-prism-stat-tile-value">{s.value}</span>
+            <span className="home-prism-stat-tile-label">{s.label}</span>
+          </div>
+        ))}
+      </div>
+      <p className="home-prism-stats-note">
+        Mock counts — live worklet tracking coming soon.
+      </p>
     </div>
   );
 }
@@ -212,8 +269,9 @@ function CtaCard({ eyebrow, title, body, ctaLabel, onClick, accent = 'blue' }) {
   );
 }
 
-export default function HomeTab({ users = [], activeUserId, onNavigate }) {
+export default function HomeTab({ users = [], activeUserId, activePart, onNavigate }) {
   const activeUser = users.find((u) => u.id === activeUserId);
+  const isPrism = activePart === 'PRISM';
 
   if (!activeUser) {
     return <div className="wrap home-wrap"><div className="placeholder-panel"><p>Loading…</p></div></div>;
@@ -231,7 +289,9 @@ export default function HomeTab({ users = [], activeUserId, onNavigate }) {
       </div>
 
       <div className="home-grid">
-        <ActionItemsWidget activeUser={activeUser} onClick={() => onNavigate('actions')} />
+        <ActionItemsWidget activeUser={activeUser} isPrism={isPrism} onClick={() => onNavigate('actions')} />
+
+        {isPrism && <PrismWorkletStatsWidget />}
 
         <TechSensingWidget onClick={() => onNavigate('feed')} />
 
