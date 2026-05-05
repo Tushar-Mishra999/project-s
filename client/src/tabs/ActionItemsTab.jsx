@@ -174,23 +174,30 @@ function ActionCard({ card, users, activeUserId, onChanged, onDelete }) {
                     <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
                       Assigned to: {(item.assignees || []).map((id) => nameById(users, id)).join(', ') || '—'}
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, fontSize: 11 }}>
-                      <span style={{ color: '#6b7280' }}>Due:</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, fontSize: 11 }}>
+                      <span style={{ color: '#64748b' }}>Due:</span>
                       {editable ? (
                         <input
                           type="date"
                           value={item.due_date || ''}
                           onChange={(e) => setDueDate(item, e.target.value)}
                           disabled={saving}
-                          style={{ fontSize: 11, padding: '1px 4px' }}
+                          style={{
+                            fontSize: 11, padding: '3px 10px', background: 'rgba(255,255,255,0.06)',
+                            border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, color: '#e2e8f0',
+                            outline: 'none', cursor: 'pointer', colorScheme: 'dark',
+                          }}
                         />
                       ) : (
-                        <span style={{ color: '#6b7280' }}>{item.due_date ? formatDate(item.due_date) : '—'}</span>
+                        <span style={{ color: '#94a3b8' }}>{item.due_date ? formatDate(item.due_date) : '—'}</span>
                       )}
                       {(() => {
                         const s = dueStatus(item.due_date, item.completed);
                         return s && s.kind !== 'future' ? (
-                          <span style={{ color: s.color, fontWeight: 600 }}>{s.label}</span>
+                          <span style={{
+                            color: s.color, fontWeight: 600, fontSize: 10,
+                            background: s.color + '1a', padding: '1px 7px', borderRadius: 4,
+                          }}>{s.label}</span>
                         ) : null;
                       })()}
                     </div>
