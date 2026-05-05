@@ -1056,7 +1056,7 @@ app.post('/api/chat', async (req, res) => {
 
     const useGemma = chat_model === 'gemma';
     const answer = useGemma
-      ? await generateChatGemma({ system: CHAT_SYSTEM, messages, maxTokens: 1024 })
+      ? await generateChatGemma({ system: CHAT_SYSTEM, messages, maxTokens: 2048 })
       : await generateChat({ model: config.models.chat, system: CHAT_SYSTEM, messages, maxTokens: 1024 });
 
     const sources = chunks.map((c) => ({
