@@ -82,10 +82,13 @@ function NotificationBell({ activeUserId, onJump }) {
         onClick={() => setOpen((v) => !v)}
         title={count ? `${count} action item${count === 1 ? '' : 's'} need attention` : 'No notifications'}
         style={{
-          position: 'relative', background: 'transparent', border: '1px solid #e5e7eb',
-          borderRadius: 8, padding: '6px 8px', cursor: 'pointer', display: 'inline-flex',
-          alignItems: 'center', justifyContent: 'center',
+          position: 'relative', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+          borderRadius: 10, padding: '7px 9px', cursor: 'pointer', display: 'inline-flex',
+          alignItems: 'center', justifyContent: 'center', color: '#e2e8f0',
+          transition: 'background 0.2s, border-color 0.2s',
         }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.12)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; }}
         aria-label="Notifications"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -94,9 +97,11 @@ function NotificationBell({ activeUserId, onJump }) {
         </svg>
         {count > 0 && (
           <span style={{
-            position: 'absolute', top: -4, right: -4, minWidth: 16, height: 16, padding: '0 4px',
-            borderRadius: 999, background: hasOverdue ? '#dc2626' : '#d97706', color: 'white',
+            position: 'absolute', top: -5, right: -5, minWidth: 18, height: 18, padding: '0 5px',
+            borderRadius: 999, background: hasOverdue ? '#ef4444' : '#f59e0b', color: 'white',
             fontSize: 10, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: hasOverdue ? '0 0 8px rgba(239,68,68,0.5)' : '0 0 8px rgba(245,158,11,0.4)',
+            border: '2px solid #1e293b',
           }}>{count}</span>
         )}
       </button>
@@ -104,34 +109,52 @@ function NotificationBell({ activeUserId, onJump }) {
         <>
           <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 50 }} />
           <div style={{
-            position: 'absolute', top: 'calc(100% + 6px)', right: 0, width: 340, maxHeight: 420,
-            overflowY: 'auto', background: 'white', border: '1px solid #e5e7eb', borderRadius: 10,
-            boxShadow: '0 10px 30px rgba(0,0,0,0.12)', zIndex: 51, padding: 8,
+            position: 'absolute', top: 'calc(100% + 8px)', right: 0, width: 360, maxHeight: 440,
+            overflowY: 'auto', background: 'linear-gradient(145deg, #1e293b 0%, #0f172a 100%)',
+            border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14,
+            boxShadow: '0 20px 50px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05)', zIndex: 51, padding: 6,
           }}>
-            <div style={{ padding: '6px 10px', fontWeight: 600, fontSize: 13, borderBottom: '1px solid #f1f5f9' }}>
+            <div style={{
+              padding: '10px 14px', fontWeight: 600, fontSize: 13, color: '#e2e8f0',
+              borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: 8,
+            }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+                <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+              </svg>
               Action item alerts
+              {count > 0 && <span style={{ marginLeft: 'auto', fontSize: 11, color: '#64748b', fontWeight: 400 }}>{count} pending</span>}
             </div>
             {count === 0 && (
-              <div style={{ padding: 16, fontSize: 13, color: '#6b7280', textAlign: 'center' }}>
+              <div style={{ padding: 24, fontSize: 13, color: '#64748b', textAlign: 'center' }}>
                 No items due within a day or past deadline.
               </div>
             )}
-            {notifs.map((n) => (
-              <button
-                key={n.key}
-                onClick={() => { setOpen(false); onJump?.(); }}
-                style={{
-                  display: 'block', width: '100%', textAlign: 'left', background: 'transparent',
-                  border: 'none', padding: '8px 10px', borderRadius: 6, cursor: 'pointer',
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = '#f8fafc')}
-                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-              >
-                <div style={{ fontSize: 12, color: n.bucket.color, fontWeight: 700 }}>{n.bucket.label}</div>
-                <div style={{ fontSize: 13, color: '#111827', marginTop: 2 }}>{n.text}</div>
-                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{n.cardName}</div>
-              </button>
-            ))}
+            {notifs.map((n) => {
+              const isOverdue = n.bucket.kind === 'overdue' || n.bucket.kind === 'today';
+              const pillBg = isOverdue ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)';
+              const pillColor = isOverdue ? '#f87171' : '#fbbf24';
+              return (
+                <button
+                  key={n.key}
+                  onClick={() => { setOpen(false); onJump?.(); }}
+                  style={{
+                    display: 'block', width: '100%', textAlign: 'left', background: 'transparent',
+                    border: 'none', padding: '10px 12px', borderRadius: 8, cursor: 'pointer',
+                    transition: 'background 0.15s',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                >
+                  <div style={{
+                    display: 'inline-block', fontSize: 11, color: pillColor, fontWeight: 600,
+                    background: pillBg, padding: '2px 8px', borderRadius: 4,
+                  }}>{n.bucket.label}</div>
+                  <div style={{ fontSize: 13, color: '#f1f5f9', marginTop: 5, lineHeight: 1.4 }}>{n.text}</div>
+                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 3 }}>{n.cardName}</div>
+                </button>
+              );
+            })}
           </div>
         </>
       )}
