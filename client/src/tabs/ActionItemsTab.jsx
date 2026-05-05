@@ -9,6 +9,17 @@ function nameById(users, id) {
   return users.find((u) => u.id === id)?.name || id;
 }
 
+function dueStatus(due_date, completed) {
+  if (!due_date || completed) return null;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const d = new Date(due_date); d.setHours(0,0,0,0);
+  const diffDays = Math.round((d - today) / 86400000);
+  if (diffDays < 0) return { kind: 'overdue', label: `Overdue by ${Math.abs(diffDays)}d`, color: '#dc2626' };
+  if (diffDays === 0) return { kind: 'today', label: 'Due today', color: '#dc2626' };
+  if (diffDays === 1) return { kind: 'tomorrow', label: 'Due tomorrow', color: '#d97706' };
+  return { kind: 'future', label: `Due ${formatDate(due_date)}`, color: '#6b7280' };
+}
+
 function ActionCard({ card, users, activeUserId, onChanged, onDelete }) {
   const [items, setItems] = useState(card.items || []);
   const [saving, setSaving] = useState(false);
@@ -47,6 +58,11 @@ function ActionCard({ card, users, activeUserId, onChanged, onDelete }) {
   const toggleItem = (item) => {
     if (!item.editable) return;
     patchItem(item.id, { completed: !item.completed });
+  };
+
+  const setDueDate = (item, value) => {
+    if (!item.editable) return;
+    patchItem(item.id, { due_date: value || null });
   };
 
   const startEdit = (item) => {
@@ -158,6 +174,26 @@ function ActionCard({ card, users, activeUserId, onChanged, onDelete }) {
                     <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
                       Assigned to: {(item.assignees || []).map((id) => nameById(users, id)).join(', ') || '—'}
                     </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, fontSize: 11 }}>
+                      <span style={{ color: '#6b7280' }}>Due:</span>
+                      {editable ? (
+                        <input
+                          type="date"
+                          value={item.due_date || ''}
+                          onChange={(e) => setDueDate(item, e.target.value)}
+                          disabled={saving}
+                          style={{ fontSize: 11, padding: '1px 4px' }}
+                        />
+                      ) : (
+                        <span style={{ color: '#6b7280' }}>{item.due_date ? formatDate(item.due_date) : '—'}</span>
+                      )}
+                      {(() => {
+                        const s = dueStatus(item.due_date, item.completed);
+                        return s && s.kind !== 'future' ? (
+                          <span style={{ color: s.color, fontWeight: 600 }}>{s.label}</span>
+                        ) : null;
+                      })()}
+                    </div>
                   </>
                 )}
               </div>
@@ -188,7 +224,7 @@ function ActionCard({ card, users, activeUserId, onChanged, onDelete }) {
 function ManualCreateModal({ users, activeUserId, userScope, onClose, onSaved }) {
   const [title, setTitle] = useState('');
   const [items, setItems] = useState([
-    { id: crypto.randomUUID(), text: '', assignees: [activeUserId].filter(Boolean) },
+    { id: crypto.randomUUID(), text: '', assignees: [activeUserId].filter(Boolean), due_date: '' },
   ]);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState(null);
@@ -197,9 +233,13 @@ function ManualCreateModal({ users, activeUserId, userScope, onClose, onSaved })
   function addItem() {
     setItems((prev) => [
       ...prev,
-      { id: crypto.randomUUID(), text: '', assignees: [activeUserId].filter(Boolean) },
+      { id: crypto.randomUUID(), text: '', assignees: [activeUserId].filter(Boolean), due_date: '' },
     ]);
     setTimeout(() => listEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+  }
+
+  function setItemDueDate(idx, due_date) {
+    setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, due_date } : it)));
   }
 
   function removeItem(idx) {
@@ -291,6 +331,17 @@ function ManualCreateModal({ users, activeUserId, userScope, onClose, onSaved })
                   title="Remove this item"
                   disabled={items.length === 1}
                 >×</button>
+              </div>
+              <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#666' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  Due date:
+                  <input
+                    type="date"
+                    value={it.due_date || ''}
+                    onChange={(e) => setItemDueDate(idx, e.target.value)}
+                    style={{ fontSize: 12, padding: '2px 4px' }}
+                  />
+                </label>
               </div>
               <div style={{ marginTop: 8, fontSize: 12, color: '#666', marginBottom: 4 }}>
                 Assignees ({it.assignees.length}):

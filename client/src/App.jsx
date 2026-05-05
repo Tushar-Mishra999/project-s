@@ -23,6 +23,122 @@ const TABS = [
   { id: 'quizzes',  label: 'AI Quizzes' },
 ];
 
+function dueBucket(due_date) {
+  if (!due_date) return null;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const d = new Date(due_date); d.setHours(0,0,0,0);
+  const diffDays = Math.round((d - today) / 86400000);
+  if (diffDays < 0) return { kind: 'overdue', label: `Overdue by ${Math.abs(diffDays)}d`, color: '#dc2626' };
+  if (diffDays === 0) return { kind: 'today', label: 'Due today', color: '#dc2626' };
+  if (diffDays === 1) return { kind: 'tomorrow', label: 'Due tomorrow', color: '#d97706' };
+  return null;
+}
+
+function NotificationBell({ activeUserId, onJump }) {
+  const [notifs, setNotifs] = useState([]);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!activeUserId) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/action-items?user_id=${encodeURIComponent(activeUserId)}`);
+        if (!res.ok) return;
+        const json = await res.json();
+        if (cancelled) return;
+        const out = [];
+        for (const card of (json.cards || [])) {
+          for (const it of (card.items || [])) {
+            if (it.completed) continue;
+            const assignees = Array.isArray(it.assignees) ? it.assignees : [];
+            if (!assignees.includes(activeUserId)) continue;
+            const bucket = dueBucket(it.due_date);
+            if (!bucket) continue;
+            out.push({
+              key: `${card.id}:${it.id}`,
+              cardName: card.filename,
+              text: it.text,
+              bucket,
+              due_date: it.due_date,
+            });
+          }
+        }
+        out.sort((a, b) => new Date(a.due_date) - new Date(b.due_date));
+        setNotifs(out);
+      } catch {}
+    };
+    load();
+    const t = setInterval(load, 60000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [activeUserId]);
+
+  const count = notifs.length;
+  const hasOverdue = notifs.some((n) => n.bucket.kind === 'overdue' || n.bucket.kind === 'today');
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        title={count ? `${count} action item${count === 1 ? '' : 's'} need attention` : 'No notifications'}
+        style={{
+          position: 'relative', background: 'transparent', border: '1px solid #e5e7eb',
+          borderRadius: 8, padding: '6px 8px', cursor: 'pointer', display: 'inline-flex',
+          alignItems: 'center', justifyContent: 'center',
+        }}
+        aria-label="Notifications"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+          <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+        </svg>
+        {count > 0 && (
+          <span style={{
+            position: 'absolute', top: -4, right: -4, minWidth: 16, height: 16, padding: '0 4px',
+            borderRadius: 999, background: hasOverdue ? '#dc2626' : '#d97706', color: 'white',
+            fontSize: 10, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          }}>{count}</span>
+        )}
+      </button>
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 50 }} />
+          <div style={{
+            position: 'absolute', top: 'calc(100% + 6px)', right: 0, width: 340, maxHeight: 420,
+            overflowY: 'auto', background: 'white', border: '1px solid #e5e7eb', borderRadius: 10,
+            boxShadow: '0 10px 30px rgba(0,0,0,0.12)', zIndex: 51, padding: 8,
+          }}>
+            <div style={{ padding: '6px 10px', fontWeight: 600, fontSize: 13, borderBottom: '1px solid #f1f5f9' }}>
+              Action item alerts
+            </div>
+            {count === 0 && (
+              <div style={{ padding: 16, fontSize: 13, color: '#6b7280', textAlign: 'center' }}>
+                No items due within a day or past deadline.
+              </div>
+            )}
+            {notifs.map((n) => (
+              <button
+                key={n.key}
+                onClick={() => { setOpen(false); onJump?.(); }}
+                style={{
+                  display: 'block', width: '100%', textAlign: 'left', background: 'transparent',
+                  border: 'none', padding: '8px 10px', borderRadius: 6, cursor: 'pointer',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = '#f8fafc')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+              >
+                <div style={{ fontSize: 12, color: n.bucket.color, fontWeight: 700 }}>{n.bucket.label}</div>
+                <div style={{ fontSize: 13, color: '#111827', marginTop: 2 }}>{n.text}</div>
+                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{n.cardName}</div>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function PrismStatsBar() {
   // Mock counts — replace with live data when worklet tracking lands.
   const stats = [
@@ -103,6 +219,7 @@ export default function App() {
           <div className="brand-row">
             <div className="brand">Kernel</div>
             <div className="nav-right">
+              <NotificationBell activeUserId={activeUserId} onJump={() => setActive('actions')} />
               <div className="part-switcher">
                 <span className="part-switcher-label">Viewing as</span>
                 <select

@@ -439,6 +439,7 @@ app.post('/api/action-items', async (req, res) => {
         text: it.text.trim(),
         completed: !!it.completed,
         assignees: Array.isArray(it.assignees) ? it.assignees.filter(Boolean) : [],
+        due_date: typeof it.due_date === 'string' && it.due_date ? it.due_date : null,
       }));
     if (cleanItems.length === 0) {
       return res.status(400).json({ error: 'no items to save' });
@@ -486,7 +487,7 @@ app.get('/api/action-items', async (req, res) => {
 // Body: { user_id, item_id, completed?, text? }
 app.patch('/api/action-items/:id', async (req, res) => {
   const { id } = req.params;
-  const { user_id, item_id, completed, text } = req.body || {};
+  const { user_id, item_id, completed, text, due_date } = req.body || {};
   if (!user_id || !item_id) {
     return res.status(400).json({ error: 'user_id and item_id required' });
   }
@@ -513,6 +514,8 @@ app.patch('/api/action-items/:id', async (req, res) => {
     const next = { ...target };
     if (typeof completed === 'boolean') next.completed = completed;
     if (typeof text === 'string' && text.trim()) next.text = text.trim();
+    if (due_date === null) next.due_date = null;
+    else if (typeof due_date === 'string' && due_date) next.due_date = due_date;
     items[idx] = next;
 
     const updatedCard = { ...card, items, updated_at: new Date().toISOString() };
