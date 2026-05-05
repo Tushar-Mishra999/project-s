@@ -16,7 +16,7 @@ if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON && !process.env.GOOGLE_APPLI
 }
 
 import { supabase, ragReady } from './lib/clients.js';
-import { generateChat, generateText, generateWithParts } from './lib/llm.js';
+import { generateChat, generateChatGemma, generateText, generateWithParts } from './lib/llm.js';
 import { runFeedPipeline } from './lib/feed.js';
 import { extractActionItems } from './lib/actionItems.js';
 import { extractText } from './lib/extract.js';
@@ -1027,7 +1027,7 @@ const CHAT_SYSTEM =
   "You are a knowledge assistant with access to internal documents. Answer the user's question using only the context provided below. If the answer is not present in the context, say 'I could not find this in the uploaded documents' — do not use general knowledge. Always cite the source filename at the end of your answer.";
 
 app.post('/api/chat', async (req, res) => {
-  const { query, part, user_id, conversation_history } = req.body || {};
+  const { query, part, user_id, conversation_history, chat_model } = req.body || {};
   if (!query) return res.status(400).json({ error: 'query is required' });
   try {
     const partFilter = await resolvePartFilter({ user_id, part });
@@ -1054,12 +1054,10 @@ app.post('/api/chat', async (req, res) => {
       },
     ];
 
-    const answer = await generateChat({
-      model: config.models.chat,
-      system: CHAT_SYSTEM,
-      messages,
-      maxTokens: 1024,
-    });
+    const useGemma = chat_model === 'gemma';
+    const answer = useGemma
+      ? await generateChatGemma({ system: CHAT_SYSTEM, messages, maxTokens: 1024 })
+      : await generateChat({ model: config.models.chat, system: CHAT_SYSTEM, messages, maxTokens: 1024 });
 
     const sources = chunks.map((c) => ({
       filename: c.filename,

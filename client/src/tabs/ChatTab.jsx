@@ -29,6 +29,11 @@ function SourcesList({ sources }) {
   );
 }
 
+const MODEL_OPTIONS = [
+  { id: 'gemini', label: 'Gemini' },
+  { id: 'gemma', label: 'Gemma 4' },
+];
+
 export default function ChatTab({ activePart, activeUserId, activeUser }) {
   const scopeLabel = activeUser?.role === 'MD'
     ? 'All documents'
@@ -36,11 +41,18 @@ export default function ChatTab({ activePart, activeUserId, activeUser }) {
   const [messages, setMessages] = useState([]); // {role, content, sources?}
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [chatModel, setChatModel] = useState('gemini');
   const scrollRef = useRef(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages, sending]);
+
+  function switchModel(id) {
+    if (id === chatModel) return;
+    setChatModel(id);
+    setMessages([]); // clear history — models have different context windows / styles
+  }
 
   const send = async (e) => {
     e?.preventDefault();
@@ -61,7 +73,7 @@ export default function ChatTab({ activePart, activeUserId, activeUser }) {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: q, user_id: activeUserId, conversation_history: history }),
+        body: JSON.stringify({ query: q, user_id: activeUserId, conversation_history: history, chat_model: chatModel === 'gemma' ? 'gemma' : 'gemini' }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Request failed');
@@ -88,6 +100,25 @@ export default function ChatTab({ activePart, activeUserId, activeUser }) {
         </div>
         <div className="chat-controls">
           <span className="part-badge">{scopeLabel}</span>
+          <div style={{ display: 'flex', gap: 0, border: '1px solid #d1d5db', borderRadius: 6, overflow: 'hidden' }}>
+            {MODEL_OPTIONS.map((opt) => (
+              <button
+                key={opt.id}
+                onClick={() => switchModel(opt.id)}
+                style={{
+                  padding: '4px 12px',
+                  fontSize: 12,
+                  fontWeight: chatModel === opt.id ? 600 : 400,
+                  background: chatModel === opt.id ? '#2563eb' : '#fff',
+                  color: chatModel === opt.id ? '#fff' : '#374151',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
           <button className="ghost-btn" onClick={() => setMessages([])} disabled={messages.length === 0}>
             Clear
           </button>
