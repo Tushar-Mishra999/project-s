@@ -322,8 +322,10 @@ async function readUserActionItemCards(userId) {
 }
 
 async function upsertActionItemCard(card) {
-  // Memory cache key: file_id for file-sourced, source_id otherwise.
-  const memKey = card.file_id || `${card.source_type || 'file'}:${card.source_id}`;
+  // Memory cache key: unique per manual card, file_id for file-sourced, source_id otherwise.
+  const memKey = card.source_type === 'manual'
+    ? `manual:${card.id}`
+    : (card.file_id || `${card.source_type || 'file'}:${card.source_id}`);
   memoryActionItems.set(memKey, card);
   if (supabase) {
     const { error } = await supabase.from('action_items').upsert({
@@ -409,10 +411,11 @@ app.post('/api/action-items', async (req, res) => {
   } = req.body || {};
   const sourceType = source_type || 'file';
   const isMomSource = sourceType === 'mom';
+  const isManualSource = sourceType === 'manual';
   if (!filename || !assigned_by || !Array.isArray(items)) {
     return res.status(400).json({ error: 'filename, assigned_by, items required' });
   }
-  if (!isMomSource && !file_id) {
+  if (!isMomSource && !isManualSource && !file_id) {
     return res.status(400).json({ error: 'file_id required for file-sourced action items' });
   }
   if (isMomSource && !source_id) {
@@ -420,12 +423,13 @@ app.post('/api/action-items', async (req, res) => {
   }
   try {
     // Replace prior card for the same source so saves are idempotent.
+    // Manual cards are always new — no deduplication.
     if (isMomSource) {
       await supabase.from('action_items')
         .delete()
         .eq('source_type', 'mom')
         .eq('source_id', source_id);
-    } else {
+    } else if (!isManualSource) {
       await supabase.from('action_items').delete().eq('file_id', file_id);
     }
     const cleanItems = items
@@ -439,9 +443,10 @@ app.post('/api/action-items', async (req, res) => {
     if (cleanItems.length === 0) {
       return res.status(400).json({ error: 'no items to save' });
     }
+    const newCardId = randomUUID();
     const card = {
-      id: randomUUID(),
-      file_id: isMomSource ? null : file_id,
+      id: newCardId,
+      file_id: (isMomSource || isManualSource) ? null : file_id,
       filename,
       accessible_to: Array.isArray(accessible_to) ? accessible_to : [],
       assigned_by,

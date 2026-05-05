@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 function formatDate(d) {
   if (!d) return '';
@@ -185,11 +185,169 @@ function ActionCard({ card, users, activeUserId, onChanged, onDelete }) {
   );
 }
 
+function ManualCreateModal({ users, activeUserId, userScope, onClose, onSaved }) {
+  const [title, setTitle] = useState('');
+  const [items, setItems] = useState([
+    { id: crypto.randomUUID(), text: '', assignees: [activeUserId].filter(Boolean) },
+  ]);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState(null);
+  const listEndRef = useRef(null);
+
+  function addItem() {
+    setItems((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), text: '', assignees: [activeUserId].filter(Boolean) },
+    ]);
+    setTimeout(() => listEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+  }
+
+  function removeItem(idx) {
+    setItems((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  function setItemText(idx, text) {
+    setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, text } : it)));
+  }
+
+  function toggleAssignee(idx, userId) {
+    setItems((prev) => prev.map((it, i) => {
+      if (i !== idx) return it;
+      const has = it.assignees.includes(userId);
+      return { ...it, assignees: has ? it.assignees.filter((u) => u !== userId) : [...it.assignees, userId] };
+    }));
+  }
+
+  async function save() {
+    if (!title.trim()) { setErr('Please enter a title for this set of action items.'); return; }
+    if (items.length === 0) { setErr('Add at least one action item.'); return; }
+    if (items.some((it) => !it.text.trim())) { setErr('All items must have text before saving.'); return; }
+    if (items.some((it) => it.assignees.length === 0)) {
+      setErr('Each action item needs at least one assignee.');
+      return;
+    }
+    setSaving(true);
+    setErr(null);
+    try {
+      const res = await fetch('/api/action-items', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: title.trim(),
+          accessible_to: userScope ? [userScope] : [],
+          assigned_by: activeUserId,
+          items,
+          source_type: 'manual',
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Save failed');
+      onSaved(json.card);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 720 }}>
+        <div className="modal-header">
+          <h2 className="modal-title">Create action items</h2>
+          <button className="modal-close" onClick={onClose}>×</button>
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Title</label>
+          <input
+            type="text"
+            placeholder="e.g. Sprint planning follow-ups"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            style={{ width: '100%', fontSize: 14, boxSizing: 'border-box' }}
+            autoFocus
+          />
+        </div>
+
+        <div className="sub" style={{ marginBottom: 10 }}>
+          {items.length} item{items.length === 1 ? '' : 's'}. Assign each to one or more people, then save.
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxHeight: '45vh', overflowY: 'auto' }}>
+          {items.map((it, idx) => (
+            <div key={it.id} style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 12 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                <textarea
+                  rows={2}
+                  placeholder="Describe the action item…"
+                  value={it.text}
+                  onChange={(e) => setItemText(idx, e.target.value)}
+                  style={{ flex: 1, fontSize: 14 }}
+                />
+                <button
+                  className="ghost-btn small danger"
+                  onClick={() => removeItem(idx)}
+                  title="Remove this item"
+                  disabled={items.length === 1}
+                >×</button>
+              </div>
+              <div style={{ marginTop: 8, fontSize: 12, color: '#666', marginBottom: 4 }}>
+                Assignees ({it.assignees.length}):
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {users.map((u) => {
+                  const checked = it.assignees.includes(u.id);
+                  return (
+                    <label
+                      key={u.id}
+                      className="checkbox-pill"
+                      style={{ background: checked ? '#dbeafe' : '#f3f4f6', cursor: 'pointer', fontSize: 12 }}
+                    >
+                      <input type="checkbox" checked={checked} onChange={() => toggleAssignee(idx, u.id)} />
+                      <span>{u.name}{u.id === activeUserId ? ' (you)' : ''}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+          <div ref={listEndRef} />
+        </div>
+
+        <button className="ghost-btn" style={{ marginTop: 12 }} onClick={addItem}>
+          + Add item
+        </button>
+
+        {err && <div className="inline-msg error" style={{ marginTop: 12 }}>{err}</div>}
+
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
+          <button className="ghost-btn" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="primary-btn" onClick={save} disabled={saving || items.length === 0}>
+            {saving ? 'Saving…' : `Save ${items.length} action item${items.length === 1 ? '' : 's'}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ActionItemsTab({ users = [], activeUserId }) {
   const [cards, setCards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [tab, setTab] = useState('mine'); // 'mine' | 'assigned'
+  const [showCreate, setShowCreate] = useState(false);
+
+  const activeUser = users.find((u) => u.id === activeUserId);
+  const userScope = activeUser?.part || activeUser?.team || null;
+
+  const handleCreated = useCallback((newCard) => {
+    setCards((prev) => [newCard, ...prev]);
+    setShowCreate(false);
+    // Switch to "Assigned by me" so the user can see the card they just created.
+    setTab('assigned');
+  }, []);
 
   const loadCards = useCallback(async () => {
     if (!activeUserId) return;
@@ -249,10 +407,25 @@ export default function ActionItemsTab({ users = [], activeUserId }) {
             Action items assigned to you or assigned by you. Items assigned to you are editable; items you've assigned to others are view-only.
           </div>
         </div>
-        <button className="ghost-btn" onClick={loadCards} disabled={loading}>
-          {loading ? 'Loading…' : 'Refresh'}
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="primary-btn" onClick={() => setShowCreate(true)}>
+            + Create action item
+          </button>
+          <button className="ghost-btn" onClick={loadCards} disabled={loading}>
+            {loading ? 'Loading…' : 'Refresh'}
+          </button>
+        </div>
       </div>
+
+      {showCreate && (
+        <ManualCreateModal
+          users={users}
+          activeUserId={activeUserId}
+          userScope={userScope}
+          onClose={() => setShowCreate(false)}
+          onSaved={handleCreated}
+        />
+      )}
 
       <div style={{ display: 'flex', gap: 8, margin: '8px 0 16px' }}>
         <button
@@ -294,8 +467,8 @@ export default function ActionItemsTab({ users = [], activeUserId }) {
             <h2>{tab === 'mine' ? 'Nothing assigned to you' : 'You haven\'t assigned anything yet'}</h2>
             <p>
               {tab === 'mine'
-                ? 'Items will appear here when someone assigns an action item to you from an uploaded document.'
-                : 'Upload a document in Knowledge Hub with "Extract action items" enabled, then review and assign them.'}
+                ? 'Items will appear here when someone assigns an action item to you.'
+                : 'Use "Create action item" above, or upload a document in Knowledge Hub with "Extract action items" enabled.'}
             </p>
           </div>
         </div>
