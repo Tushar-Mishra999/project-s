@@ -61,7 +61,7 @@ function ActionCard({ card, users, activeUserId, onChanged, onDelete }) {
   };
 
   const setDueDate = (item, value) => {
-    if (!item.editable) return;
+    if (!isAssigner) return;
     patchItem(item.id, { due_date: value || null });
   };
 
@@ -176,7 +176,7 @@ function ActionCard({ card, users, activeUserId, onChanged, onDelete }) {
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, fontSize: 11 }}>
                       <span style={{ color: '#64748b' }}>Due:</span>
-                      {editable ? (
+                      {isAssigner ? (
                         <input
                           type="date"
                           value={item.due_date || ''}

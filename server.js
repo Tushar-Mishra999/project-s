@@ -508,8 +508,9 @@ app.patch('/api/action-items/:id', async (req, res) => {
     if (idx < 0) return res.status(404).json({ error: 'item not found' });
     const target = items[idx];
     const assignees = Array.isArray(target.assignees) ? target.assignees : [];
-    if (!assignees.includes(user_id)) {
-      return res.status(403).json({ error: 'only assignees can edit this item' });
+    const isAssigner = card.assigned_by === user_id;
+    if (!assignees.includes(user_id) && !isAssigner) {
+      return res.status(403).json({ error: 'only assignees or the assigner can edit this item' });
     }
     const next = { ...target };
     if (typeof completed === 'boolean') next.completed = completed;
