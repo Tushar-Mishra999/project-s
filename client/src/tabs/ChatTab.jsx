@@ -31,7 +31,7 @@ function SourcesList({ sources }) {
 
 const MODEL_OPTIONS = [
   { id: 'gemini', label: 'Gemini' },
-  { id: 'deepseek', label: 'DeepSeek V3' },
+  { id: 'gemma', label: 'Gemma 4' },
 ];
 
 export default function ChatTab({ activePart, activeUserId, activeUser }) {
@@ -73,7 +73,7 @@ export default function ChatTab({ activePart, activeUserId, activeUser }) {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: q, user_id: activeUserId, conversation_history: history, chat_model: chatModel }),
+        body: JSON.stringify({ query: q, user_id: activeUserId, conversation_history: history, chat_model: chatModel === 'gemma' ? 'gemma' : 'gemini' }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Request failed');
