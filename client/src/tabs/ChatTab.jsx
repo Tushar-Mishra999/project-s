@@ -1,6 +1,110 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 
+const MODEL_ICONS = {
+  gemini: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" fill="url(#gi)"/>
+      <defs><radialGradient id="gi" cx="30%" cy="30%"><stop offset="0%" stopColor="#a78bfa"/><stop offset="100%" stopColor="#3b82f6"/></radialGradient></defs>
+    </svg>
+  ),
+  gemma: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+      <path d="M12 2L4 7v10l8 5 8-5V7z" fill="url(#gma)"/>
+      <defs><radialGradient id="gma" cx="30%" cy="30%"><stop offset="0%" stopColor="#34d399"/><stop offset="100%" stopColor="#059669"/></radialGradient></defs>
+    </svg>
+  ),
+};
+
+function ModelDropdown({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const selected = MODEL_OPTIONS.find((o) => o.id === value) || MODEL_OPTIONS[0];
+
+  useEffect(() => {
+    function onClick(e) { if (!ref.current?.contains(e.target)) setOpen(false); }
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, []);
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 7,
+          padding: '6px 10px 6px 10px',
+          background: 'var(--surface-2)',
+          border: '1px solid var(--border-strong)',
+          borderRadius: 10, cursor: 'pointer',
+          color: 'var(--text)', fontSize: 12, fontWeight: 500,
+          fontFamily: 'inherit', transition: 'border-color .15s, box-shadow .15s',
+          boxShadow: open ? '0 0 0 2px rgba(59,130,246,.25)' : 'none',
+          minWidth: 200,
+        }}
+      >
+        {MODEL_ICONS[selected.id]}
+        <span style={{ flex: 1, textAlign: 'left' }}>
+          <span style={{ color: 'var(--text-muted)', fontSize: 10, display: 'block', lineHeight: 1.2 }}>Model</span>
+          <span style={{ letterSpacing: '0.01em' }}>{selected.label}</span>
+        </span>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0, opacity: 0.5, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }}>
+          <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 6px)', right: 0,
+          background: 'var(--surface-2)', border: '1px solid var(--border-strong)',
+          borderRadius: 12, overflow: 'hidden', zIndex: 50, minWidth: 260,
+          boxShadow: '0 8px 32px rgba(0,0,0,.45)',
+        }}>
+          <div style={{ padding: '6px 10px 4px', fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+            Select model
+          </div>
+          {MODEL_OPTIONS.map((opt) => {
+            const active = opt.id === value;
+            return (
+              <button
+                key={opt.id}
+                onClick={() => { onChange(opt.id); setOpen(false); }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  width: '100%', padding: '9px 12px', border: 'none',
+                  background: active ? 'rgba(59,130,246,.12)' : 'transparent',
+                  cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
+                  borderLeft: active ? '2px solid #3b82f6' : '2px solid transparent',
+                  transition: 'background .12s',
+                }}
+                onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,.04)'; }}
+                onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'transparent'; }}
+              >
+                <div style={{
+                  width: 30, height: 30, borderRadius: 8, flexShrink: 0,
+                  background: active ? 'rgba(59,130,246,.18)' : 'var(--surface-3)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  {MODEL_ICONS[opt.id]}
+                </div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: active ? '#93c5fd' : 'var(--text)', lineHeight: 1.3 }}>{opt.label}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{opt.provider}</div>
+                </div>
+                {active && (
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ marginLeft: 'auto', flexShrink: 0 }}>
+                    <path d="M2.5 7l3 3 6-6" stroke="#3b82f6" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SourcesList({ sources }) {
   const [open, setOpen] = useState(false);
   if (!sources || sources.length === 0) return null;
@@ -30,8 +134,8 @@ function SourcesList({ sources }) {
 }
 
 const MODEL_OPTIONS = [
-  { id: 'gemini', label: 'Gemini' },
-  { id: 'gemma', label: 'Gemma 4' },
+  { id: 'gemini', label: 'Gemini 2.5 Flash', provider: 'Google · Vertex AI' },
+  { id: 'gemma', label: 'Gemma 4 26B A4B IT', provider: 'Google · MaaS' },
 ];
 
 export default function ChatTab({ activePart, activeUserId, activeUser }) {
@@ -100,25 +204,7 @@ export default function ChatTab({ activePart, activeUserId, activeUser }) {
         </div>
         <div className="chat-controls">
           <span className="part-badge">{scopeLabel}</span>
-          <div style={{ display: 'flex', gap: 0, border: '1px solid #d1d5db', borderRadius: 6, overflow: 'hidden' }}>
-            {MODEL_OPTIONS.map((opt) => (
-              <button
-                key={opt.id}
-                onClick={() => switchModel(opt.id)}
-                style={{
-                  padding: '4px 12px',
-                  fontSize: 12,
-                  fontWeight: chatModel === opt.id ? 600 : 400,
-                  background: chatModel === opt.id ? '#2563eb' : '#fff',
-                  color: chatModel === opt.id ? '#fff' : '#374151',
-                  border: 'none',
-                  cursor: 'pointer',
-                }}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
+          <ModelDropdown value={chatModel} onChange={switchModel} />
           <button className="ghost-btn" onClick={() => setMessages([])} disabled={messages.length === 0}>
             Clear
           </button>
