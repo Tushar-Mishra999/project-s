@@ -87,10 +87,7 @@ function ModelDropdown({ value, onChange }) {
                 }}>
                   {MODEL_ICONS[opt.id]}
                 </div>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: active ? '#93c5fd' : 'var(--text)', lineHeight: 1.3 }}>{opt.label}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{opt.provider}</div>
-                </div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: active ? '#93c5fd' : 'var(--text)' }}>{opt.label}</div>
                 {active && (
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ marginLeft: 'auto', flexShrink: 0 }}>
                     <path d="M2.5 7l3 3 6-6" stroke="#3b82f6" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
@@ -134,8 +131,8 @@ function SourcesList({ sources }) {
 }
 
 const MODEL_OPTIONS = [
-  { id: 'gemini', label: 'Gemini 2.5 Flash', provider: 'Google · Vertex AI' },
-  { id: 'gemma', label: 'Gemma 4 26B A4B IT', provider: 'Google · MaaS' },
+  { id: 'gemini', label: 'Gemini 2.5 Flash' },
+  { id: 'gemma', label: 'Gemma 4 26B A4B IT' },
 ];
 
 export default function ChatTab({ activePart, activeUserId, activeUser }) {
@@ -203,11 +200,7 @@ export default function ChatTab({ activePart, activeUserId, activeUser }) {
           <div className="sub">Ask questions across your team's documents.</div>
         </div>
         <div className="chat-controls">
-          <span className="part-badge">{scopeLabel}</span>
           <ModelDropdown value={chatModel} onChange={switchModel} />
-          <button className="ghost-btn" onClick={() => setMessages([])} disabled={messages.length === 0}>
-            Clear
-          </button>
         </div>
       </div>
 
