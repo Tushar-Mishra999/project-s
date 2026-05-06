@@ -25,8 +25,9 @@
       "parts": ["Tech Management","PRISM"]
     },
     {
-      "name": "NASSCOM",
-      "url": "http://community.nasscom.in/blogs",
+      "name": "Engadget",
+      "url": "https://www.engadget.com",
+      "rss": "https://www.engadget.com/rss.xml",
       "parts": ["Tech Management","PRISM"]
     },
     {
@@ -51,8 +52,15 @@
       "parts": ["Data Management"]
     },
     {
-      "name": "Qualcomm News Releases",
-      "url": "https://www.qualcomm.com/news/releases",
+      "name": "Microsoft News",
+      "url": "https://news.microsoft.com",
+      "rss": "https://news.microsoft.com/feed/",
+      "parts": ["MD"]
+    },
+    {
+      "name": "NVIDIA AI News",
+      "url": "https://nvidianews.nvidia.com",
+      "rss": "https://nvidianews.nvidia.com/cats/ai_platforms_deployment.xml",
       "parts": ["MD"]
     }
   ],

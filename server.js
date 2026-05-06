@@ -36,9 +36,6 @@ if (!process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
   console.error('Missing GOOGLE_APPLICATION_CREDENTIALS_JSON in .env');
   process.exit(1);
 }
-if (!process.env.FIRECRAWL_API_KEY) {
-  console.warn('FIRECRAWL_API_KEY not set — feed pipeline uses Gemini url_context instead of Firecrawl.');
-}
 
 const app = express();
 app.use(cors());
