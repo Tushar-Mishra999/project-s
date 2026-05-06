@@ -1,6 +1,126 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 
+const MODEL_ICONS = {
+  gemini: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" fill="url(#rgi)"/>
+      <defs><radialGradient id="rgi" cx="30%" cy="30%"><stop offset="0%" stopColor="#a78bfa"/><stop offset="100%" stopColor="#3b82f6"/></radialGradient></defs>
+    </svg>
+  ),
+  gemma: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+      <path d="M12 2L4 7v10l8 5 8-5V7z" fill="url(#rgma)"/>
+      <defs><radialGradient id="rgma" cx="30%" cy="30%"><stop offset="0%" stopColor="#34d399"/><stop offset="100%" stopColor="#059669"/></radialGradient></defs>
+    </svg>
+  ),
+  glm: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+      <rect x="3" y="3" width="18" height="18" rx="4" fill="url(#rglm)"/>
+      <defs><radialGradient id="rglm" cx="30%" cy="30%"><stop offset="0%" stopColor="#f472b6"/><stop offset="100%" stopColor="#9333ea"/></radialGradient></defs>
+    </svg>
+  ),
+  kimi: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 4l2 4h4l-3 3 1 4-4-2.5L8 17l1-4-3-3h4z" fill="url(#rkimi)"/>
+      <defs><radialGradient id="rkimi" cx="30%" cy="30%"><stop offset="0%" stopColor="#fbbf24"/><stop offset="100%" stopColor="#f59e0b"/></radialGradient></defs>
+    </svg>
+  ),
+};
+
+const MODEL_OPTIONS = [
+  { id: 'gemini', label: 'Gemini 2.5 Flash' },
+  { id: 'gemma', label: 'Gemma 4 26B A4B IT' },
+  { id: 'glm', label: 'GLM 5' },
+  { id: 'kimi', label: 'Kimi K2 Thinking' },
+];
+
+function ModelDropdown({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const selected = MODEL_OPTIONS.find((o) => o.id === value) || MODEL_OPTIONS[0];
+
+  useEffect(() => {
+    function onClick(e) { if (!ref.current?.contains(e.target)) setOpen(false); }
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, []);
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 7,
+          padding: '6px 10px',
+          background: 'var(--surface-2)',
+          border: '1px solid var(--border-strong)',
+          borderRadius: 10, cursor: 'pointer',
+          color: 'var(--text)', fontSize: 12, fontWeight: 500,
+          fontFamily: 'inherit', transition: 'border-color .15s, box-shadow .15s',
+          boxShadow: open ? '0 0 0 2px rgba(59,130,246,.25)' : 'none',
+          minWidth: 200,
+        }}
+      >
+        {MODEL_ICONS[selected.id]}
+        <span style={{ flex: 1, textAlign: 'left' }}>
+          <span style={{ color: 'var(--text-muted)', fontSize: 10, display: 'block', lineHeight: 1.2 }}>Model</span>
+          <span style={{ letterSpacing: '0.01em' }}>{selected.label}</span>
+        </span>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0, opacity: 0.5, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }}>
+          <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 6px)', right: 0,
+          background: 'var(--surface-2)', border: '1px solid var(--border-strong)',
+          borderRadius: 12, overflow: 'hidden', zIndex: 50, minWidth: 260,
+          boxShadow: '0 8px 32px rgba(0,0,0,.45)',
+        }}>
+          <div style={{ padding: '6px 10px 4px', fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+            Select model
+          </div>
+          {MODEL_OPTIONS.map((opt) => {
+            const active = opt.id === value;
+            return (
+              <button
+                key={opt.id}
+                onClick={() => { onChange(opt.id); setOpen(false); }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  width: '100%', padding: '9px 12px', border: 'none',
+                  background: active ? 'rgba(59,130,246,.12)' : 'transparent',
+                  cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
+                  borderLeft: active ? '2px solid #3b82f6' : '2px solid transparent',
+                  transition: 'background .12s',
+                }}
+                onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,.04)'; }}
+                onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'transparent'; }}
+              >
+                <div style={{
+                  width: 30, height: 30, borderRadius: 8, flexShrink: 0,
+                  background: active ? 'rgba(59,130,246,.18)' : 'var(--surface-3)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  {MODEL_ICONS[opt.id]}
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: active ? '#93c5fd' : 'var(--text)' }}>{opt.label}</div>
+                {active && (
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ marginLeft: 'auto', flexShrink: 0 }}>
+                    <path d="M2.5 7l3 3 6-6" stroke="#3b82f6" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function formatDate(d) {
   if (!d) return '';
   return new Date(d).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
@@ -104,6 +224,9 @@ export default function ReportGeneratorTab({ activePart, activeUserId }) {
   const [uploadMsg, setUploadMsg] = useState(null);
   const fileInputRef = useRef(null);
 
+  // Model selection
+  const [reportModel, setReportModel] = useState('gemini');
+
   // Generate state
   const [selectedId, setSelectedId] = useState(null);
   const [inputData, setInputData] = useState('');
@@ -164,7 +287,7 @@ export default function ReportGeneratorTab({ activePart, activeUserId }) {
       const res = await fetch(`/api/report-templates/${selectedId}/generate-from-files`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ instruction, file_ids: Array.from(matchPicked) }),
+        body: JSON.stringify({ instruction, file_ids: Array.from(matchPicked), report_model: reportModel }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `Generation failed (${res.status})`);
@@ -228,7 +351,7 @@ export default function ReportGeneratorTab({ activePart, activeUserId }) {
       const res = await fetch(`/api/report-templates/${selectedId}/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input_data: inputData }),
+        body: JSON.stringify({ input_data: inputData, report_model: reportModel }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `Generation failed (${res.status})`);
@@ -250,6 +373,9 @@ export default function ReportGeneratorTab({ activePart, activeUserId }) {
           <div className="sub">
             Upload a template once, then generate filled reports from your input data.
           </div>
+        </div>
+        <div className="chat-controls">
+          <ModelDropdown value={reportModel} onChange={setReportModel} />
         </div>
       </div>
 
