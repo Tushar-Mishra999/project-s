@@ -105,7 +105,11 @@ export default function ChatFAB({ activePart, activeUserId, activeUser }) {
         </div>
         <div className="chat-fab-ring" />
         <div className="chat-fab-ring chat-fab-ring-2" />
+        <span className="chat-fab-tooltip">Chat with Pluto</span>
       </button>
+
+      {/* Backdrop overlay */}
+      <div className={`chat-fab-backdrop${open ? ' chat-fab-backdrop-open' : ''}`} onClick={() => setOpen(false)} />
 
       {/* Chat panel */}
       <div className={`chat-fab-panel${open ? ' chat-fab-panel-open' : ''}`}>

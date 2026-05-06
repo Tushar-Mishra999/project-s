@@ -2,6 +2,48 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import DOMPurify from 'dompurify';
 import { renderPdfThumbnail } from '../lib/pdfPreview.js';
 
+// ── Typewriter effect ────────────────────────────────────
+const TYPEWRITER_LINES = [
+  'Search across all your team documents instantly',
+  'Generate polished reports from your knowledge base',
+  'Extract action items from emails and uploads',
+  'Get quick insights with AI-powered chat',
+  'Keep your team aligned with a shared library',
+];
+
+function Typewriter() {
+  const [lineIdx, setLineIdx] = useState(0);
+  const [charIdx, setCharIdx] = useState(0);
+  const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    const line = TYPEWRITER_LINES[lineIdx];
+    if (!deleting && charIdx < line.length) {
+      const t = setTimeout(() => setCharIdx((c) => c + 1), 38);
+      return () => clearTimeout(t);
+    }
+    if (!deleting && charIdx === line.length) {
+      const t = setTimeout(() => setDeleting(true), 2200);
+      return () => clearTimeout(t);
+    }
+    if (deleting && charIdx > 0) {
+      const t = setTimeout(() => setCharIdx((c) => c - 1), 22);
+      return () => clearTimeout(t);
+    }
+    if (deleting && charIdx === 0) {
+      setDeleting(false);
+      setLineIdx((i) => (i + 1) % TYPEWRITER_LINES.length);
+    }
+  }, [charIdx, deleting, lineIdx]);
+
+  return (
+    <div className="hub-typewriter">
+      <span>{TYPEWRITER_LINES[lineIdx].slice(0, charIdx)}</span>
+      <span className="hub-typewriter-cursor">|</span>
+    </div>
+  );
+}
+
 // ── SVG icons ──────────────────────────────────────────
 const IconSearch = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -654,14 +696,16 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
       {/* ── Hero search bar ──────────────────────────────── */}
       <div className="hub-hero">
         <h1 className="hub-title">Knowledge Hub</h1>
-        <p className="hub-subtitle">Search, manage, and generate reports from your team's documents.</p>
+        <Typewriter />
         <form className="hub-search-bar" onSubmit={handleSearch}>
-          <div className="hub-search-icon"><IconSearch /></div>
+          <div className="hub-search-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+          </div>
           <input type="text" placeholder='Search documents… e.g. "action items from last sprint review"' value={query} onChange={(e) => setQuery(e.target.value)} />
           <button className="hub-upload-btn" type="button" title="Upload a document" onClick={() => setShowUpload(true)}>
             <IconUpload />
           </button>
-          <button className="primary-btn" type="submit" disabled={searching}>{searching ? 'Searching…' : 'Search'}</button>
+          <button className="primary-btn hub-search-submit" type="submit" disabled={searching}>{searching ? 'Searching…' : 'Search'}</button>
         </form>
       </div>
 
