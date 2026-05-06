@@ -16,28 +16,8 @@
       "parts": ["Tech Management","PRISM"]
     },
     {
-      "name": "Economic Times Tech",
-      "url": "https://economictimes.indiatimes.com/tech",
-      "parts": ["Tech Management","PRISM"]
-    },
-    {
       "name": "Times of India Tech",
       "url": "https://timesofindia.indiatimes.com/technology",
-      "parts": ["Tech Management","PRISM"]
-    },
-    {
-      "name": "Google AI Blog",
-      "url": "https://blog.research.google/",
-      "parts": ["Tech Management","PRISM"]
-    },
-    {
-      "name": "Anthropic News",
-      "url": "https://www.anthropic.com/news",
-      "parts": ["Tech Management","PRISM"]
-    },
-    {
-      "name": "OpenAI News",
-      "url": "https://openai.com/news/",
       "parts": ["Tech Management","PRISM"]
     },
     {
