@@ -368,7 +368,7 @@ export default function HomeTab({ users = [], activeUserId, activePart, activeUs
 
         <TechSensingWidget onClick={() => onNavigate('feed')} />
 
-        <RecentDocsWidget activeUser={activeUser} onClick={() => onNavigate('files')} />
+        <RecentDocsWidget activeUser={activeUser} onClick={() => onNavigate('hub')} />
 
         <CtaCard
           eyebrow="Weekly AI Quiz"
@@ -380,11 +380,11 @@ export default function HomeTab({ users = [], activeUserId, activePart, activeUs
         />
 
         <CtaCard
-          eyebrow="Insights Chat"
+          eyebrow="Chat with Pluto"
           title="Have a question about a report, trend, or tech area?"
-          body="Ask the assistant — it has access to every document and feed item indexed for your part."
-          ctaLabel="Ask Now →"
-          onClick={() => onNavigate('chat')}
+          body="Click the floating chat button to ask Pluto — it has access to every document and feed item indexed for your part."
+          ctaLabel="Open Knowledge Hub →"
+          onClick={() => onNavigate('hub')}
           accent="blue"
         />
       </div>
