@@ -611,6 +611,12 @@ export default function ReportGeneratorTab({ activePart, activeUserId }) {
                 </button>
                 <button
                   className="ghost-btn"
+                  onClick={() => window.print()}
+                >
+                  Print
+                </button>
+                <button
+                  className="ghost-btn"
                   onClick={() => {
                     const base = report.templateName.replace(/\.[^.]+$/, '');
                     const stamp = new Date().toISOString().slice(0, 10);
