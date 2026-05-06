@@ -3,31 +3,26 @@
     {
       "name": "Hugging Face Blog",
       "url": "https://huggingface.co/blog",
-      "rss": "https://huggingface.co/blog/feed.xml",
       "parts": ["Tech Management","PRISM"]
     },
     {
       "name": "MarkTechPost",
       "url": "https://www.marktechpost.com/",
-      "rss": "https://www.marktechpost.com/feed/",
       "parts": ["Tech Management", "PRISM"]
     },
     {
       "name": "TechCrunch AI",
       "url": "https://techcrunch.com/category/artificial-intelligence/",
-      "rss": "https://techcrunch.com/category/artificial-intelligence/feed/",
       "parts": ["Tech Management","PRISM"]
     },
     {
       "name": "Economic Times Tech",
       "url": "https://economictimes.indiatimes.com/tech",
-      "rss": "https://economictimes.indiatimes.com/tech/rssfeeds/13357270.cms",
       "parts": ["Tech Management","PRISM"]
     },
     {
       "name": "Times of India Tech",
       "url": "https://timesofindia.indiatimes.com/technology",
-      "rss": "https://timesofindia.indiatimes.com/rssfeeds/66949542.cms",
       "parts": ["Tech Management","PRISM"]
     },
     {
@@ -50,14 +45,11 @@
       "url": "http://community.nasscom.in/blogs",
       "parts": ["Tech Management","PRISM"]
     },
-
     {
       "name": "CIO Project Management",
       "url": "https://www.cio.com/project-management/",
-      "parts": ["PMO"],
-      "scraper": "firecrawl"
+      "parts": ["PMO"]
     },
-
     {
       "name": "Appen Blog",
       "url": "https://www.appen.com/blog",
@@ -76,7 +68,6 @@
     {
       "name": "Qualcomm News Releases",
       "url": "https://www.qualcomm.com/news/releases",
-      "scraper": "firecrawl",
       "parts": ["MD"]
     }
   ],
@@ -85,14 +76,8 @@
     { "name": "Meta AI Blog", "url": "https://ai.meta.com/blog/" },
     { "name": "Zinnov", "url": "https://zinnov.com/blog/" },
     { "name": "PIB India", "url": "https://www.pib.gov.in/indexd.aspx?reg=3&lang=1" },
-    { "name": "Atlassian — AI at Work", "url": "https://atlassianblog.wpengine.com/ai-at-work", "parts": ["PMO"], "_disabled_reason": "parked while CIO is the active PMO source" }
+    { "name": "Atlassian — AI at Work", "url": "https://atlassianblog.wpengine.com/ai-at-work", "parts": ["PMO"] }
   ],
-  "scoringThreshold": 7,
-  "partThresholds": {
-    "PMO": 0,
-    "MD": 0
-  },
-  "skipScoringParts": ["MD"],
   "maxItemsPerSource": 5,
   "maxItemsPerSourceByPart": {
     "MD": 3

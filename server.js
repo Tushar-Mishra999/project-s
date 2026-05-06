@@ -149,9 +149,6 @@ app.post('/api/feed/refresh', (req, res) => {
 
   // Scope sources to the requested part. If no part given, run everything
   // (back-compat for any caller that hasn't migrated yet).
-  const partThreshold = part != null
-    ? liveConfig.partThresholds?.[part]
-    : undefined;
   const scoped = {
     ...liveConfig,
     sources: part
@@ -160,8 +157,6 @@ app.post('/api/feed/refresh', (req, res) => {
             ? s.parts.includes(part)
             : part === 'Tech Management')
       : liveConfig.sources,
-    scoringThreshold: partThreshold !== undefined ? partThreshold : liveConfig.scoringThreshold,
-    skipScoring: part != null && (liveConfig.skipScoringParts || []).includes(part),
     maxItemsPerSource: (part != null && liveConfig.maxItemsPerSourceByPart?.[part] != null)
       ? liveConfig.maxItemsPerSourceByPart[part]
       : liveConfig.maxItemsPerSource,
