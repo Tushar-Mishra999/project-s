@@ -3,21 +3,25 @@
     {
       "name": "Hugging Face Blog",
       "url": "https://huggingface.co/blog",
+      "rss": "https://huggingface.co/blog/feed.xml",
       "parts": ["Tech Management","PRISM"]
     },
     {
       "name": "MarkTechPost",
       "url": "https://www.marktechpost.com/",
+      "rss": "https://www.marktechpost.com/feed/",
       "parts": ["Tech Management", "PRISM"]
     },
     {
       "name": "TechCrunch AI",
       "url": "https://techcrunch.com/category/artificial-intelligence/",
+      "rss": "https://techcrunch.com/category/artificial-intelligence/feed/",
       "parts": ["Tech Management","PRISM"]
     },
     {
       "name": "Times of India Tech",
       "url": "https://timesofindia.indiatimes.com/technology",
+      "rss": "https://timesofindia.indiatimes.com/rssfeeds/66949542.cms",
       "parts": ["Tech Management","PRISM"]
     },
     {
@@ -28,6 +32,7 @@
     {
       "name": "CIO Project Management",
       "url": "https://www.cio.com/project-management/",
+      "rss": "https://www.cio.com/feed/",
       "parts": ["PMO"]
     },
     {
