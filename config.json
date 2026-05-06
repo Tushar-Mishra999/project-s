@@ -76,7 +76,7 @@
     {
       "name": "Qualcomm News Releases",
       "url": "https://www.qualcomm.com/news/releases",
-      "scraper": "crawl4ai",
+      "scraper": "firecrawl",
       "parts": ["MD"]
     }
   ],
