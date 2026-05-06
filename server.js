@@ -1090,10 +1090,11 @@ Your job:
 - Produce a complete report that follows the template's STRUCTURE, TONE, and FORMATTING (headings, sections, bullet points, table styles, length).
 - Replace the template's example/placeholder content with the user's actual input data.
 - Keep the same section ordering and formatting conventions as the template.
-- Output as clean Markdown (use #, ##, ###, **bold**, lists, tables).
-- Do not invent facts not present in the input data — if a section can't be filled, write "(not provided)".
+- Output as clean HTML using semantic tags: <h1>, <h2>, <h3> for headings, <p> for paragraphs, <ul>/<ol> with <li> for lists, <table>/<thead>/<tbody>/<tr>/<th>/<td> for tables, <strong> for bold, <em> for italics, <code> for inline code, <blockquote> for quotes.
+- Do NOT include <html>, <head>, <body>, or <style> tags — output only the inner content HTML.
+- Do not invent facts not present in the input data — if a section can't be filled, write "<p><em>(not provided)</em></p>".
 
-Return ONLY the report. No preamble, no commentary.`;
+Return ONLY the report HTML. No preamble, no commentary, no markdown fences.`;
 
 app.get('/api/report-templates', async (_req, res) => {
   const ready = ragReady();
@@ -1647,21 +1648,16 @@ app.post('/api/minutes/:id/save-to-hub', async (req, res) => {
   }
 });
 
-// ---------- Render markdown to .docx ----------
-import { markdownToDocxBuffer } from './lib/mdToDocx.js';
+// ---------- Render HTML to .docx ----------
+import { htmlToDocxBuffer } from './lib/htmlToDocx.js';
 
 app.post('/api/render-docx', async (req, res) => {
-  const { markdown, filename = 'report.docx' } = req.body || {};
-  if (!markdown || !markdown.trim()) {
-    return res.status(400).json({ error: 'markdown is required' });
+  const { html, filename = 'report.docx' } = req.body || {};
+  if (!html || !html.trim()) {
+    return res.status(400).json({ error: 'html is required' });
   }
   try {
-    const out = await markdownToDocxBuffer(markdown);
-    // Sanity-check: a valid .docx is a ZIP, so the first two bytes must be "PK".
-    if (out.length < 4 || out[0] !== 0x50 || out[1] !== 0x4b) {
-      console.error('[render-docx] output is not a valid ZIP/docx');
-      return res.status(500).json({ error: 'docx renderer produced invalid output' });
-    }
+    const out = await htmlToDocxBuffer(html);
     const safeName = String(filename).replace(/[^\w.\-]+/g, '_');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);

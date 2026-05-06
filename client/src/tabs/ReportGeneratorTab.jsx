@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
+import DOMPurify from 'dompurify';
 
 const MODEL_ICONS = {
   gemini: (
@@ -138,14 +138,14 @@ function triggerDownload(filename, blob) {
 }
 
 function downloadText(filename, text) {
-  triggerDownload(filename, new Blob([text], { type: 'text/markdown;charset=utf-8' }));
+  triggerDownload(filename, new Blob([text], { type: 'text/html;charset=utf-8' }));
 }
 
-async function downloadDocx(filename, markdown) {
+async function downloadDocx(filename, html) {
   const res = await fetch('/api/render-docx', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ markdown, filename }),
+    body: JSON.stringify({ html, filename }),
   });
   if (!res.ok) {
     let msg = `Server returned ${res.status}`;
@@ -607,7 +607,7 @@ export default function ReportGeneratorTab({ activePart, activeUserId }) {
                   className="ghost-btn"
                   onClick={() => navigator.clipboard.writeText(report.text)}
                 >
-                  Copy
+                  Copy HTML
                 </button>
                 <button
                   className="ghost-btn"
@@ -620,10 +620,10 @@ export default function ReportGeneratorTab({ activePart, activeUserId }) {
                   onClick={() => {
                     const base = report.templateName.replace(/\.[^.]+$/, '');
                     const stamp = new Date().toISOString().slice(0, 10);
-                    downloadText(`${base}-${stamp}.md`, report.text);
+                    downloadText(`${base}-${stamp}.html`, report.text);
                   }}
                 >
-                  Download .md
+                  Download .html
                 </button>
                 <button
                   className="primary-btn"
@@ -647,9 +647,10 @@ export default function ReportGeneratorTab({ activePart, activeUserId }) {
               </div>
             </div>
             {downloadErr && <div className="inline-msg error" style={{ marginTop: 8 }}>{downloadErr}</div>}
-            <div className="report-preview md">
-              <ReactMarkdown>{report.text}</ReactMarkdown>
-            </div>
+            <div
+              className="report-preview md"
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(report.text) }}
+            />
           </div>
         )}
       </section>
