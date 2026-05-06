@@ -14,6 +14,18 @@ const MODEL_ICONS = {
       <defs><radialGradient id="gma" cx="30%" cy="30%"><stop offset="0%" stopColor="#34d399"/><stop offset="100%" stopColor="#059669"/></radialGradient></defs>
     </svg>
   ),
+  glm: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+      <rect x="3" y="3" width="18" height="18" rx="4" fill="url(#glm)"/>
+      <defs><radialGradient id="glm" cx="30%" cy="30%"><stop offset="0%" stopColor="#f472b6"/><stop offset="100%" stopColor="#9333ea"/></radialGradient></defs>
+    </svg>
+  ),
+  kimi: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 4l2 4h4l-3 3 1 4-4-2.5L8 17l1-4-3-3h4z" fill="url(#kimi)"/>
+      <defs><radialGradient id="kimi" cx="30%" cy="30%"><stop offset="0%" stopColor="#fbbf24"/><stop offset="100%" stopColor="#f59e0b"/></radialGradient></defs>
+    </svg>
+  ),
 };
 
 function ModelDropdown({ value, onChange }) {
@@ -133,6 +145,8 @@ function SourcesList({ sources }) {
 const MODEL_OPTIONS = [
   { id: 'gemini', label: 'Gemini 2.5 Flash' },
   { id: 'gemma', label: 'Gemma 4 26B A4B IT' },
+  { id: 'glm', label: 'GLM 5' },
+  { id: 'kimi', label: 'Kimi K2 Thinking' },
 ];
 
 export default function ChatTab({ activePart, activeUserId, activeUser }) {
@@ -174,7 +188,7 @@ export default function ChatTab({ activePart, activeUserId, activeUser }) {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: q, user_id: activeUserId, conversation_history: history, chat_model: chatModel === 'gemma' ? 'gemma' : 'gemini' }),
+        body: JSON.stringify({ query: q, user_id: activeUserId, conversation_history: history, chat_model: chatModel }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Request failed');

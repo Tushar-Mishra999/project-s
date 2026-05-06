@@ -16,7 +16,7 @@ if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON && !process.env.GOOGLE_APPLI
 }
 
 import { supabase, ragReady } from './lib/clients.js';
-import { generateChat, generateChatGemma, generateText, generateWithParts } from './lib/llm.js';
+import { generateChat, generateChatGemma, generateChatGLM, generateChatKimi, generateText, generateWithParts } from './lib/llm.js';
 import { runFeedPipeline } from './lib/feed.js';
 import { extractActionItems } from './lib/actionItems.js';
 import { extractText } from './lib/extract.js';
@@ -1058,10 +1058,16 @@ app.post('/api/chat', async (req, res) => {
       },
     ];
 
-    const useGemma = chat_model === 'gemma';
-    const answer = useGemma
-      ? await generateChatGemma({ system: CHAT_SYSTEM, messages, maxTokens: 2048 })
-      : await generateChat({ model: config.models.chat, system: CHAT_SYSTEM, messages, maxTokens: 1024 });
+    let answer;
+    if (chat_model === 'gemma') {
+      answer = await generateChatGemma({ system: CHAT_SYSTEM, messages, maxTokens: 2048 });
+    } else if (chat_model === 'glm') {
+      answer = await generateChatGLM({ system: CHAT_SYSTEM, messages, maxTokens: 2048 });
+    } else if (chat_model === 'kimi') {
+      answer = await generateChatKimi({ system: CHAT_SYSTEM, messages, maxTokens: 2048 });
+    } else {
+      answer = await generateChat({ model: config.models.chat, system: CHAT_SYSTEM, messages, maxTokens: 1024 });
+    }
 
     const sources = chunks.map((c) => ({
       filename: c.filename,
