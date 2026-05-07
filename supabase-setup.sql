@@ -228,6 +228,7 @@ insert into users (id, name, role, part, team) values
   ('u_mem_tm',    'Sam Patel',     'Member',   'Tech Management',    null),
   ('u_mem_prism', 'Nadia Verma',   'Member',   'PRISM',              null),
   ('u_mem_dm',    'Diego Alvarez', 'Member',   'Data Management',    null),
+  ('u_mem_dm2',   'Ravi Kumar',   'Member',   'Data Management',    null),
   ('u_mem_pmo',   'Lina Joshi',    'Member',   'PMO',                null),
   ('u_th_t1',     'Asha Rao',      'TeamHead', null,                 'Team 1'),
   ('u_mem_t1',    'Vikram Singh',  'Member',   null,                 'Team 1'),

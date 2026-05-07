@@ -13,7 +13,6 @@ const TOP_CONTRIBUTORS = [
   { name: 'Priya Nair', count: 6 },
 ];
 
-// Maps a user's part/role to the feed API part and display label
 const FEED_PART_INFO = {
   'MD':               { feedPart: 'MD',               label: 'Market Intelligence' },
   'Tech Management':  { feedPart: 'Tech Management',  label: 'Tech Sensing' },
@@ -22,9 +21,35 @@ const FEED_PART_INFO = {
   'Data Management':  { feedPart: 'Data Management',  label: 'Data Intelligence' },
 };
 
+// Data Management dataset tracker — 3 rows each for Diego and Ravi
+const DATA_MGMT_ROWS = [
+  { id: 1, team: 'Data Management', dataset: 'Customer Segmentation', targetDate: '2026-05-15', target: 5000,  received: 4200, accepted: 3800, employeeId: 'u_mem_dm',  employee: 'Diego Alvarez' },
+  { id: 2, team: 'Data Management', dataset: 'Product Reviews NLP',   targetDate: '2026-05-22', target: 3000,  received: 2100, accepted: 1850, employeeId: 'u_mem_dm',  employee: 'Diego Alvarez' },
+  { id: 3, team: 'Data Management', dataset: 'Sales Forecasting',     targetDate: '2026-06-01', target: 8000,  received: 6500, accepted: 6100, employeeId: 'u_mem_dm',  employee: 'Diego Alvarez' },
+  { id: 4, team: 'Data Management', dataset: 'Image Classification',  targetDate: '2026-05-18', target: 10000, received: 7800, accepted: 7200, employeeId: 'u_mem_dm2', employee: 'Ravi Kumar'    },
+  { id: 5, team: 'Data Management', dataset: 'Sentiment Analysis',    targetDate: '2026-05-30', target: 4500,  received: 3900, accepted: 3600, employeeId: 'u_mem_dm2', employee: 'Ravi Kumar'    },
+  { id: 6, team: 'Data Management', dataset: 'Entity Recognition',    targetDate: '2026-06-10', target: 6000,  received: 4100, accepted: 3700, employeeId: 'u_mem_dm2', employee: 'Ravi Kumar'    },
+];
+
+// Quick-link definitions per part
+const QUICK_LINKS = {
+  PRISM: [
+    { label: 'OnePrism',  href: 'https://oneprism.com', icon: '🔗' },
+  ],
+  'Data Management': [
+    { label: 'Dataflo',   href: 'https://dataflo.io',  icon: '📊' },
+    { label: 'DataVault', href: 'https://datavault.io', icon: '🗄️' },
+  ],
+};
+
 function formatDate(d) {
   if (!d) return '';
   return new Date(d).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function pct(num, denom) {
+  if (!denom) return '—';
+  return (num / denom * 100).toFixed(1) + '%';
 }
 
 // ---- MD-specific cards ----
@@ -53,15 +78,11 @@ function MDTaskForcesWidget({ activeUser, onClick }) {
         <span className="home-card-link">Open →</span>
       </div>
       {loading && <div className="home-empty">Loading…</div>}
-      {!loading && taskForces.length === 0 && (
-        <div className="home-empty">No task forces found.</div>
-      )}
+      {!loading && taskForces.length === 0 && <div className="home-empty">No task forces found.</div>}
       {!loading && taskForces.length > 0 && (
         <div className="home-tf-list">
           {taskForces.map((tf) => {
-            const statusCls =
-              tf.status === 'Active' ? 'green' :
-              tf.status === 'On Hold' ? 'amber' : 'grey';
+            const statusCls = tf.status === 'Active' ? 'green' : tf.status === 'On Hold' ? 'amber' : 'grey';
             return (
               <div key={tf.id} className="home-tf-item">
                 <span className="home-tf-name">{tf.name}</span>
@@ -80,13 +101,8 @@ function WorkletStatsWidget() {
     <div className="home-card home-prism-stats-card">
       <div className="home-card-header">
         <h3 className="home-card-title">Worklet Radar</h3>
-        <a
-          className="home-card-link"
-          href="https://samsungprism.com/login"
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(e) => e.stopPropagation()}
-        >
+        <a className="home-card-link" href="https://samsungprism.com/login" target="_blank" rel="noopener noreferrer"
+           onClick={(e) => e.stopPropagation()}>
           View on PRISM →
         </a>
       </div>
@@ -114,6 +130,83 @@ function WorkletStatsWidget() {
   );
 }
 
+// ---- Data Management dataset tracker ----
+
+function DataMgmtTableWidget({ activeUser }) {
+  const isHead = activeUser?.role === 'PartHead' && activeUser?.part === 'Data Management';
+  const rows = isHead
+    ? DATA_MGMT_ROWS
+    : DATA_MGMT_ROWS.filter((r) => r.employeeId === activeUser?.id);
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="home-card home-card-wide home-dm-table-card">
+      <div className="home-card-header" style={{ marginBottom: 14 }}>
+        <div>
+          <h3 className="home-card-title">Dataset Tracker</h3>
+          <span className="home-card-subtitle">{isHead ? 'All team members' : 'My datasets'}</span>
+        </div>
+      </div>
+      <div className="home-dm-table-wrap">
+        <table className="home-dm-table">
+          <thead>
+            <tr>
+              <th>Team</th>
+              <th>Dataset</th>
+              <th>Target Date</th>
+              <th>Target</th>
+              <th>Received</th>
+              <th>Accepted</th>
+              <th>Received %</th>
+              <th>Accepted %</th>
+              {isHead && <th>Employee</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={r.id} className={i % 2 === 1 ? 'home-dm-row-alt' : ''}>
+                <td>{r.team}</td>
+                <td className="home-dm-dataset">{r.dataset}</td>
+                <td>{r.targetDate}</td>
+                <td className="home-dm-num">{r.target.toLocaleString()}</td>
+                <td className="home-dm-num">{r.received.toLocaleString()}</td>
+                <td className="home-dm-num">{r.accepted.toLocaleString()}</td>
+                <td className="home-dm-num">{pct(r.received, r.target)}</td>
+                <td className="home-dm-num">{pct(r.accepted, r.target)}</td>
+                {isHead && <td className="home-dm-employee">{r.employee}</td>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ---- Standalone quick-links card ----
+
+function QuickLinksWidget({ activePart }) {
+  const links = QUICK_LINKS[activePart];
+  if (!links?.length) return null;
+  return (
+    <div className="home-card home-quicklinks-card">
+      <div className="home-card-header" style={{ marginBottom: 14 }}>
+        <h3 className="home-card-title">Quick Links</h3>
+      </div>
+      <div className="home-quicklinks-list">
+        {links.map((lk) => (
+          <a key={lk.href} href={lk.href} target="_blank" rel="noopener noreferrer" className="home-quicklink-item">
+            <span className="home-quicklink-icon">{lk.icon}</span>
+            <span className="home-quicklink-label">{lk.label}</span>
+            <span className="home-quicklink-arrow">↗</span>
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ---- Shared cards ----
 
 function ActionItemsWidget({ activeUser, isPrism, onClick }) {
@@ -128,10 +221,8 @@ function ActionItemsWidget({ activeUser, isPrism, onClick }) {
       .then((r) => r.json())
       .then((data) => {
         if (cancelled) return;
-        const cards = data.cards || [];
-        const flat = cards.flatMap((c) =>
-          (c.items || [])
-            .filter((it) => it.editable && !it.completed)
+        const flat = (data.cards || []).flatMap((c) =>
+          (c.items || []).filter((it) => it.editable && !it.completed)
             .map((it) => ({ id: `${c.id}-${it.id}`, text: it.text, source: c.filename || 'Document' }))
         );
         setPartItems(flat.slice(0, 5));
@@ -148,13 +239,11 @@ function ActionItemsWidget({ activeUser, isPrism, onClick }) {
       .then((r) => r.json())
       .then((data) => {
         if (cancelled) return;
-        const tfs = data.task_forces || [];
         const out = [];
-        for (const tf of tfs) {
+        for (const tf of data.task_forces || []) {
           for (const a of tf.actionItems || []) {
-            if (a.assignee === activeUser.id && !a.done) {
+            if (a.assignee === activeUser.id && !a.done)
               out.push({ id: `${tf.id}-${a.id}`, text: a.text, source: tf.name, due: a.due });
-            }
           }
         }
         setTfItems(out.slice(0, 5));
@@ -165,7 +254,6 @@ function ActionItemsWidget({ activeUser, isPrism, onClick }) {
   }, [activeUser?.id, isPrism]);
 
   const cardClass = `home-card home-card-clickable${isPrism ? '' : ' home-card-wide'}`;
-
   return (
     <div className={cardClass} onClick={onClick} role="button" tabIndex={0}
          onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onClick()}>
@@ -175,59 +263,33 @@ function ActionItemsWidget({ activeUser, isPrism, onClick }) {
       </div>
       {isPrism ? (
         <div className="home-actions-col" style={{ background: 'transparent', border: 'none', padding: 0 }}>
-          <div className="home-actions-subtitle">
-            My Open Action Items
-            <span className="home-pill">{loading ? '…' : partItems.length}</span>
-          </div>
+          <div className="home-actions-subtitle">My Open Action Items <span className="home-pill">{loading ? '…' : partItems.length}</span></div>
           {loading && <div className="home-empty">Loading…</div>}
-          {!loading && partItems.length === 0 && (
-            <div className="home-empty">No open action items assigned to you.</div>
-          )}
+          {!loading && partItems.length === 0 && <div className="home-empty">No open action items assigned to you.</div>}
           <ul className="home-action-list">
             {partItems.map((it) => (
-              <li key={it.id}>
-                <span className="home-action-text">{it.text}</span>
-                <span className="home-action-source">{it.source}</span>
-              </li>
+              <li key={it.id}><span className="home-action-text">{it.text}</span><span className="home-action-source">{it.source}</span></li>
             ))}
           </ul>
         </div>
       ) : (
         <div className="home-actions-grid">
           <div className="home-actions-col">
-            <div className="home-actions-subtitle">
-              My Action Items (from documents)
-              <span className="home-pill">{loading ? '…' : partItems.length}</span>
-            </div>
+            <div className="home-actions-subtitle">My Action Items (from documents) <span className="home-pill">{loading ? '…' : partItems.length}</span></div>
             {loading && <div className="home-empty">Loading…</div>}
-            {!loading && partItems.length === 0 && (
-              <div className="home-empty">No open document action items assigned to you.</div>
-            )}
+            {!loading && partItems.length === 0 && <div className="home-empty">No open document action items assigned to you.</div>}
             <ul className="home-action-list">
               {partItems.map((it) => (
-                <li key={it.id}>
-                  <span className="home-action-text">{it.text}</span>
-                  <span className="home-action-source">{it.source}</span>
-                </li>
+                <li key={it.id}><span className="home-action-text">{it.text}</span><span className="home-action-source">{it.source}</span></li>
               ))}
             </ul>
           </div>
           <div className="home-actions-col">
-            <div className="home-actions-subtitle">
-              My Task Force Action Items
-              <span className="home-pill">{tfItems.length}</span>
-            </div>
-            {tfItems.length === 0 && (
-              <div className="home-empty">No open TF items assigned to you.</div>
-            )}
+            <div className="home-actions-subtitle">My Task Force Action Items <span className="home-pill">{tfItems.length}</span></div>
+            {tfItems.length === 0 && <div className="home-empty">No open TF items assigned to you.</div>}
             <ul className="home-action-list">
               {tfItems.map((it) => (
-                <li key={it.id}>
-                  <span className="home-action-text">{it.text}</span>
-                  <span className="home-action-source">
-                    {it.source}{it.due ? ` · due ${it.due}` : ''}
-                  </span>
-                </li>
+                <li key={it.id}><span className="home-action-text">{it.text}</span><span className="home-action-source">{it.source}{it.due ? ` · due ${it.due}` : ''}</span></li>
               ))}
             </ul>
           </div>
@@ -243,8 +305,6 @@ function FeedWidget({ activePart, activeUserRole, onClick }) {
 
   const key = activeUserRole === 'MD' ? 'MD' : (activePart || 'Tech Management');
   const { feedPart, label } = FEED_PART_INFO[key] || FEED_PART_INFO['Tech Management'];
-  const isPrismFeed = feedPart === 'PRISM';
-  const isDataFeed = feedPart === 'Data Management';
 
   useEffect(() => {
     let cancelled = false;
@@ -253,8 +313,7 @@ function FeedWidget({ activePart, activeUserRole, onClick }) {
       .then((r) => r.json())
       .then((data) => {
         if (cancelled) return;
-        const all = Object.values(data.sources || {}).flat();
-        setArticles(all.slice(0, 3));
+        setArticles(Object.values(data.sources || {}).flat().slice(0, 3));
       })
       .catch(() => { if (!cancelled) setArticles([]); })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -271,31 +330,9 @@ function FeedWidget({ activePart, activeUserRole, onClick }) {
         </div>
         <span className="home-card-link">Open feed →</span>
       </div>
-
-      {isPrismFeed && (
-        <div className="home-feed-ext-links" onClick={(e) => e.stopPropagation()}>
-          <a href="https://oneprism.com" target="_blank" rel="noopener noreferrer" className="home-feed-ext-link">
-            Visit OnePrism ↗
-          </a>
-        </div>
-      )}
-
-      {isDataFeed && (
-        <div className="home-feed-ext-links" onClick={(e) => e.stopPropagation()}>
-          <a href="https://dataflo.io" target="_blank" rel="noopener noreferrer" className="home-feed-ext-link">
-            Dataflo ↗
-          </a>
-          <a href="https://datavault.io" target="_blank" rel="noopener noreferrer" className="home-feed-ext-link">
-            DataVault ↗
-          </a>
-        </div>
-      )}
-
       <div className="home-news-list">
         {loading && <div className="home-empty">Loading…</div>}
-        {!loading && articles.length === 0 && (
-          <div className="home-empty">No recent articles — refresh the feed to populate.</div>
-        )}
+        {!loading && articles.length === 0 && <div className="home-empty">No recent articles — refresh the feed to populate.</div>}
         {!loading && articles.map((a, i) => (
           <div key={i} className="home-news-item">
             <div className="home-news-meta">
@@ -321,10 +358,7 @@ function RecentDocsWidget({ activeUser, onClick }) {
     setLoading(true);
     fetch(`/api/files?user_id=${encodeURIComponent(activeUser.id)}`)
       .then((r) => r.json())
-      .then((data) => {
-        if (cancelled) return;
-        setDocs((data.files || []).slice(0, 5));
-      })
+      .then((data) => { if (cancelled) return; setDocs((data.files || []).slice(0, 5)); })
       .catch(() => setDocs([]))
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -338,9 +372,7 @@ function RecentDocsWidget({ activeUser, onClick }) {
         <span className="home-card-link">Browse library →</span>
       </div>
       {loading && <div className="home-empty">Loading…</div>}
-      {!loading && docs.length === 0 && (
-        <div className="home-empty">No documents visible to you yet.</div>
-      )}
+      {!loading && docs.length === 0 && <div className="home-empty">No documents visible to you yet.</div>}
       {!loading && docs.length > 0 && (
         <div className="home-docs-list">
           {docs.map((d) => (
@@ -348,9 +380,7 @@ function RecentDocsWidget({ activeUser, onClick }) {
               <div className="file-icon-doc" aria-hidden="true" />
               <div className="home-doc-body">
                 <div className="home-doc-title">{d.filename}</div>
-                <div className="home-doc-summary">
-                  {(d.accessible_to || []).join(', ') || '—'} · {formatDate(d.uploaded_at)}
-                </div>
+                <div className="home-doc-summary">{(d.accessible_to || []).join(', ') || '—'} · {formatDate(d.uploaded_at)}</div>
               </div>
             </div>
           ))}
@@ -375,6 +405,7 @@ export default function HomeTab({ users = [], activeUserId, activePart, activeUs
   const activeUser = users.find((u) => u.id === activeUserId);
   const isPrism = activePart === 'PRISM';
   const isMD = activeUserRole === 'MD';
+  const isDataMgmt = activePart === 'Data Management';
 
   if (!activeUser) {
     return <div className="wrap home-wrap"><div className="placeholder-panel"><p>Loading…</p></div></div>;
@@ -385,9 +416,7 @@ export default function HomeTab({ users = [], activeUserId, activePart, activeUs
       <div className="header">
         <div>
           <h1>Welcome, {activeUser.name}</h1>
-          <div className="sub">
-            Here's what needs attention across your part, your task forces, and the wider tech landscape.
-          </div>
+          <div className="sub">Here's what needs attention across your part, your task forces, and the wider tech landscape.</div>
         </div>
       </div>
 
@@ -402,6 +431,12 @@ export default function HomeTab({ users = [], activeUserId, activePart, activeUs
         )}
 
         {isPrism && !isMD && <WorkletStatsWidget />}
+
+        {/* Dataset tracker — full-width, Data Management users only */}
+        {isDataMgmt && <DataMgmtTableWidget activeUser={activeUser} />}
+
+        {/* Standalone quick-links (PRISM → OnePrism; Data Mgmt → Dataflo, DataVault) */}
+        {(isPrism || isDataMgmt) && <QuickLinksWidget activePart={activePart} />}
 
         <FeedWidget activePart={activePart} activeUserRole={activeUserRole} onClick={() => onNavigate('feed')} />
 
@@ -419,7 +454,7 @@ export default function HomeTab({ users = [], activeUserId, activePart, activeUs
         <CtaCard
           eyebrow="Chat with Pluto"
           title="Have a question about a report, trend, or tech area?"
-          body="Click the floating chat button to ask Pluto — it has access to every document and feed item indexed for your part."
+          body="Ask Pluto using the chat button — it has access to every document and feed item indexed for your part."
           ctaLabel="Open Knowledge Hub →"
           onClick={() => onNavigate('hub')}
           accent="blue"
