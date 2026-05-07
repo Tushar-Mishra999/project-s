@@ -2486,10 +2486,10 @@ details[open] .mom-transcript-toggle::before { transform: rotate(90deg); }
 
 .hub-hero {
   text-align: center;
-  padding: 48px 0 16px;
+  padding: 24px 0 16px;
 }
 .hub-title {
-  font-size: 36px; font-weight: 800; margin: 0 0 6px;
+  font-size: 36px; font-weight: 800; margin: 0 0 18px;
   background: linear-gradient(135deg, #DBEAFE, #60A5FA, #3B82F6);
   -webkit-background-clip: text; background-clip: text; color: transparent;
   filter: drop-shadow(0 0 18px rgba(59,130,246,.35));
