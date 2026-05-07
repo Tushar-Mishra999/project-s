@@ -11,7 +11,7 @@ import ChatFAB from './components/ChatFAB.jsx';
 const PRIMARY_TABS = [
   { id: 'home',     label: 'Home' },
   { id: 'hub',      label: 'Knowledge Hub' },
-  { id: 'feed',     label: 'Tech Sensing' },
+  { id: 'feed',     label: 'Feed' },
 ];
 
 const TOOLS_TABS = [

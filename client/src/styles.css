@@ -1270,6 +1270,29 @@ select {
   transition: color .15s;
 }
 .home-card-clickable:hover .home-card-link { color: var(--blue-bright); }
+.home-card-subtitle {
+  font-size: 11px; color: var(--text-muted); font-weight: 400;
+  margin-top: 2px; display: block; letter-spacing: 0.03em;
+}
+/* Feed widget — external redirect links (OnePrism, Dataflo, DataVault) */
+.home-feed-ext-links {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  margin-bottom: 12px;
+}
+.home-feed-ext-link {
+  font-size: 12px; font-weight: 600;
+  color: var(--blue-bright);
+  background: rgba(59,130,246,.10);
+  border: 1px solid rgba(59,130,246,.25);
+  border-radius: 20px;
+  padding: 4px 12px;
+  text-decoration: none;
+  transition: background .15s, border-color .15s;
+}
+.home-feed-ext-link:hover {
+  background: rgba(59,130,246,.20);
+  border-color: var(--blue-bright);
+}
 
 /* Action items widget */
 .home-actions-grid {
@@ -1318,7 +1341,7 @@ select {
   padding: 8px 4px; font-style: italic;
 }
 
-/* Tech sensing news */
+/* Feed widget news items */
 .home-news-list { display: flex; flex-direction: column; gap: 12px; }
 .home-news-item {
   padding: 12px 14px;
