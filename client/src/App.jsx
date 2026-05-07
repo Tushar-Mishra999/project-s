@@ -7,6 +7,7 @@ import TaskForceTab, { userLabel } from './tabs/TaskForceTab.jsx';
 import HomeTab from './tabs/HomeTab.jsx';
 import MinutesTab from './tabs/MinutesTab.jsx';
 import ChatFAB from './components/ChatFAB.jsx';
+import QuickLinksFAB from './components/QuickLinksFAB.jsx';
 
 const PRIMARY_TABS = [
   { id: 'home',     label: 'Home' },
@@ -262,6 +263,7 @@ export default function App() {
         {active === 'taskforce' && <TaskForceTab users={users} activeUserId={activeUserId} />}
       </main>
 
+      <QuickLinksFAB activePart={activePart} />
       <ChatFAB activePart={activePart} activeUserId={activeUserId} activeUser={activeUser} />
     </div>
   );

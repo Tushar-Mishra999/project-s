@@ -31,16 +31,6 @@ const DATA_MGMT_ROWS = [
   { id: 6, team: 'Data Management', dataset: 'Entity Recognition',    targetDate: '2026-06-10', target: 6000,  received: 4100, accepted: 3700, employeeId: 'u_mem_dm2', employee: 'Ravi Kumar'    },
 ];
 
-// Quick-link definitions per part
-const QUICK_LINKS = {
-  PRISM: [
-    { label: 'OnePrism',  href: 'https://oneprism.com', icon: '🔗' },
-  ],
-  'Data Management': [
-    { label: 'Dataflo',   href: 'https://dataflo.io',  icon: '📊' },
-    { label: 'DataVault', href: 'https://datavault.io', icon: '🗄️' },
-  ],
-};
 
 function formatDate(d) {
   if (!d) return '';
@@ -184,32 +174,9 @@ function DataMgmtTableWidget({ activeUser }) {
   );
 }
 
-// ---- Standalone quick-links card ----
-
-function QuickLinksWidget({ activePart }) {
-  const links = QUICK_LINKS[activePart];
-  if (!links?.length) return null;
-  return (
-    <div className="home-card home-quicklinks-card">
-      <div className="home-card-header" style={{ marginBottom: 14 }}>
-        <h3 className="home-card-title">Quick Links</h3>
-      </div>
-      <div className="home-quicklinks-list">
-        {links.map((lk) => (
-          <a key={lk.href} href={lk.href} target="_blank" rel="noopener noreferrer" className="home-quicklink-item">
-            <span className="home-quicklink-icon">{lk.icon}</span>
-            <span className="home-quicklink-label">{lk.label}</span>
-            <span className="home-quicklink-arrow">↗</span>
-          </a>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // ---- Shared cards ----
 
-function ActionItemsWidget({ activeUser, isPrism, onClick }) {
+function ActionItemsWidget({ activeUser, isPrism, showTfItems, onClick }) {
   const [partItems, setPartItems] = useState([]);
   const [tfItems, setTfItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -232,7 +199,7 @@ function ActionItemsWidget({ activeUser, isPrism, onClick }) {
   }, [activeUser?.id]);
 
   useEffect(() => {
-    if (isPrism || !activeUser?.id) { setTfItems([]); setLoading(false); return; }
+    if (isPrism || !showTfItems || !activeUser?.id) { setTfItems([]); setLoading(false); return; }
     let cancelled = false;
     setLoading(true);
     fetch(`/api/task-forces?user_id=${encodeURIComponent(activeUser.id)}`)
@@ -251,9 +218,24 @@ function ActionItemsWidget({ activeUser, isPrism, onClick }) {
       .catch(() => setTfItems([]))
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [activeUser?.id, isPrism]);
+  }, [activeUser?.id, isPrism, showTfItems]);
 
-  const cardClass = `home-card home-card-clickable${isPrism ? '' : ' home-card-wide'}`;
+  const wide = !isPrism && showTfItems;
+  const cardClass = `home-card home-card-clickable${wide ? ' home-card-wide' : ''}`;
+
+  const singleCol = (
+    <div className="home-actions-col" style={{ background: 'transparent', border: 'none', padding: 0 }}>
+      <div className="home-actions-subtitle">My Open Action Items <span className="home-pill">{loading ? '…' : partItems.length}</span></div>
+      {loading && <div className="home-empty">Loading…</div>}
+      {!loading && partItems.length === 0 && <div className="home-empty">No open action items assigned to you.</div>}
+      <ul className="home-action-list">
+        {partItems.map((it) => (
+          <li key={it.id}><span className="home-action-text">{it.text}</span><span className="home-action-source">{it.source}</span></li>
+        ))}
+      </ul>
+    </div>
+  );
+
   return (
     <div className={cardClass} onClick={onClick} role="button" tabIndex={0}
          onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onClick()}>
@@ -261,18 +243,7 @@ function ActionItemsWidget({ activeUser, isPrism, onClick }) {
         <h3 className="home-card-title">Action Items</h3>
         <span className="home-card-link">Open →</span>
       </div>
-      {isPrism ? (
-        <div className="home-actions-col" style={{ background: 'transparent', border: 'none', padding: 0 }}>
-          <div className="home-actions-subtitle">My Open Action Items <span className="home-pill">{loading ? '…' : partItems.length}</span></div>
-          {loading && <div className="home-empty">Loading…</div>}
-          {!loading && partItems.length === 0 && <div className="home-empty">No open action items assigned to you.</div>}
-          <ul className="home-action-list">
-            {partItems.map((it) => (
-              <li key={it.id}><span className="home-action-text">{it.text}</span><span className="home-action-source">{it.source}</span></li>
-            ))}
-          </ul>
-        </div>
-      ) : (
+      {(isPrism || !showTfItems) ? singleCol : (
         <div className="home-actions-grid">
           <div className="home-actions-col">
             <div className="home-actions-subtitle">My Action Items (from documents) <span className="home-pill">{loading ? '…' : partItems.length}</span></div>
@@ -406,6 +377,7 @@ export default function HomeTab({ users = [], activeUserId, activePart, activeUs
   const isPrism = activePart === 'PRISM';
   const isMD = activeUserRole === 'MD';
   const isDataMgmt = activePart === 'Data Management';
+  const showTfItems = isMD || activePart === 'Tech Management';
 
   if (!activeUser) {
     return <div className="wrap home-wrap"><div className="placeholder-panel"><p>Loading…</p></div></div>;
@@ -427,16 +399,13 @@ export default function HomeTab({ users = [], activeUserId, activePart, activeUs
             <WorkletStatsWidget />
           </>
         ) : (
-          <ActionItemsWidget activeUser={activeUser} isPrism={isPrism} onClick={() => onNavigate('actions')} />
+          <ActionItemsWidget activeUser={activeUser} isPrism={isPrism} showTfItems={showTfItems} onClick={() => onNavigate('actions')} />
         )}
 
         {isPrism && !isMD && <WorkletStatsWidget />}
 
         {/* Dataset tracker — full-width, Data Management users only */}
         {isDataMgmt && <DataMgmtTableWidget activeUser={activeUser} />}
-
-        {/* Standalone quick-links (PRISM → OnePrism; Data Mgmt → Dataflo, DataVault) */}
-        {(isPrism || isDataMgmt) && <QuickLinksWidget activePart={activePart} />}
 
         <FeedWidget activePart={activePart} activeUserRole={activeUserRole} onClick={() => onNavigate('feed')} />
 

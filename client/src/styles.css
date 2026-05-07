@@ -2599,6 +2599,73 @@ details[open] .mom-transcript-toggle::before { transform: rotate(90deg); }
    ════════════════════════════════════════════════════════ */
 
 /* Floating button */
+/* ---- Quick Links FAB (bottom-left) ---- */
+.ql-fab {
+  position: fixed; bottom: 28px; left: 28px; z-index: 100;
+  height: 52px; border-radius: 999px; border: none;
+  background: linear-gradient(135deg, #065f46, #059669);
+  color: #fff; cursor: pointer;
+  box-shadow: 0 4px 24px rgba(5,150,105,.5);
+  transition: box-shadow .25s, transform .25s cubic-bezier(.4,0,.2,1), width .3s cubic-bezier(.4,0,.2,1), padding .3s;
+  display: flex; align-items: center; justify-content: center;
+  gap: 0; padding: 0 22px 0 18px; white-space: nowrap; overflow: hidden;
+}
+.ql-fab:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(5,150,105,.65); }
+.ql-fab-label {
+  font-size: 14px; font-weight: 700; letter-spacing: 0.01em;
+  max-width: 120px; overflow: hidden;
+  transition: max-width .3s cubic-bezier(.4,0,.2,1), opacity .25s, margin-left .3s;
+  margin-left: 10px; opacity: 1;
+}
+.ql-fab-inner { flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.ql-fab-open {
+  padding: 0; width: 52px;
+  background: var(--surface-3);
+  box-shadow: 0 4px 14px rgba(0,0,0,.35);
+}
+.ql-fab-open:hover { transform: scale(1.06) translateY(0); }
+.ql-fab-open .ql-fab-label { max-width: 0; opacity: 0; margin-left: 0; }
+
+/* Panel slides up from bottom-left */
+.ql-fab-panel {
+  position: fixed; bottom: 92px; left: 28px; z-index: 100;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.55);
+  padding: 8px;
+  min-width: 200px;
+  opacity: 0; pointer-events: none;
+  transform: translateY(8px) scale(.97);
+  transition: opacity .22s, transform .22s cubic-bezier(.4,0,.2,1);
+}
+.ql-fab-panel-open { opacity: 1; pointer-events: auto; transform: translateY(0) scale(1); }
+.ql-fab-panel-title {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-muted); padding: 4px 10px 8px;
+  border-bottom: 1px solid var(--border); margin-bottom: 6px;
+}
+.ql-fab-link {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border-radius: 8px;
+  text-decoration: none; color: var(--text);
+  transition: background .15s;
+}
+.ql-fab-link:hover { background: rgba(5,150,105,.12); }
+.ql-fab-link-icon { font-size: 17px; flex-shrink: 0; }
+.ql-fab-link-label { flex: 1; font-size: 13px; font-weight: 600; }
+.ql-fab-link-arrow { font-size: 14px; color: var(--text-muted); }
+.ql-fab-backdrop {
+  position: fixed; inset: 0; z-index: 99;
+  background: transparent;
+}
+
+@media (max-width: 600px) {
+  .ql-fab { bottom: 16px; left: 16px; height: 46px; padding: 0 16px 0 14px; }
+  .ql-fab-label { font-size: 13px; }
+  .ql-fab-panel { left: 16px; bottom: 76px; }
+}
+
 /* Extended-pill FAB — always shows "Chat with Pluto" text */
 .chat-fab {
   position: fixed; bottom: 28px; right: 28px; z-index: 100;
