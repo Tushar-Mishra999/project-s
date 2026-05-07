@@ -1,27 +1,5 @@
 import { useEffect, useState } from 'react';
 
-// ----- Mock content -----
-const MOCK_NEWS = [
-  {
-    source: 'MIT Technology Review',
-    date: '2026-04-28',
-    title: 'Inside the new wave of small reasoning models beating frontier giants',
-    snippet: 'Distilled 7B-class models are matching GPT-class performance on math and code benchmarks at a fraction of the cost.',
-  },
-  {
-    source: 'arXiv (cs.LG)',
-    date: '2026-04-26',
-    title: 'Sparse Mixture-of-Experts Routing with Hardware-Aware Constraints',
-    snippet: 'A new routing scheme reduces all-to-all communication overhead by 38%, enabling MoE training on commodity clusters.',
-  },
-  {
-    source: 'Hacker News',
-    date: '2026-04-25',
-    title: 'Show HN: A 200-line on-device retriever that beats vector DBs for small corpora',
-    snippet: 'Author argues that for under 50k chunks, BM25 + a learned reranker outperforms managed vector stores on relevance.',
-  },
-];
-
 const PRISM_STATS = [
   { label: 'Total', value: 47, accent: 'blue' },
   { label: 'Ongoing', value: 12, accent: 'amber' },
@@ -34,6 +12,15 @@ const TOP_CONTRIBUTORS = [
   { name: 'Rohan Mehta', count: 7 },
   { name: 'Priya Nair', count: 6 },
 ];
+
+// Maps a user's part/role to the feed API part and display label
+const FEED_PART_INFO = {
+  'MD':               { feedPart: 'MD',               label: 'Market Intelligence' },
+  'Tech Management':  { feedPart: 'Tech Management',  label: 'Tech Sensing' },
+  'PRISM':            { feedPart: 'PRISM',             label: 'Worklet Radar' },
+  'PMO':              { feedPart: 'PMO',               label: 'PM Intelligence' },
+  'Data Management':  { feedPart: 'Data Management',  label: 'Data Intelligence' },
+};
 
 function formatDate(d) {
   if (!d) return '';
@@ -250,23 +237,73 @@ function ActionItemsWidget({ activeUser, isPrism, onClick }) {
   );
 }
 
-function TechSensingWidget({ onClick }) {
+function FeedWidget({ activePart, activeUserRole, onClick }) {
+  const [articles, setArticles] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const key = activeUserRole === 'MD' ? 'MD' : (activePart || 'Tech Management');
+  const { feedPart, label } = FEED_PART_INFO[key] || FEED_PART_INFO['Tech Management'];
+  const isPrismFeed = feedPart === 'PRISM';
+  const isDataFeed = feedPart === 'Data Management';
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetch(`/api/feed?part=${encodeURIComponent(feedPart)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        const all = Object.values(data.sources || {}).flat();
+        setArticles(all.slice(0, 3));
+      })
+      .catch(() => { if (!cancelled) setArticles([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [feedPart]);
+
   return (
     <div className="home-card home-card-clickable" onClick={onClick} role="button" tabIndex={0}
          onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onClick()}>
       <div className="home-card-header">
-        <h3 className="home-card-title">Tech Sensing</h3>
+        <div>
+          <h3 className="home-card-title">Feed</h3>
+          <span className="home-card-subtitle">{label}</span>
+        </div>
         <span className="home-card-link">Open feed →</span>
       </div>
+
+      {isPrismFeed && (
+        <div className="home-feed-ext-links" onClick={(e) => e.stopPropagation()}>
+          <a href="https://oneprism.com" target="_blank" rel="noopener noreferrer" className="home-feed-ext-link">
+            Visit OnePrism ↗
+          </a>
+        </div>
+      )}
+
+      {isDataFeed && (
+        <div className="home-feed-ext-links" onClick={(e) => e.stopPropagation()}>
+          <a href="https://dataflo.io" target="_blank" rel="noopener noreferrer" className="home-feed-ext-link">
+            Dataflo ↗
+          </a>
+          <a href="https://datavault.io" target="_blank" rel="noopener noreferrer" className="home-feed-ext-link">
+            DataVault ↗
+          </a>
+        </div>
+      )}
+
       <div className="home-news-list">
-        {MOCK_NEWS.map((n, i) => (
+        {loading && <div className="home-empty">Loading…</div>}
+        {!loading && articles.length === 0 && (
+          <div className="home-empty">No recent articles — refresh the feed to populate.</div>
+        )}
+        {!loading && articles.map((a, i) => (
           <div key={i} className="home-news-item">
             <div className="home-news-meta">
-              <span className="home-news-source">{n.source}</span>
-              <span className="tf-muted">· {n.date}</span>
+              <span className="home-news-source">{a.source}</span>
+              {a.date && <span className="tf-muted">· {a.date}</span>}
             </div>
-            <div className="home-news-title">{n.title}</div>
-            <div className="home-news-snippet">{n.snippet}</div>
+            <div className="home-news-title">{a.title}</div>
+            {a.summary && <div className="home-news-snippet">{a.summary}</div>}
           </div>
         ))}
       </div>
@@ -366,7 +403,7 @@ export default function HomeTab({ users = [], activeUserId, activePart, activeUs
 
         {isPrism && !isMD && <WorkletStatsWidget />}
 
-        <TechSensingWidget onClick={() => onNavigate('feed')} />
+        <FeedWidget activePart={activePart} activeUserRole={activeUserRole} onClick={() => onNavigate('feed')} />
 
         <RecentDocsWidget activeUser={activeUser} onClick={() => onNavigate('hub')} />
 
