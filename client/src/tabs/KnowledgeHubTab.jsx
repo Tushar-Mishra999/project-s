@@ -484,7 +484,7 @@ function GmailInbox({ activeUserId, onExtract, onAttachmentUploaded }) {
     if (status !== 'connected') return;
     setEmailsLoading(true);
     setEmailsErr(null);
-    fetch('/api/email/messages?max=10')
+    fetch('/api/email/messages?max=3')
       .then((r) => r.json())
       .then((json) => setEmails(json.emails || []))
       .catch((e) => setEmailsErr(e.message))

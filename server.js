@@ -2381,7 +2381,7 @@ app.post('/api/email/extract-actions', async (req, res) => {
     const user = await loadUser(user_id);
     if (!user) return res.status(400).json({ error: 'unknown user' });
     const text = `Subject: ${subject || ''}\n\n${emailBody}`;
-    const items = await extractActionItems(text, config);
+    const items = await extractActionItems(text, config.models.enrichment);
     res.json({ items });
   } catch (err) {
     console.error('[email/extract-actions]', err);

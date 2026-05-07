@@ -2861,20 +2861,20 @@ details[open] .mom-transcript-toggle::before { transform: rotate(90deg); }
   height: 44px;
   padding: 0 16px 0 12px;
   border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.12);
-  background: rgba(15,23,42,0.88);
+  border: 1px solid rgba(34,197,94,0.35);
+  background: rgba(21,128,61,0.85);
   backdrop-filter: blur(12px);
-  color: #e2e8f0;
+  color: #f0fdf4;
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  box-shadow: 0 4px 20px rgba(34,197,94,0.25);
   transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
 }
 .ql-fab:hover, .ql-fab.ql-fab-open {
-  background: rgba(30,41,59,0.95);
-  border-color: rgba(99,130,246,0.5);
-  box-shadow: 0 6px 28px rgba(0,0,0,0.5);
+  background: rgba(22,163,74,0.95);
+  border-color: rgba(34,197,94,0.6);
+  box-shadow: 0 6px 28px rgba(34,197,94,0.35);
 }
 .ql-fab-inner {
   display: flex;
