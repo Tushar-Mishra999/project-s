@@ -190,12 +190,13 @@ app.get('/api/leaderboard', async (req, res) => {
   try {
     // Return cache if fresh
     if (leaderboardCache.data && leaderboardCache.fetchedAt && (Date.now() - leaderboardCache.fetchedAt < LEADERBOARD_TTL)) {
+      console.log('[leaderboard] returning cached data');
       return res.json(leaderboardCache.data);
     }
 
-    const prompt = `Go to this URL: https://llm-stats.com/leaderboards/open-llm-leaderboard
+    const prompt = `Search for the current Open LLM Leaderboard rankings from llm-stats.com (https://llm-stats.com/leaderboards/open-llm-leaderboard).
 
-Return the top 10 models from the Open LLM Leaderboard as a JSON array. Each object should have these fields:
+Return the top 10 open-source models as a JSON array. Each object should have:
 - "rank": number (1-10)
 - "model": string (model name)
 - "average": string (average score)
@@ -205,30 +206,106 @@ Return the top 10 models from the Open LLM Leaderboard as a JSON array. Each obj
 - "truthfulqa": string (TruthfulQA score if available, or "-")
 - "organization": string (who made it)
 
-Return ONLY the JSON array, no markdown, no explanation.`;
+Return ONLY the JSON array, no markdown fences, no explanation, no extra text.`;
 
-    const result = await generateText({
-      model: 'gemini-2.5-flash',
-      system: 'You are a data extraction assistant. You use Google Search to find current information. Return only valid JSON.',
-      user: prompt,
-      maxTokens: 2048,
-      tools: [{ googleSearch: {} }],
+    console.log('[leaderboard] calling Gemini with Google Search grounding...');
+
+    // Use generateContent directly for Google Search grounding
+    const { GoogleGenAI } = await import('@google/genai');
+    const ai = new GoogleGenAI({
+      vertexai: true,
+      project: process.env.GOOGLE_CLOUD_PROJECT,
+      location: process.env.GOOGLE_CLOUD_LOCATION || 'us-central1',
     });
 
-    // Parse the JSON response
-    let models;
-    try {
-      const cleaned = result.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      models = JSON.parse(cleaned);
-    } catch {
-      return res.status(500).json({ error: 'Failed to parse leaderboard data from AI' });
+    const resp = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        maxOutputTokens: 2048,
+        systemInstruction: 'You are a data extraction assistant. Return only valid JSON arrays. No markdown, no explanation.',
+        tools: [{ googleSearch: {} }],
+      },
+    });
+
+    // Debug: log the full response structure
+    console.log('[leaderboard] response candidates count:', resp.candidates?.length);
+    console.log('[leaderboard] finishReason:', resp.candidates?.[0]?.finishReason);
+
+    // Extract text from response
+    let rawText = '';
+    if (resp.text && typeof resp.text === 'string') {
+      rawText = resp.text;
+    } else {
+      const parts = resp.candidates?.[0]?.content?.parts;
+      if (Array.isArray(parts)) {
+        rawText = parts.map((p) => p.text || '').join('');
+      }
+    }
+    rawText = rawText.trim();
+
+    console.log('[leaderboard] raw response length:', rawText.length);
+    console.log('[leaderboard] raw response (first 500 chars):', rawText.slice(0, 500));
+
+    if (!rawText) {
+      console.error('[leaderboard] empty response from Gemini');
+      // Log grounding metadata if present
+      const groundingMeta = resp.candidates?.[0]?.groundingMetadata;
+      if (groundingMeta) {
+        console.log('[leaderboard] grounding metadata:', JSON.stringify(groundingMeta).slice(0, 500));
+      }
+      return res.status(500).json({ error: 'Empty response from AI model' });
     }
 
+    // Parse the JSON response — try multiple cleanup strategies
+    let models;
+    const cleaned = rawText
+      .replace(/```json\s*/gi, '')
+      .replace(/```\s*/g, '')
+      .trim();
+
+    console.log('[leaderboard] cleaned response (first 500 chars):', cleaned.slice(0, 500));
+
+    try {
+      models = JSON.parse(cleaned);
+    } catch (e1) {
+      console.warn('[leaderboard] direct parse failed:', e1.message);
+      // Try extracting JSON array from the text
+      const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
+      if (arrayMatch) {
+        try {
+          models = JSON.parse(arrayMatch[0]);
+          console.log('[leaderboard] extracted array from text, parsed OK');
+        } catch (e2) {
+          console.error('[leaderboard] array extraction parse also failed:', e2.message);
+          console.error('[leaderboard] full cleaned text:', cleaned);
+          return res.status(500).json({
+            error: 'Failed to parse leaderboard data from AI',
+            debug: { rawLength: rawText.length, preview: cleaned.slice(0, 300) },
+          });
+        }
+      } else {
+        console.error('[leaderboard] no JSON array found in response');
+        console.error('[leaderboard] full cleaned text:', cleaned);
+        return res.status(500).json({
+          error: 'Failed to parse leaderboard data from AI — no JSON array in response',
+          debug: { rawLength: rawText.length, preview: cleaned.slice(0, 300) },
+        });
+      }
+    }
+
+    if (!Array.isArray(models)) {
+      console.error('[leaderboard] parsed result is not an array:', typeof models);
+      return res.status(500).json({ error: 'AI returned non-array data' });
+    }
+
+    console.log(`[leaderboard] success — got ${models.length} models`);
     const payload = { models, fetchedAt: new Date().toISOString() };
     leaderboardCache = { data: payload, fetchedAt: Date.now() };
     res.json(payload);
   } catch (err) {
     console.error('[leaderboard] error:', err.message);
+    console.error('[leaderboard] stack:', err.stack?.slice(0, 500));
     res.status(500).json({ error: err.message || 'Failed to fetch leaderboard' });
   }
 });
