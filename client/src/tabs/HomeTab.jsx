@@ -361,7 +361,69 @@ function RecentDocsWidget({ activeUser, onClick }) {
   );
 }
 
-function CtaCard({ eyebrow, title, body, ctaLabel, onClick, accent = 'blue' }) {
+function LeaderboardWidget({ activeUserId, onClick }) {
+  const [scores, setScores] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/quiz/leaderboard')
+      .then((r) => r.json())
+      .then((json) => { if (!cancelled) setScores(json.scores || []); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const myEntry = scores.find((s) => s.user_id === activeUserId);
+
+  return (
+    <div className="home-card">
+      <div className="home-card-header" style={{ alignItems: 'flex-start' }}>
+        <div>
+          <h3 className="home-card-title">AI Quiz — Leaderboard</h3>
+          <span className="home-card-subtitle">RAG Fundamentals · 5 questions</span>
+        </div>
+        <button
+          className="primary-btn"
+          style={{ fontSize: 12, padding: '6px 14px', flexShrink: 0 }}
+          onClick={(e) => { e.stopPropagation(); onClick(); }}
+        >
+          {myEntry ? 'Retake quiz →' : 'Take quiz →'}
+        </button>
+      </div>
+      {loading && <div className="home-empty">Loading…</div>}
+      {!loading && scores.length === 0 && (
+        <div className="home-empty">No scores yet — be the first to take it!</div>
+      )}
+      {!loading && scores.length > 0 && (
+        <div className="quiz-leaderboard-table" style={{ marginTop: 8 }}>
+          <div className="quiz-lb-row quiz-lb-head">
+            <div>Rank</div>
+            <div>Name</div>
+            <div>Score</div>
+            <div>Date</div>
+          </div>
+          {scores.map((s, i) => {
+            const rank = i + 1;
+            const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : null;
+            const isMe = s.user_id === activeUserId;
+            return (
+              <div key={s.user_id} className={`quiz-lb-row${isMe ? ' me' : ''}`}>
+                <div className="quiz-lb-rank">{medal || `#${rank}`}</div>
+                <div className="quiz-lb-name">{s.user_name}{isMe && <span className="quiz-lb-you"> · you</span>}</div>
+                <div className="quiz-lb-score">{s.score}<span className="quiz-lb-total">/{s.total}</span></div>
+                <div className="quiz-lb-date">{formatDate(s.attempted_at)}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
   return (
     <div className={`home-card home-cta home-cta-${accent}`}>
       <div className="home-cta-eyebrow">{eyebrow}</div>
@@ -411,14 +473,7 @@ export default function HomeTab({ users = [], activeUserId, activePart, activeUs
 
         <RecentDocsWidget activeUser={activeUser} onClick={() => onNavigate('hub')} />
 
-        <CtaCard
-          eyebrow="Weekly AI Quiz"
-          title="This week's AI quiz is live — test your knowledge"
-          body="A fresh 5-question challenge drawn from the latest research and your team's recent uploads."
-          ctaLabel="Take the Quiz →"
-          onClick={() => onNavigate('quizzes')}
-          accent="violet"
-        />
+        <LeaderboardWidget activeUserId={activeUserId} onClick={() => onNavigate('quizzes')} />
 
         <CtaCard
           eyebrow="Chat with Pluto"
