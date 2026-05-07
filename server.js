@@ -852,10 +852,11 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
 
   const filename = req.file.originalname;
   const ext = extname(filename).slice(1).toLowerCase();
-  // Combine mime + extension so extract.js can match on either
-  const filetype = `${req.file.mimetype || ''} ${ext}`.trim();
+  const mimeType = req.file.mimetype || 'application/octet-stream';
+  // Combine mime + extension so extract.js can match on either (e.g. generic mime + .xlsx ext)
+  const filetype = `${mimeType} ${ext}`.trim();
 
-  console.log(`\n[upload] ${filename} (${filetype}) by ${uploadedBy} -> ${accessibleTo.join(',')}`);
+  console.log(`\n[upload] ${filename} (${mimeType}) by ${uploadedBy} -> ${accessibleTo.join(',')}`);
 
   try {
     // 1. Extract
@@ -874,7 +875,7 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
     const { error: storageErr } = await supabase
       .storage.from('documents')
       .upload(storagePath, req.file.buffer, {
-        contentType: filetype,
+        contentType: mimeType,
         upsert: false,
       });
     if (storageErr) throw new Error('storage upload failed: ' + storageErr.message);
@@ -1000,8 +1001,9 @@ app.post('/api/files/:id/replace', upload.single('file'), async (req, res) => {
 
     const newName = req.file.originalname;
     const ext = extname(newName).slice(1).toLowerCase();
-    const filetype = `${req.file.mimetype || ''} ${ext}`.trim();
-    console.log(`\n[replace] file_id=${id} -> ${newName} (${filetype}) by ${user.name}`);
+    const mimeType = req.file.mimetype || 'application/octet-stream';
+    const filetype = `${mimeType} ${ext}`.trim();
+    console.log(`\n[replace] file_id=${id} -> ${newName} (${mimeType}) by ${user.name}`);
 
     // 1. Extract new content
     const extracted = await extractText(req.file.buffer, filetype);
@@ -1018,7 +1020,7 @@ app.post('/api/files/:id/replace', upload.single('file'), async (req, res) => {
     const storagePath = `${randomUUID()}-${newName.replace(/[^\w.\-]+/g, '_')}`;
     const { error: storageErr } = await supabase
       .storage.from('documents')
-      .upload(storagePath, req.file.buffer, { contentType: filetype, upsert: false });
+      .upload(storagePath, req.file.buffer, { contentType: mimeType, upsert: false });
     if (storageErr) throw new Error('storage upload failed: ' + storageErr.message);
     const { data: pub } = supabase.storage.from('documents').getPublicUrl(storagePath);
     const newFileUrl = pub.publicUrl;
