@@ -470,11 +470,11 @@ export default function HomeTab({ users = [], activeUserId, activePart, activeUs
         {/* Dataset tracker — full-width, Data Management users only */}
         {isDataMgmt && <DataMgmtTableWidget activeUser={activeUser} />}
 
+        <LeaderboardWidget activeUserId={activeUserId} onClick={() => onNavigate('quizzes')} />
+
         <FeedWidget activePart={activePart} activeUserRole={activeUserRole} onClick={() => onNavigate('feed')} />
 
         <RecentDocsWidget activeUser={activeUser} onClick={() => onNavigate('hub')} />
-
-        <LeaderboardWidget activeUserId={activeUserId} onClick={() => onNavigate('quizzes')} />
 
         <CtaCard
           eyebrow="Chat with Pluto"
