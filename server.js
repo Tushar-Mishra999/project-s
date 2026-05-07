@@ -859,7 +859,8 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
 
   const filename = req.file.originalname;
   const ext = extname(filename).slice(1).toLowerCase();
-  const filetype = req.file.mimetype || ext;
+  // Combine mime + extension so extract.js can match on either
+  const filetype = `${req.file.mimetype || ''} ${ext}`.trim();
 
   console.log(`\n[upload] ${filename} (${filetype}) by ${uploadedBy} -> ${accessibleTo.join(',')}`);
 
@@ -1006,7 +1007,7 @@ app.post('/api/files/:id/replace', upload.single('file'), async (req, res) => {
 
     const newName = req.file.originalname;
     const ext = extname(newName).slice(1).toLowerCase();
-    const filetype = req.file.mimetype || ext;
+    const filetype = `${req.file.mimetype || ''} ${ext}`.trim();
     console.log(`\n[replace] file_id=${id} -> ${newName} (${filetype}) by ${user.name}`);
 
     // 1. Extract new content

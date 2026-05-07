@@ -468,7 +468,7 @@ export default function RetrievalTab({ parts, activePart, users = [], activeUser
           <div className="upload-prompt">
             <div>
               <div className="upload-prompt-title">Have a document to add to the library?</div>
-              <div className="upload-prompt-sub">PDF, DOCX, PPTX or TXT — up to 30 MB.</div>
+              <div className="upload-prompt-sub">PDF, DOCX, PPTX, TXT or Excel (XLSX) — up to 30 MB.</div>
             </div>
             <button className="primary-btn" onClick={() => setShowUpload(true)}>
               Upload a document
