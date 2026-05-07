@@ -25,7 +25,8 @@
     "openai": "^6.36.0",
     "pdf-parse": "^1.1.1",
     "rss-parser": "^3.13.0",
-    "voyageai": "^0.0.4"
+    "voyageai": "^0.0.4",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "concurrently": "^9.0.1"
