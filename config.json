@@ -37,6 +37,12 @@
       "parts": ["PMO"]
     },
     {
+      "name": "The Digital Project Manager",
+      "url": "https://thedigitalprojectmanager.com",
+      "rss": "https://thedigitalprojectmanager.com/feed/",
+      "parts": ["PMO"]
+    },
+    {
       "name": "Appen Blog",
       "url": "https://www.appen.com/blog",
       "parts": ["Data Management"]

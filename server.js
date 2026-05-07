@@ -182,6 +182,57 @@ app.post('/api/feed/refresh', (req, res) => {
   res.status(202).json({ status: 'started', part });
 });
 
+// ---------- Open Source Leaderboard ----------
+let leaderboardCache = { data: null, fetchedAt: null };
+const LEADERBOARD_TTL = 3600000; // 1 hour
+
+app.get('/api/leaderboard', async (req, res) => {
+  try {
+    // Return cache if fresh
+    if (leaderboardCache.data && leaderboardCache.fetchedAt && (Date.now() - leaderboardCache.fetchedAt < LEADERBOARD_TTL)) {
+      return res.json(leaderboardCache.data);
+    }
+
+    const prompt = `Go to this URL: https://llm-stats.com/leaderboards/open-llm-leaderboard
+
+Return the top 10 models from the Open LLM Leaderboard as a JSON array. Each object should have these fields:
+- "rank": number (1-10)
+- "model": string (model name)
+- "average": string (average score)
+- "arc": string (ARC score if available, or "-")
+- "hellaswag": string (HellaSwag score if available, or "-")
+- "mmlu": string (MMLU score if available, or "-")
+- "truthfulqa": string (TruthfulQA score if available, or "-")
+- "organization": string (who made it)
+
+Return ONLY the JSON array, no markdown, no explanation.`;
+
+    const result = await generateText({
+      model: 'gemini-2.5-flash',
+      system: 'You are a data extraction assistant. You use Google Search to find current information. Return only valid JSON.',
+      user: prompt,
+      maxTokens: 2048,
+      tools: [{ googleSearch: {} }],
+    });
+
+    // Parse the JSON response
+    let models;
+    try {
+      const cleaned = result.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      models = JSON.parse(cleaned);
+    } catch {
+      return res.status(500).json({ error: 'Failed to parse leaderboard data from AI' });
+    }
+
+    const payload = { models, fetchedAt: new Date().toISOString() };
+    leaderboardCache = { data: payload, fetchedAt: Date.now() };
+    res.json(payload);
+  } catch (err) {
+    console.error('[leaderboard] error:', err.message);
+    res.status(500).json({ error: err.message || 'Failed to fetch leaderboard' });
+  }
+});
+
 // ---------- Worklet generator ----------
 function stripHtmlTags(s) {
   return (s || '')

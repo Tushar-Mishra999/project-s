@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 
-const PART_LABELS = {
-  'Tech Management': 'Tech Sensing',
-  'PRISM': 'Worklet Radar',
-  'PMO': 'PM Intelligence',
-  'Data Management': 'Data Intelligence',
-};
+// All feed categories visible to everyone
+const FEED_CATEGORIES = [
+  { id: 'leaderboard', label: 'Open Source Leaderboard', icon: '🏆', part: null },
+  { id: 'md', label: 'Market Intelligence', icon: '📊', part: 'MD' },
+  { id: 'tech', label: 'Tech Sensing', icon: '🔬', part: 'Tech Management' },
+  { id: 'prism', label: 'Worklet Radar', icon: '💡', part: 'PRISM' },
+  { id: 'pmo', label: 'PM Intelligence', icon: '📋', part: 'PMO' },
+  { id: 'data', label: 'Data Intelligence', icon: '🗂️', part: 'Data Management' },
+];
 
-export function feedTabLabel(part, role) {
-  if (role === 'MD') return 'Industry Insights';
-  return PART_LABELS[part] || 'Tech Sensing';
+export function feedTabLabel() {
+  return 'Feed';
 }
 
 function formatDate(d) {
@@ -27,30 +29,27 @@ function relevanceBucket(label) {
   return null;
 }
 
+// ── Worklet panel ──
 function WorkletPanel({ open, loading, error, content, onRetry }) {
   if (!open) return null;
   return (
     <div className="worklet-panel">
       {loading && (
         <div className="worklet-loading">
-          <div className="spinner small" />
-          <span>Drafting a worklet idea…</span>
+          <div className="spinner small" /><span>Drafting a worklet idea…</span>
         </div>
       )}
       {!loading && error && (
-        <div className="inline-msg error">
-          {error} <button className="ghost-btn" onClick={onRetry}>Retry</button>
-        </div>
+        <div className="inline-msg error">{error} <button className="ghost-btn" onClick={onRetry}>Retry</button></div>
       )}
       {!loading && !error && content && (
-        <div className="md worklet-content">
-          <ReactMarkdown>{content}</ReactMarkdown>
-        </div>
+        <div className="md worklet-content"><ReactMarkdown>{content}</ReactMarkdown></div>
       )}
     </div>
   );
 }
 
+// ── Feed card ──
 function Card({ item, isPrism }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -59,36 +58,22 @@ function Card({ item, isPrism }) {
   const [summaryOpen, setSummaryOpen] = useState(false);
 
   const generate = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+    setLoading(true); setError(null);
     try {
       const res = await fetch('/api/worklet', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: item.title,
-          summary: item.summary,
-          source: item.source,
-          url: item.url,
-        }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: item.title, summary: item.summary, source: item.source, url: item.url }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `Server returned ${res.status}`);
       setContent(json.worklet);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { setError(err.message); }
+    finally { setLoading(false); }
   }, [item]);
 
   const handleClick = () => {
-    if (!open) {
-      setOpen(true);
-      if (!content && !loading) generate();
-    } else {
-      setOpen(false);
-    }
+    if (!open) { setOpen(true); if (!content && !loading) generate(); }
+    else { setOpen(false); }
   };
 
   const bucket = isPrism ? relevanceBucket(item.workletRelevance) : null;
@@ -98,27 +83,17 @@ function Card({ item, isPrism }) {
       <div className="card-top-row">
         {item.date ? <div className="meta">{item.date}</div> : <div className="meta" />}
         {bucket && (
-          <span
-            className={`relevance-badge relevance-${bucket.cls}`}
-            title="AI-scored relevance for worklet creation"
-          >
+          <span className={`relevance-badge relevance-${bucket.cls}`} title="AI-scored relevance for worklet creation">
             {bucket.label} relevance
           </span>
         )}
       </div>
-      <a className="title" href={item.url} target="_blank" rel="noopener noreferrer">
-        {item.title}
-      </a>
-      {summaryOpen && item.summary && (
-        <p className="summary">{item.summary}</p>
-      )}
+      <a className="title" href={item.url} target="_blank" rel="noopener noreferrer">{item.title}</a>
+      {summaryOpen && item.summary && <p className="summary">{item.summary}</p>}
       <div className="card-actions">
         <div className="card-actions-left">
           {item.summary && (
-            <button
-              className="link-btn"
-              onClick={() => setSummaryOpen((v) => !v)}
-            >
+            <button className="link-btn" onClick={() => setSummaryOpen((v) => !v)}>
               {summaryOpen ? 'Hide summary' : 'View summary'}
             </button>
           )}
@@ -128,21 +103,14 @@ function Card({ item, isPrism }) {
             </button>
           )}
         </div>
-        <a className="more" href={item.url} target="_blank" rel="noopener noreferrer">
-          Read more →
-        </a>
+        <a className="more" href={item.url} target="_blank" rel="noopener noreferrer">Read more →</a>
       </div>
-      <WorkletPanel
-        open={open}
-        loading={loading}
-        error={error}
-        content={content}
-        onRetry={generate}
-      />
+      <WorkletPanel open={open} loading={loading} error={error} content={content} onRetry={generate} />
     </article>
   );
 }
 
+// ── Add source panel ──
 function AddSourcePanel({ activePart, onAdded, onClose }) {
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
@@ -151,29 +119,18 @@ function AddSourcePanel({ activePart, onAdded, onClose }) {
   const [success, setSuccess] = useState(false);
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    setSaving(true);
-    setError(null);
+    e.preventDefault(); setSaving(true); setError(null);
     try {
       const res = await fetch('/api/feed/sources', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: name.trim(),
-          url: url.trim(),
-          parts: activePart ? [activePart] : undefined,
-        }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim(), url: url.trim(), parts: activePart ? [activePart] : undefined }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `Server error ${res.status}`);
-      setSuccess(true);
-      onAdded(json.sources);
+      setSuccess(true); onAdded(json.sources);
       setTimeout(() => { setSuccess(false); onClose(); }, 1800);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSaving(false);
-    }
+    } catch (err) { setError(err.message); }
+    finally { setSaving(false); }
   };
 
   return (
@@ -188,25 +145,11 @@ function AddSourcePanel({ activePart, onAdded, onClose }) {
         <form className="add-source-form" onSubmit={handleSubmit}>
           <div className="form-row">
             <label htmlFor="src-name">Display name</label>
-            <input
-              id="src-name"
-              type="text"
-              placeholder="e.g. MIT Technology Review"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              required
-            />
+            <input id="src-name" type="text" placeholder="e.g. MIT Technology Review" value={name} onChange={e => setName(e.target.value)} required />
           </div>
           <div className="form-row">
             <label htmlFor="src-url">URL (homepage or RSS feed)</label>
-            <input
-              id="src-url"
-              type="url"
-              placeholder="https://…"
-              value={url}
-              onChange={e => setUrl(e.target.value)}
-              required
-            />
+            <input id="src-url" type="url" placeholder="https://…" value={url} onChange={e => setUrl(e.target.value)} required />
           </div>
           {error && <div className="inline-msg error">{error}</div>}
           <div className="add-source-actions">
@@ -221,31 +164,110 @@ function AddSourcePanel({ activePart, onAdded, onClose }) {
   );
 }
 
-export default function FeedTab({ activePart, activeUserRole }) {
+// ── Leaderboard view ──
+function LeaderboardView() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const res = await fetch('/api/leaderboard');
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to fetch');
+      setData(json);
+    } catch (err) { setError(err.message); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  return (
+    <div className="feed-content-area">
+      <div className="feed-content-header">
+        <div>
+          <h2 className="feed-content-title">Open Source Leaderboard</h2>
+          <p className="feed-content-sub">Top 10 open-source models from the Open LLM Leaderboard, refreshed via Gemini Search.</p>
+        </div>
+        <button className="primary-btn" onClick={load} disabled={loading}>
+          {loading ? 'Loading…' : 'Refresh'}
+        </button>
+      </div>
+
+      {loading && (
+        <div className="state"><div className="spinner" /><div className="state-text">Fetching leaderboard via Gemini…</div></div>
+      )}
+
+      {!loading && error && (
+        <div className="state">
+          <div className="error-box"><h3>Error</h3><p>{error}</p><button className="primary-btn" onClick={load}>Retry</button></div>
+        </div>
+      )}
+
+      {!loading && !error && data && (
+        <>
+          {data.fetchedAt && (
+            <div className="feed-meta">Last fetched: {formatDate(data.fetchedAt)}</div>
+          )}
+          <div className="leaderboard-table-wrap">
+            <table className="leaderboard-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Model</th>
+                  <th>Organization</th>
+                  <th>Average</th>
+                  <th>ARC</th>
+                  <th>HellaSwag</th>
+                  <th>MMLU</th>
+                  <th>TruthfulQA</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data.models || []).map((m, i) => (
+                  <tr key={i}>
+                    <td className="leaderboard-rank">{m.rank || i + 1}</td>
+                    <td className="leaderboard-model">{m.model}</td>
+                    <td>{m.organization || '—'}</td>
+                    <td className="leaderboard-score">{m.average || '—'}</td>
+                    <td>{m.arc || '—'}</td>
+                    <td>{m.hellaswag || '—'}</td>
+                    <td>{m.mmlu || '—'}</td>
+                    <td>{m.truthfulqa || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="leaderboard-source">
+            Source: <a href="https://llm-stats.com/leaderboards/open-llm-leaderboard" target="_blank" rel="noopener noreferrer">llm-stats.com/leaderboards/open-llm-leaderboard</a>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Standard feed view ──
+function FeedView({ part, isPrism }) {
   const [data, setData] = useState(null);
   const [loadingCache, setLoadingCache] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
-
   const [configSources, setConfigSources] = useState([]);
   const [sourceFilter, setSourceFilter] = useState('All');
   const [showAddSource, setShowAddSource] = useState(false);
 
-  const effectivePart = activeUserRole === 'MD' ? 'MD' : activePart;
-  const isPrism = activePart === 'PRISM';
-  const tabLabel = feedTabLabel(activePart, activeUserRole);
+  const partQs = `?part=${encodeURIComponent(part)}`;
 
-  // Fetch configured sources for the active part
   useEffect(() => {
-    const qs = effectivePart ? `?part=${encodeURIComponent(effectivePart)}` : '';
-    fetch(`/api/feed/sources${qs}`)
+    fetch(`/api/feed/sources${partQs}`)
       .then(r => r.json())
       .then(({ sources }) => setConfigSources(sources || []))
       .catch(() => {});
     setSourceFilter('All');
-  }, [effectivePart]);
-
-  const partQs = effectivePart ? `?part=${encodeURIComponent(effectivePart)}` : '';
+  }, [part]);
 
   const startPolling = useCallback(async (prevGeneratedAt, isCancelled = () => false) => {
     for (let i = 0; i < 100; i++) {
@@ -256,22 +278,18 @@ export default function FeedTab({ activePart, activeUserRole }) {
         if (pollRes.ok) {
           const json = await pollRes.json();
           if (!json.pipelineRunning && json.generatedAt && json.generatedAt !== prevGeneratedAt) {
-            setData(json);
-            setRefreshing(false);
-            return;
+            setData(json); setRefreshing(false); return;
           }
         }
-      } catch { /* keep polling */ }
+      } catch {}
     }
-    setError('Feed pipeline is taking longer than expected. Reload the page to check results.');
+    setError('Feed pipeline is taking longer than expected.');
     setRefreshing(false);
   }, [partQs]);
 
   useEffect(() => {
     let cancelled = false;
-    setData(null);
-    setLoadingCache(true);
-    setError(null);
+    setData(null); setLoadingCache(true); setError(null);
     (async () => {
       try {
         const res = await fetch(`/api/feed${partQs}`);
@@ -279,106 +297,61 @@ export default function FeedTab({ activePart, activeUserRole }) {
         if (cancelled) return;
         if (json?.generatedAt) setData(json);
         setLoadingCache(false);
-        if (json.pipelineRunning) {
-          setRefreshing(true);
-          await startPolling(json.generatedAt, () => cancelled);
-        }
-      } catch {
-        if (!cancelled) setLoadingCache(false);
-      }
+        if (json.pipelineRunning) { setRefreshing(true); await startPolling(json.generatedAt, () => cancelled); }
+      } catch { if (!cancelled) setLoadingCache(false); }
     })();
     return () => { cancelled = true; };
   }, [startPolling, partQs]);
 
   const refresh = useCallback(async () => {
-    setRefreshing(true);
-    setError(null);
+    setRefreshing(true); setError(null);
     const prevGeneratedAt = data?.generatedAt ?? null;
     try {
       const triggerRes = await fetch('/api/feed/refresh', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ part: effectivePart || null }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ part }),
       });
-      if (!triggerRes.ok) {
-        const body = await triggerRes.text();
-        throw new Error(`Server returned ${triggerRes.status}: ${body.slice(0, 200)}`);
-      }
+      if (!triggerRes.ok) { const body = await triggerRes.text(); throw new Error(`Server returned ${triggerRes.status}: ${body.slice(0, 200)}`); }
       await startPolling(prevGeneratedAt);
-    } catch (err) {
-      setError(err.message || 'Failed to refresh feed');
-      setRefreshing(false);
-    }
-  }, [data, startPolling, effectivePart]);
+    } catch (err) { setError(err.message || 'Failed to refresh feed'); setRefreshing(false); }
+  }, [data, startPolling, part]);
 
-  const partSourceNames = useMemo(
-    () => new Set(configSources.map((s) => s.name)),
-    [configSources]
-  );
-
+  const partSourceNames = useMemo(() => new Set(configSources.map(s => s.name)), [configSources]);
   const hasData = data && data.generatedAt;
   const allSources = data?.sources ?? {};
-
-  // Restrict server-returned sources to those configured for the active part.
   const sources = useMemo(() => {
     if (!partSourceNames.size) return {};
-    return Object.fromEntries(
-      Object.entries(allSources).filter(([name]) => partSourceNames.has(name))
-    );
+    return Object.fromEntries(Object.entries(allSources).filter(([name]) => partSourceNames.has(name)));
   }, [allSources, partSourceNames]);
-
-  const total = useMemo(
-    () => Object.values(sources).reduce((n, items) => n + (items?.length || 0), 0),
-    [sources]
-  );
-
+  const total = useMemo(() => Object.values(sources).reduce((n, items) => n + (items?.length || 0), 0), [sources]);
   const filterOptions = configSources.map(s => s.name);
-
-  const visibleSources = sourceFilter === 'All'
-    ? sources
-    : Object.fromEntries(Object.entries(sources).filter(([name]) => name === sourceFilter));
-
+  const visibleSources = sourceFilter === 'All' ? sources : Object.fromEntries(Object.entries(sources).filter(([name]) => name === sourceFilter));
   const buttonLabel = refreshing ? 'Running…' : hasData ? 'Refresh Feed' : 'Run Feed';
+  const catLabel = FEED_CATEGORIES.find(c => c.part === part)?.label || part;
 
   return (
-    <div className="wrap">
-      <div className="header">
+    <div className="feed-content-area">
+      <div className="feed-content-header">
         <div>
-          <h1>{tabLabel} Feed</h1>
-          <div className="sub">
+          <h2 className="feed-content-title">{catLabel}</h2>
+          <p className="feed-content-sub">
             {hasData
               ? `Last run: ${formatDate(data.generatedAt)} · ${total} item${total === 1 ? '' : 's'}`
-              : `Click below to scrape today's news from ${configSources.length || 0} ${effectivePart || ''} source${(configSources.length || 0) === 1 ? '' : 's'}.`}
-          </div>
+              : `Click below to scrape today's news from ${configSources.length || 0} source${(configSources.length || 0) === 1 ? '' : 's'}.`}
+          </p>
         </div>
-        <button className="primary-btn" onClick={refresh} disabled={refreshing || loadingCache}>
-          {buttonLabel}
-        </button>
+        <button className="primary-btn" onClick={refresh} disabled={refreshing || loadingCache}>{buttonLabel}</button>
       </div>
 
       {(filterOptions.length > 0 || !loadingCache) && (
         <div className="source-toolbar">
           <div className="source-filter">
-            <button
-              className={`filter-pill${sourceFilter === 'All' ? ' active' : ''}`}
-              onClick={() => setSourceFilter('All')}
-            >
-              All
-            </button>
+            <button className={`filter-pill${sourceFilter === 'All' ? ' active' : ''}`} onClick={() => setSourceFilter('All')}>All</button>
             {filterOptions.map(name => (
-              <button
-                key={name}
-                className={`filter-pill${sourceFilter === name ? ' active' : ''}`}
-                onClick={() => setSourceFilter(name)}
-              >
-                {name}
-              </button>
+              <button key={name} className={`filter-pill${sourceFilter === name ? ' active' : ''}`} onClick={() => setSourceFilter(name)}>{name}</button>
             ))}
           </div>
-          <button
-            className="add-source-btn"
-            onClick={() => setShowAddSource(v => !v)}
-          >
+          <button className="add-source-btn" onClick={() => setShowAddSource(v => !v)}>
             {showAddSource ? '✕ Cancel' : '＋ Add source'}
           </button>
         </div>
@@ -386,10 +359,10 @@ export default function FeedTab({ activePart, activeUserRole }) {
 
       {showAddSource && (
         <AddSourcePanel
-          activePart={effectivePart}
+          activePart={part}
           onAdded={(updated) => {
             const filtered = (updated || []).filter((s) =>
-              Array.isArray(s.parts) ? s.parts.includes(effectivePart) : effectivePart === 'Tech Management'
+              Array.isArray(s.parts) ? s.parts.includes(part) : part === 'Tech Management'
             );
             setConfigSources(filtered);
           }}
@@ -397,59 +370,25 @@ export default function FeedTab({ activePart, activeUserRole }) {
         />
       )}
 
-      {loadingCache && (
-        <div className="state"><div className="spinner" /></div>
-      )}
-
-      {!loadingCache && !hasData && !refreshing && !error && (
-        <div className="state" />
-      )}
+      {loadingCache && <div className="state"><div className="spinner" /></div>}
 
       {refreshing && (
         <div className="state">
           <div className="spinner" />
-          <div className="state-text">
-            Running the pipeline — scraping, scoring &amp; summarising. This typically takes 1–3 minutes.
-          </div>
+          <div className="state-text">Running the pipeline — scraping, scoring &amp; summarising. This typically takes 1–3 minutes.</div>
         </div>
       )}
 
       {!refreshing && error && (
-        <div className="state">
-          <div className="error-box">
-            <h3>Couldn't refresh the feed</h3>
-            <p>{error}</p>
-            <button className="primary-btn" onClick={refresh}>Retry</button>
-          </div>
-        </div>
+        <div className="state"><div className="error-box"><h3>Couldn't refresh the feed</h3><p>{error}</p><button className="primary-btn" onClick={refresh}>Retry</button></div></div>
       )}
 
       {!refreshing && hasData && Object.keys(sources).length === 0 && (
-        (data.errors && data.errors.length > 0) ? (
-          <div className="state">
-            <div className="error-box" style={{ maxWidth: 640 }}>
-              <h3>The pipeline ran but couldn't fetch any sources</h3>
-              <p>
-                {data.errors.length} source{data.errors.length === 1 ? '' : 's'} failed. First error: <code>{data.errors[0].message}</code>
-              </p>
-              <button className="primary-btn" onClick={refresh}>Retry</button>
-            </div>
-          </div>
-        ) : (
-          <div className="state">
-            <div className="state-text">
-              No items from this part's sources passed the relevance threshold. Try refreshing later.
-            </div>
-          </div>
-        )
+        <div className="state"><div className="state-text">No items from this category's sources passed the relevance threshold. Try refreshing later.</div></div>
       )}
 
       {!refreshing && hasData && Object.keys(visibleSources).length === 0 && Object.keys(sources).length > 0 && (
-        <div className="state">
-          <div className="state-text">
-            No articles from <strong>{sourceFilter}</strong> in this run. Try refreshing the feed or select a different source.
-          </div>
-        </div>
+        <div className="state"><div className="state-text">No articles from <strong>{sourceFilter}</strong> in this run.</div></div>
       )}
 
       {!refreshing && hasData &&
@@ -461,6 +400,42 @@ export default function FeedTab({ activePart, activeUserRole }) {
             </div>
           </section>
         ))}
+    </div>
+  );
+}
+
+// ── Main FeedTab component ──
+export default function FeedTab() {
+  const [activeCategory, setActiveCategory] = useState('leaderboard');
+
+  const activeCat = FEED_CATEGORIES.find(c => c.id === activeCategory);
+
+  return (
+    <div className="feed-layout">
+      {/* Left sidebar */}
+      <aside className="feed-sidebar">
+        <div className="feed-sidebar-title">Feed Categories</div>
+        <nav className="feed-sidebar-nav">
+          {FEED_CATEGORIES.map((cat) => (
+            <button
+              key={cat.id}
+              className={`feed-sidebar-item${activeCategory === cat.id ? ' active' : ''}`}
+              onClick={() => setActiveCategory(cat.id)}
+            >
+              <span className="feed-sidebar-icon">{cat.icon}</span>
+              <span className="feed-sidebar-label">{cat.label}</span>
+            </button>
+          ))}
+        </nav>
+      </aside>
+
+      {/* Right content */}
+      <div className="feed-main">
+        {activeCategory === 'leaderboard' && <LeaderboardView />}
+        {activeCategory !== 'leaderboard' && activeCat && (
+          <FeedView part={activeCat.part} isPrism={activeCat.part === 'PRISM'} />
+        )}
+      </div>
     </div>
   );
 }

@@ -216,8 +216,8 @@ export default function App() {
   const showTaskForce = activeUserRole === 'MD' || activePart === 'Tech Management';
 
   const primaryTabs = useMemo(
-    () => PRIMARY_TABS.map((t) => t.id === 'feed' ? { ...t, label: feedTabLabel(activePart, activeUserRole) } : t),
-    [activePart, activeUserRole]
+    () => PRIMARY_TABS.map((t) => t.id === 'feed' ? { ...t, label: feedTabLabel() } : t),
+    []
   );
 
   return (
@@ -255,7 +255,7 @@ export default function App() {
       <main>
         {active === 'home'      && <HomeTab users={users} activeUserId={activeUserId} activePart={activePart} activeUserRole={activeUserRole} onNavigate={setActive} />}
         {active === 'hub'       && <KnowledgeHubTab parts={parts} activePart={activePart} users={users} activeUserId={activeUserId} />}
-        {active === 'feed'      && <FeedTab activePart={activePart} activeUserRole={activeUserRole} />}
+        {active === 'feed'      && <FeedTab />}
         {active === 'actions'   && <ActionItemsTab users={users} activeUserId={activeUserId} />}
         {active === 'minutes'   && <MinutesTab parts={parts} users={users} activeUserId={activeUserId} />}
         {active === 'quizzes'   && <AIQuizzesTab activePart={activePart} activeUserId={activeUserId} users={users} />}
