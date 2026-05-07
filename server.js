@@ -1224,9 +1224,10 @@ const REPORT_SYSTEM = `You are a report-writing assistant that produces polished
 2. INPUT DATA — facts, notes, or context the user wants written up
 
 Your job:
-- Produce a complete report that follows the template's STRUCTURE, TONE, and FORMATTING (headings, sections, bullet points, table styles, length).
+- Produce a complete, comprehensive report that follows the template's STRUCTURE, TONE, and FORMATTING (headings, sections, bullet points, table styles).
+- Cover ALL input data thoroughly — do not summarise or truncate. Every data point, metric, finding, and detail in the input should appear in the report. Aim for depth and completeness, not brevity.
 - Replace the template's example/placeholder content with the user's actual input data.
-- Keep the same section ordering and formatting conventions as the template.
+- Keep the same section ordering and formatting conventions as the template. Add sub-sections or additional rows/items as needed to accommodate all input data.
 - Do NOT include <html>, <head>, <body>, or <style> tags — output only the inner content HTML.
 - Do not invent facts not present in the input data — if a section can't be filled, write "<p><em>(not provided)</em></p>".
 
@@ -1364,7 +1365,7 @@ app.post('/api/report-templates/:id/generate', async (req, res) => {
     if (!tmpl) return res.status(404).json({ error: 'template not found' });
 
     const userMsg = `--- TEMPLATE (${tmpl.filename}) ---\n${tmpl.template_text}\n\n--- INPUT DATA ---\n${input_data}`;
-    const report = await generateReport({ report_model, system: REPORT_SYSTEM, userMsg, maxTokens: 4096 });
+    const report = await generateReport({ report_model, system: REPORT_SYSTEM, userMsg, maxTokens: 16000 });
     res.json({ report, template_filename: tmpl.filename });
   } catch (err) {
     console.error('[report-generate] error:', err);
@@ -1481,7 +1482,7 @@ app.post('/api/report-templates/:id/generate-from-files', async (req, res) => {
       byFile.get(c.file_id).push(c.chunk_text || '');
     }
 
-    const PER_FILE_LIMIT = 12000; // chars; rough tokens ~3000/file
+    const PER_FILE_LIMIT = 30000; // chars; ~7500 tokens/file
     const sections = file_ids
       .map((fid) => {
         const f = fileById.get(fid);
@@ -1503,7 +1504,7 @@ app.post('/api/report-templates/:id/generate-from-files', async (req, res) => {
     ].filter(Boolean).join('\n\n');
 
     const userMsg = `--- TEMPLATE (${tmpl.filename}) ---\n${tmpl.template_text}\n\n--- INPUT DATA ---\n${inputData}`;
-    const report = await generateReport({ report_model, system: REPORT_SYSTEM, userMsg, maxTokens: 4096 });
+    const report = await generateReport({ report_model, system: REPORT_SYSTEM, userMsg, maxTokens: 16000 });
     res.json({
       report,
       template_filename: tmpl.filename,
