@@ -371,7 +371,7 @@ function LibraryRow({ file, activeUserId, onDeleted, onExtracted, onLockChange, 
         <IconBtn as="a" title="Download" href={file.file_url} download><IconDownload /></IconBtn>
         {lockedByMe ? (
           <>
-            <input ref={replaceInputRef} type="file" accept=".pdf,.docx,.pptx,.txt" style={{ display: 'none' }} onChange={handleReplace} />
+            <input ref={replaceInputRef} type="file" accept=".pdf,.docx,.pptx,.txt,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" style={{ display: 'none' }} onChange={handleReplace} />
             <IconBtn title={replacing ? 'Uploading…' : 'Upload new version'} onClick={() => replaceInputRef.current?.click()} disabled={replacing} active><IconUploadSmall /></IconBtn>
             <IconBtn title="Release lock" onClick={handleReleaseLock} disabled={locking || replacing} active><IconUnlock /></IconBtn>
           </>
@@ -926,7 +926,7 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
               <button className="modal-close" onClick={() => { setShowUpload(false); setUploadMsg(null); }}>×</button>
             </div>
             <form className="upload-form" onSubmit={handleUpload}>
-              <div className="form-row"><label>File</label><input ref={fileInputRef} type="file" accept=".pdf,.docx,.pptx,.txt" onChange={(e) => setFile(e.target.files?.[0] || null)} /></div>
+              <div className="form-row"><label>File</label><input ref={fileInputRef} type="file" accept=".pdf,.docx,.pptx,.txt,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" onChange={(e) => setFile(e.target.files?.[0] || null)} /></div>
               {isMD ? (
                 <div className="form-row"><label>Accessible to</label>
                   <div className="checkbox-row">
