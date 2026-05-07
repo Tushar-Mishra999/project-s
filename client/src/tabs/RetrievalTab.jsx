@@ -488,7 +488,7 @@ export default function RetrievalTab({ parts, activePart, users = [], activeUser
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".pdf,.docx,.pptx,.txt,.xlsx,.xls"
+                  accept=".pdf,.docx,.pptx,.txt,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                   onChange={(e) => setFile(e.target.files?.[0] || null)}
                 />
               </div>
