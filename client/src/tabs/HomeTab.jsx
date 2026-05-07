@@ -424,6 +424,7 @@ function LeaderboardWidget({ activeUserId, onClick }) {
 }
 
 
+function CtaCard({ eyebrow, title, body, ctaLabel, onClick, accent = 'blue' }) {
   return (
     <div className={`home-card home-cta home-cta-${accent}`}>
       <div className="home-cta-eyebrow">{eyebrow}</div>
