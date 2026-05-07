@@ -196,29 +196,23 @@ app.get('/api/leaderboard', async (req, res) => {
 
     const prompt = `Search the current Open LLM Leaderboard tier rankings from onyx.app (https://onyx.app/open-llm-leaderboard).
 
-Extract the tier-based model rankings for all 5 categories: Overall, Coding, Small, Medium, Large.
+Extract the tier-based model rankings for only 1 category: Overall.
 
-Return a JSON object with this exact structure:
-{
-  "Overall": [
-    {"tier": "S", "models": [{"name": "GLM-5", "params": "744B"}, {"name": "Kimi K2.5", "params": "1T"}]},
-    {"tier": "A", "models": [{"name": "ModelName", "params": "100B"}]},
-    {"tier": "B", "models": []},
-    {"tier": "C", "models": []},
-    {"tier": "D", "models": []}
-  ],
-  "Coding": [... same structure ...],
-  "Small": [... same structure ...],
-  "Medium": [... same structure ...],
-  "Large": [... same structure ...]
-}
+Return a JSON array with this exact structure:
+[
+  {"tier": "S", "models": [{"name": "", "params": ""}]},
+  {"tier": "A", "models": [{"name": "", "params": ""}]},
+  {"tier": "B", "models": [{"name": "", "params": ""}]},
+  {"tier": "C", "models": [{"name": "", "params": ""}]},
+  {"tier": "D", "models": [{"name": "", "params": ""}]}
+]
 
 Each model object must have:
 - "name": model name string
-- "params": parameter count like "744B", "1T", "27B" (string, or null if unknown)
+- "params": parameter count string like "744B", "1T", "27B" (or null if unknown)
 
-Include all tiers S, A, B, C, D in each category (empty models array if no models in that tier).
-Return ONLY the JSON object, no markdown fences, no explanation, no extra text.`;
+Include all tiers S, A, B, C, D (empty models array if no models in that tier).
+Return ONLY the JSON array, no markdown fences, no explanation, no extra text.`;
 
     console.log('[leaderboard] calling Gemini with Google Search grounding...');
 
@@ -270,7 +264,7 @@ Return ONLY the JSON object, no markdown fences, no explanation, no extra text.`
     }
 
     // Parse the JSON response — try multiple cleanup strategies
-    let categories;
+    let tiers;
     const cleaned = rawText
       .replace(/```json\s*/gi, '')
       .replace(/```\s*/g, '')
@@ -279,17 +273,17 @@ Return ONLY the JSON object, no markdown fences, no explanation, no extra text.`
     console.log('[leaderboard] cleaned response (first 500 chars):', cleaned.slice(0, 500));
 
     try {
-      categories = JSON.parse(cleaned);
+      tiers = JSON.parse(cleaned);
     } catch (e1) {
       console.warn('[leaderboard] direct parse failed:', e1.message);
-      // Try extracting JSON object from the text
-      const objMatch = cleaned.match(/\{[\s\S]*\}/);
-      if (objMatch) {
+      // Try extracting JSON array from the text
+      const arrMatch = cleaned.match(/\[[\s\S]*\]/);
+      if (arrMatch) {
         try {
-          categories = JSON.parse(objMatch[0]);
-          console.log('[leaderboard] extracted object from text, parsed OK');
+          tiers = JSON.parse(arrMatch[0]);
+          console.log('[leaderboard] extracted array from text, parsed OK');
         } catch (e2) {
-          console.error('[leaderboard] object extraction parse also failed:', e2.message);
+          console.error('[leaderboard] array extraction parse also failed:', e2.message);
           console.error('[leaderboard] full cleaned text:', cleaned);
           return res.status(500).json({
             error: 'Failed to parse leaderboard data from AI',
@@ -297,23 +291,22 @@ Return ONLY the JSON object, no markdown fences, no explanation, no extra text.`
           });
         }
       } else {
-        console.error('[leaderboard] no JSON object found in response');
+        console.error('[leaderboard] no JSON array found in response');
         console.error('[leaderboard] full cleaned text:', cleaned);
         return res.status(500).json({
-          error: 'Failed to parse leaderboard data from AI — no JSON object in response',
+          error: 'Failed to parse leaderboard data from AI — no JSON array in response',
           debug: { rawLength: rawText.length, preview: cleaned.slice(0, 300) },
         });
       }
     }
 
-    if (typeof categories !== 'object' || Array.isArray(categories)) {
-      console.error('[leaderboard] parsed result is not an object:', typeof categories);
+    if (!Array.isArray(tiers)) {
+      console.error('[leaderboard] parsed result is not an array:', typeof tiers);
       return res.status(500).json({ error: 'AI returned unexpected data format' });
     }
 
-    const catCount = Object.keys(categories).length;
-    console.log(`[leaderboard] success — got ${catCount} categories`);
-    const payload = { categories, fetchedAt: new Date().toISOString() };
+    console.log(`[leaderboard] success — got ${tiers.length} tiers`);
+    const payload = { tiers, fetchedAt: new Date().toISOString() };
     leaderboardCache = { data: payload, fetchedAt: Date.now() };
     res.json(payload);
   } catch (err) {
@@ -859,7 +852,8 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
 
   const filename = req.file.originalname;
   const ext = extname(filename).slice(1).toLowerCase();
-  const filetype = req.file.mimetype || ext;
+  // Combine mime + extension so extract.js can match on either
+  const filetype = `${req.file.mimetype || ''} ${ext}`.trim();
 
   console.log(`\n[upload] ${filename} (${filetype}) by ${uploadedBy} -> ${accessibleTo.join(',')}`);
 
@@ -1006,7 +1000,7 @@ app.post('/api/files/:id/replace', upload.single('file'), async (req, res) => {
 
     const newName = req.file.originalname;
     const ext = extname(newName).slice(1).toLowerCase();
-    const filetype = req.file.mimetype || ext;
+    const filetype = `${req.file.mimetype || ''} ${ext}`.trim();
     console.log(`\n[replace] file_id=${id} -> ${newName} (${filetype}) by ${user.name}`);
 
     // 1. Extract new content
