@@ -148,6 +148,107 @@ function formatLockDate(d) {
     ' ' + dt.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
 
+// ── Searchable parent-item picker ────────────────────────
+function ParentPicker({ value, onChange, options }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function onOut(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    document.addEventListener('mousedown', onOut);
+    return () => document.removeEventListener('mousedown', onOut);
+  }, []);
+
+  const filtered = search.trim()
+    ? options.filter((o) => o.text.toLowerCase().includes(search.toLowerCase()))
+    : options;
+
+  const selected = options.find((o) => o.id === value);
+
+  return (
+    <div ref={ref} style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+      <button
+        type="button"
+        onClick={() => { setOpen((v) => !v); setSearch(''); }}
+        style={{
+          width: '100%', textAlign: 'left', padding: '5px 10px',
+          background: 'var(--surface-3)', border: '1px solid var(--border-strong)',
+          borderRadius: 6, cursor: 'pointer', color: 'var(--text)', fontSize: 12,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6,
+        }}
+      >
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+          {selected
+            ? (selected.text.length > 55 ? selected.text.slice(0, 55) + '…' : selected.text)
+            : <span style={{ color: 'var(--text-muted)' }}>None (top-level)</span>}
+        </span>
+        <svg width="10" height="10" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0, opacity: 0.5, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }}>
+          <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, minWidth: 320,
+          background: 'var(--surface-2)', border: '1px solid var(--border-strong)',
+          borderRadius: 8, boxShadow: '0 12px 40px rgba(0,0,0,.5)', zIndex: 200,
+          maxHeight: 300, display: 'flex', flexDirection: 'column',
+        }}>
+          <div style={{ padding: '8px 8px 4px', borderBottom: '1px solid var(--border)' }}>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search action items…"
+              autoFocus
+              style={{
+                width: '100%', boxSizing: 'border-box', fontSize: 12, padding: '5px 8px',
+                background: 'var(--surface-3)', border: '1px solid var(--border-strong)',
+                borderRadius: 5, color: 'var(--text)', outline: 'none', fontFamily: 'inherit',
+              }}
+            />
+          </div>
+          <div style={{ overflowY: 'auto', flex: 1 }}>
+            <button type="button"
+              onClick={() => { onChange(null); setOpen(false); setSearch(''); }}
+              style={{
+                display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px',
+                border: 'none', borderBottom: '1px solid var(--border)',
+                background: !value ? 'rgba(59,130,246,.08)' : 'transparent',
+                color: !value ? 'var(--blue)' : 'var(--text-muted)',
+                cursor: 'pointer', fontSize: 12, fontStyle: 'italic', fontFamily: 'inherit',
+              }}>
+              None (top-level)
+            </button>
+            {filtered.length === 0 && (
+              <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--text-muted)' }}>
+                No items match "{search}"
+              </div>
+            )}
+            {filtered.map((opt) => (
+              <button key={opt.id} type="button"
+                onClick={() => { onChange(opt.id); setOpen(false); setSearch(''); }}
+                style={{
+                  display: 'block', width: '100%', textAlign: 'left',
+                  padding: '8px 12px', border: 'none', borderBottom: '1px solid var(--border)',
+                  background: value === opt.id ? 'rgba(59,130,246,.08)' : 'transparent',
+                  color: 'var(--text)', cursor: 'pointer', fontFamily: 'inherit',
+                }}
+                onMouseEnter={(e) => { if (value !== opt.id) e.currentTarget.style.background = 'rgba(255,255,255,.04)'; }}
+                onMouseLeave={(e) => { if (value !== opt.id) e.currentTarget.style.background = 'transparent'; }}
+              >
+                <div style={{ fontSize: 12, color: value === opt.id ? 'var(--blue)' : 'var(--text)', lineHeight: 1.4 }}>
+                  {opt.text.length > 72 ? opt.text.slice(0, 72) + '…' : opt.text}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{opt.source}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Shared action-item review modal ──────────────────────
 function ActionItemReviewModal({ pending, users, activeUserId, onClose, onSaved }) {
   const [items, setItems] = useState(() =>
@@ -160,6 +261,32 @@ function ActionItemReviewModal({ pending, users, activeUserId, onClose, onSaved 
   );
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState(null);
+  const [existingItems, setExistingItems] = useState([]);
+
+  useEffect(() => {
+    if (!activeUserId) return;
+    fetch(`/api/action-items?user_id=${encodeURIComponent(activeUserId)}`)
+      .then((r) => r.json())
+      .then((json) => {
+        const flat = [];
+        for (const card of (json.cards || [])) {
+          for (const it of (card.items || [])) {
+            flat.push({ id: it.id, text: it.text, source: card.filename });
+          }
+        }
+        setExistingItems(flat);
+      })
+      .catch(() => {});
+  }, [activeUserId]);
+
+  function parentOptionsFor(itemIdx) {
+    const batchIds = new Set(items.map((it) => it.id));
+    const batchOpts = items
+      .filter((_, i) => i !== itemIdx)
+      .map((it) => ({ id: it.id, text: it.text, source: 'This document (batch)' }));
+    const dbOpts = existingItems.filter((it) => !batchIds.has(it.id));
+    return [...batchOpts, ...dbOpts];
+  }
 
   function toggleAssignee(itemIdx, userId) {
     setItems((prev) => prev.map((it, i) => {
@@ -212,23 +339,14 @@ function ActionItemReviewModal({ pending, users, activeUserId, onClose, onSaved 
                 <textarea rows={2} value={it.text} onChange={(e) => setItemText(idx, e.target.value)} style={{ flex: 1, fontSize: 14 }} />
                 <button className="ghost-btn small danger" onClick={() => removeItem(idx)} title="Remove">×</button>
               </div>
-              {items.length > 1 && (
-                <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-muted)' }}>
-                  <span>Parent item:</span>
-                  <select
-                    value={it.parent_item_id || ''}
-                    onChange={(e) => setItemParent(idx, e.target.value || null)}
-                    style={{ fontSize: 12, background: 'var(--surface-2)', color: 'var(--text)', border: '1px solid var(--border-strong)', borderRadius: 6, padding: '3px 8px' }}
-                  >
-                    <option value="">None (top-level)</option>
-                    {items.filter((_, i) => i !== idx).map((other) => (
-                      <option key={other.id} value={other.id}>
-                        {other.text.length > 60 ? other.text.slice(0, 60) + '…' : other.text}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+                <span style={{ whiteSpace: 'nowrap' }}>Parent:</span>
+                <ParentPicker
+                  value={it.parent_item_id}
+                  onChange={(id) => setItemParent(idx, id)}
+                  options={parentOptionsFor(idx)}
+                />
+              </div>
               <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Assignees ({it.assignees.length}):</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {users.map((u) => {
