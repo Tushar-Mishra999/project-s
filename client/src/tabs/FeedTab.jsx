@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 
 // All feed categories visible to everyone
 const FEED_CATEGORIES = [
-  { id: 'leaderboard', label: 'Open Source Leaderboard', icon: '🏆', part: null },
+  // { id: 'leaderboard', label: 'Open Source Leaderboard', icon: '🏆', part: null },
   { id: 'md', label: 'Market Intelligence', icon: '📊', part: 'MD' },
   { id: 'tech', label: 'Tech Sensing', icon: '🔬', part: 'Tech Management' },
   { id: 'prism', label: 'Worklet Radar', icon: '💡', part: 'PRISM' },
@@ -406,7 +406,7 @@ function FeedView({ part, isPrism }) {
 
 // ── Main FeedTab component ──
 export default function FeedTab() {
-  const [activeCategory, setActiveCategory] = useState('leaderboard');
+  const [activeCategory, setActiveCategory] = useState('md');
 
   const activeCat = FEED_CATEGORIES.find(c => c.id === activeCategory);
 
