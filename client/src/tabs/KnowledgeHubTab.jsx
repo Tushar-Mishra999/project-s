@@ -313,7 +313,7 @@ function ActionItemReviewModal({ pending, users, activeUserId, onClose, onSaved 
       const res = await fetch('/api/action-items', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file_id: pending.file_id, filename: pending.filename, accessible_to: pending.accessible_to, assigned_by: activeUserId, items }),
+        body: JSON.stringify({ file_id: pending.file_id, filename: pending.filename, accessible_to: pending.accessible_to, assigned_by: activeUserId, items, source_type: pending.source_type }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Save failed');
@@ -415,7 +415,7 @@ function GmailEmailCard({ email, activeUserId, onExtract, onAttachmentUploaded }
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Extraction failed');
       if (json.items?.length) {
-        onExtract({ file_id: null, filename: email.subject || 'Email', accessible_to: [], items: json.items });
+        onExtract({ file_id: null, source_type: 'manual', filename: email.subject || 'Email', accessible_to: [], items: json.items });
       }
     } catch (e) {
       console.error(e);
