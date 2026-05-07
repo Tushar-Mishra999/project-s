@@ -2254,11 +2254,7 @@ async function getAuthedGmail() {
 app.get('/api/email/status', async (_req, res) => {
   try {
     const tokens = await getGmailTokens();
-    if (!tokens?.refresh_token) return res.json({ connected: false });
-    // Quick validation — list labels
-    const gmail = await getAuthedGmail();
-    await gmail.users.getProfile({ userId: 'me' });
-    res.json({ connected: true });
+    res.json({ connected: !!(tokens?.refresh_token) });
   } catch {
     res.json({ connected: false });
   }
