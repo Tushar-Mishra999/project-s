@@ -1235,8 +1235,18 @@ FORMATTING RULES — use inline styles for a polished, Word-ready look:
 
 Headings:
 - <h1> for report title: style="font-size:22pt; color:#1a1a2e; border-bottom:2px solid #3b82f6; padding-bottom:6pt; margin-top:20pt; margin-bottom:10pt;"
-- <h2> for sections: style="font-size:16pt; color:#1e293b; border-bottom:1px solid #e2e8f0; padding-bottom:4pt; margin-top:16pt; margin-bottom:8pt;"
+- Introduction heading (and any section titled "Introduction"): center-align it — style="font-size:16pt; color:#1e293b; border-bottom:1px solid #e2e8f0; padding-bottom:4pt; margin-top:16pt; margin-bottom:8pt; text-align:center;"
+- <h2> for all other sections: style="font-size:16pt; color:#1e293b; border-bottom:1px solid #e2e8f0; padding-bottom:4pt; margin-top:16pt; margin-bottom:8pt;"
 - <h3> for subsections: style="font-size:13pt; color:#334155; margin-top:12pt; margin-bottom:6pt;"
+
+Table of Contents — if the report has a ToC, render it as a styled list (no colored backgrounds):
+<nav style="border:1px solid #e2e8f0; border-radius:6px; padding:14pt 20pt; margin:16pt 0; background-color:#f8fafc;">
+  <p style="font-size:13pt; font-weight:bold; color:#1e293b; margin:0 0 10pt 0; border-bottom:1px solid #e2e8f0; padding-bottom:6pt;">Table of Contents</p>
+  <ol style="margin:0; padding-left:18pt; color:#334155; font-size:10pt; line-height:2;">
+    <li style="margin-bottom:2pt;">Section title</li>
+    ...
+  </ol>
+</nav>
 
 Tables — always use full styling:
 - <table>: style="width:100%; border-collapse:collapse; margin:10pt 0;"
@@ -1247,13 +1257,9 @@ Tables — always use full styling:
 Callout boxes — use for executive summaries, key takeaways, or important notes:
 - <div style="background-color:#eff6ff; border-left:4px solid #3b82f6; padding:10pt 14pt; margin:10pt 0; border-radius:4px;">
 
-Status indicators — when the content includes statuses, use colored inline labels:
-- On Track / Complete / Green: <span style="background-color:#dcfce7; color:#166534; padding:2pt 8pt; border-radius:10pt; font-size:9pt; font-weight:bold;">On Track</span>
-- At Risk / Amber: <span style="background-color:#fef9c3; color:#854d0e; padding:2pt 8pt; border-radius:10pt; font-size:9pt; font-weight:bold;">At Risk</span>
-- Delayed / Blocked / Red: <span style="background-color:#fee2e2; color:#991b1b; padding:2pt 8pt; border-radius:10pt; font-size:9pt; font-weight:bold;">Delayed</span>
-
-Key metrics — when reporting numbers or KPIs:
-- <span style="font-size:18pt; font-weight:bold; color:#1e40af;">42</span> <span style="font-size:10pt; color:#64748b;">items delivered</span>
+IMPORTANT — No colored highlights on numbers or text:
+- Do NOT use colored or highlighted spans for numbers, KPIs, or metrics. Write numbers inline as plain bold text: <strong>42</strong> items delivered.
+- Do NOT use colored badge spans for statuses (no green/yellow/red/amber labels). Write statuses as plain text instead, e.g. "On Track", "At Risk", "Delayed".
 
 Lists:
 - <ul> and <ol>: style="margin:6pt 0; padding-left:20pt;"
@@ -1482,7 +1488,7 @@ app.post('/api/report-templates/:id/generate-from-files', async (req, res) => {
       byFile.get(c.file_id).push(c.chunk_text || '');
     }
 
-    const PER_FILE_LIMIT = 30000; // chars; ~7500 tokens/file
+    const PER_FILE_LIMIT = 60000; // chars; ~15000 tokens/file
     const sections = file_ids
       .map((fid) => {
         const f = fileById.get(fid);
