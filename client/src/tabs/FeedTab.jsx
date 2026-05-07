@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 
 // All feed categories visible to everyone
 const FEED_CATEGORIES = [
-  // { id: 'leaderboard', label: 'Open Source Leaderboard', icon: '🏆', part: null },
+  { id: 'leaderboard', label: 'Open Source Leaderboard', icon: '🏆', part: null },
   { id: 'md', label: 'Market Intelligence', icon: '📊', part: 'MD' },
   { id: 'tech', label: 'Tech Sensing', icon: '🔬', part: 'Tech Management' },
   { id: 'prism', label: 'Worklet Radar', icon: '💡', part: 'PRISM' },
@@ -164,11 +164,21 @@ function AddSourcePanel({ activePart, onAdded, onClose }) {
   );
 }
 
+const LB_CATEGORIES = ['Overall', 'Coding', 'Small', 'Medium', 'Large'];
+const TIER_STYLES = {
+  S: { bg: '#c62828', text: '#fff' },
+  A: { bg: '#e65100', text: '#fff' },
+  B: { bg: '#f9a825', text: '#111' },
+  C: { bg: '#2e7d32', text: '#fff' },
+  D: { bg: '#1565c0', text: '#fff' },
+};
+
 // ── Leaderboard view ──
 function LeaderboardView() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [activeCategory, setActiveCategory] = useState('Overall');
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -183,12 +193,14 @@ function LeaderboardView() {
 
   useEffect(() => { load(); }, [load]);
 
+  const tiers = data?.categories?.[activeCategory] || [];
+
   return (
     <div className="feed-content-area">
       <div className="feed-content-header">
         <div>
-          <h2 className="feed-content-title">Open Source Leaderboard</h2>
-          <p className="feed-content-sub">Top 10 open-source models from the Open LLM Leaderboard, refreshed via Gemini Search.</p>
+          <h2 className="feed-content-title">Open Source LLM Leaderboard</h2>
+          <p className="feed-content-sub">Tier rankings from onyx.app, refreshed via Gemini Search.</p>
         </div>
         <button className="primary-btn" onClick={load} disabled={loading}>
           {loading ? 'Loading…' : 'Refresh'}
@@ -207,41 +219,41 @@ function LeaderboardView() {
 
       {!loading && !error && data && (
         <>
-          {data.fetchedAt && (
-            <div className="feed-meta">Last fetched: {formatDate(data.fetchedAt)}</div>
-          )}
-          <div className="leaderboard-table-wrap">
-            <table className="leaderboard-table">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Model</th>
-                  <th>Organization</th>
-                  <th>Average</th>
-                  <th>ARC</th>
-                  <th>HellaSwag</th>
-                  <th>MMLU</th>
-                  <th>TruthfulQA</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(data.models || []).map((m, i) => (
-                  <tr key={i}>
-                    <td className="leaderboard-rank">{m.rank || i + 1}</td>
-                    <td className="leaderboard-model">{m.model}</td>
-                    <td>{m.organization || '—'}</td>
-                    <td className="leaderboard-score">{m.average || '—'}</td>
-                    <td>{m.arc || '—'}</td>
-                    <td>{m.hellaswag || '—'}</td>
-                    <td>{m.mmlu || '—'}</td>
-                    <td>{m.truthfulqa || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          {data.fetchedAt && <div className="feed-meta">Last fetched: {formatDate(data.fetchedAt)}</div>}
+
+          <div className="lb-category-tabs">
+            {LB_CATEGORIES.map(cat => (
+              <button
+                key={cat}
+                className={`lb-cat-tab${activeCategory === cat ? ' active' : ''}`}
+                onClick={() => setActiveCategory(cat)}
+              >{cat}</button>
+            ))}
           </div>
+
+          <div className="lb-tier-list">
+            {tiers.map(({ tier, models }) => (
+              <div className="lb-tier-row" key={tier}>
+                <div
+                  className="lb-tier-label"
+                  style={{ background: TIER_STYLES[tier]?.bg, color: TIER_STYLES[tier]?.text }}
+                >{tier}</div>
+                <div className="lb-tier-models">
+                  {(!models || models.length === 0) ? (
+                    <span className="lb-empty">—</span>
+                  ) : models.map((m, i) => (
+                    <span className="lb-model-pill" key={i}>
+                      <span className="lb-model-name">{m.name}</span>
+                      {m.params && <span className="lb-model-params">{m.params}</span>}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
           <div className="leaderboard-source">
-            Source: <a href="https://llm-stats.com/leaderboards/open-llm-leaderboard" target="_blank" rel="noopener noreferrer">llm-stats.com/leaderboards/open-llm-leaderboard</a>
+            Source: <a href="https://onyx.app/open-llm-leaderboard" target="_blank" rel="noopener noreferrer">onyx.app/open-llm-leaderboard</a>
           </div>
         </>
       )}

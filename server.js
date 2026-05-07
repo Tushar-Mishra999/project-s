@@ -194,19 +194,31 @@ app.get('/api/leaderboard', async (req, res) => {
       return res.json(leaderboardCache.data);
     }
 
-    const prompt = `Search for the current Open LLM Leaderboard rankings from llm-stats.com (https://llm-stats.com/leaderboards/open-llm-leaderboard).
+    const prompt = `Search the current Open LLM Leaderboard tier rankings from onyx.app (https://onyx.app/open-llm-leaderboard).
 
-Return the top 10 open-source models as a JSON array. Each object should have:
-- "rank": number (1-10)
-- "model": string (model name)
-- "average": string (average score)
-- "arc": string (ARC score if available, or "-")
-- "hellaswag": string (HellaSwag score if available, or "-")
-- "mmlu": string (MMLU score if available, or "-")
-- "truthfulqa": string (TruthfulQA score if available, or "-")
-- "organization": string (who made it)
+Extract the tier-based model rankings for all 5 categories: Overall, Coding, Small, Medium, Large.
 
-Return ONLY the JSON array, no markdown fences, no explanation, no extra text.`;
+Return a JSON object with this exact structure:
+{
+  "Overall": [
+    {"tier": "S", "models": [{"name": "GLM-5", "params": "744B"}, {"name": "Kimi K2.5", "params": "1T"}]},
+    {"tier": "A", "models": [{"name": "ModelName", "params": "100B"}]},
+    {"tier": "B", "models": []},
+    {"tier": "C", "models": []},
+    {"tier": "D", "models": []}
+  ],
+  "Coding": [... same structure ...],
+  "Small": [... same structure ...],
+  "Medium": [... same structure ...],
+  "Large": [... same structure ...]
+}
+
+Each model object must have:
+- "name": model name string
+- "params": parameter count like "744B", "1T", "27B" (string, or null if unknown)
+
+Include all tiers S, A, B, C, D in each category (empty models array if no models in that tier).
+Return ONLY the JSON object, no markdown fences, no explanation, no extra text.`;
 
     console.log('[leaderboard] calling Gemini with Google Search grounding...');
 
@@ -222,8 +234,8 @@ Return ONLY the JSON array, no markdown fences, no explanation, no extra text.`;
       model: 'gemini-2.5-flash',
       contents: prompt,
       config: {
-        maxOutputTokens: 2048,
-        systemInstruction: 'You are a data extraction assistant. Return only valid JSON arrays. No markdown, no explanation.',
+        maxOutputTokens: 2500,
+        systemInstruction: 'You are a data extraction assistant. Return only valid JSON objects. No markdown, no explanation.',
         tools: [{ googleSearch: {} }],
       },
     });
@@ -258,7 +270,7 @@ Return ONLY the JSON array, no markdown fences, no explanation, no extra text.`;
     }
 
     // Parse the JSON response — try multiple cleanup strategies
-    let models;
+    let categories;
     const cleaned = rawText
       .replace(/```json\s*/gi, '')
       .replace(/```\s*/g, '')
@@ -267,17 +279,17 @@ Return ONLY the JSON array, no markdown fences, no explanation, no extra text.`;
     console.log('[leaderboard] cleaned response (first 500 chars):', cleaned.slice(0, 500));
 
     try {
-      models = JSON.parse(cleaned);
+      categories = JSON.parse(cleaned);
     } catch (e1) {
       console.warn('[leaderboard] direct parse failed:', e1.message);
-      // Try extracting JSON array from the text
-      const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
-      if (arrayMatch) {
+      // Try extracting JSON object from the text
+      const objMatch = cleaned.match(/\{[\s\S]*\}/);
+      if (objMatch) {
         try {
-          models = JSON.parse(arrayMatch[0]);
-          console.log('[leaderboard] extracted array from text, parsed OK');
+          categories = JSON.parse(objMatch[0]);
+          console.log('[leaderboard] extracted object from text, parsed OK');
         } catch (e2) {
-          console.error('[leaderboard] array extraction parse also failed:', e2.message);
+          console.error('[leaderboard] object extraction parse also failed:', e2.message);
           console.error('[leaderboard] full cleaned text:', cleaned);
           return res.status(500).json({
             error: 'Failed to parse leaderboard data from AI',
@@ -285,22 +297,23 @@ Return ONLY the JSON array, no markdown fences, no explanation, no extra text.`;
           });
         }
       } else {
-        console.error('[leaderboard] no JSON array found in response');
+        console.error('[leaderboard] no JSON object found in response');
         console.error('[leaderboard] full cleaned text:', cleaned);
         return res.status(500).json({
-          error: 'Failed to parse leaderboard data from AI — no JSON array in response',
+          error: 'Failed to parse leaderboard data from AI — no JSON object in response',
           debug: { rawLength: rawText.length, preview: cleaned.slice(0, 300) },
         });
       }
     }
 
-    if (!Array.isArray(models)) {
-      console.error('[leaderboard] parsed result is not an array:', typeof models);
-      return res.status(500).json({ error: 'AI returned non-array data' });
+    if (typeof categories !== 'object' || Array.isArray(categories)) {
+      console.error('[leaderboard] parsed result is not an object:', typeof categories);
+      return res.status(500).json({ error: 'AI returned unexpected data format' });
     }
 
-    console.log(`[leaderboard] success — got ${models.length} models`);
-    const payload = { models, fetchedAt: new Date().toISOString() };
+    const catCount = Object.keys(categories).length;
+    console.log(`[leaderboard] success — got ${catCount} categories`);
+    const payload = { categories, fetchedAt: new Date().toISOString() };
     leaderboardCache = { data: payload, fetchedAt: Date.now() };
     res.json(payload);
   } catch (err) {
