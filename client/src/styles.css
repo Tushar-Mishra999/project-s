@@ -1007,7 +1007,7 @@ select {
   display: flex; flex-direction: column; gap: 2px;
 }
 .action-item {
-  display: flex; align-items: flex-start; gap: 12px;
+  display: block;
   padding: 10px 10px 10px 0;
   border-bottom: 1px solid var(--border);
   transition: background .12s;
@@ -1016,6 +1016,9 @@ select {
 .action-item:last-child { border-bottom: none; }
 .action-item:hover { background: var(--surface-2); padding-left: 10px; margin: 0 -10px; }
 .action-item.done .action-text { text-decoration: line-through; color: var(--text-muted); }
+.action-item-row {
+  display: flex; align-items: flex-start; gap: 12px;
+}
 
 /* Custom checkbox */
 .action-checkbox {
@@ -1067,6 +1070,30 @@ select {
   color: var(--error-text); background: var(--error-bg); border-color: var(--error-border);
 }
 .action-icon-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+/* Nested sub-items */
+.action-sublist {
+  margin: 6px 0 0 28px; padding: 0;
+  border-left: 2px solid rgba(99,102,241,0.25);
+  padding-left: 12px;
+  gap: 0;
+}
+.action-sub-item {
+  background: rgba(99,102,241,0.03);
+  border-radius: 6px;
+}
+.action-sub-item .action-text { font-size: 13px; }
+.action-sub-item .action-checkbox { width: 15px; height: 15px; border-radius: 4px; }
+
+/* Inline sub-item form */
+.action-sub-form {
+  width: 100%; margin: 8px 0 4px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid rgba(99,102,241,0.3);
+  border-radius: 8px;
+  grid-column: 1 / -1;
+}
 
 /* ---------- + Idea button (top nav) ---------- */
 .nav-right {

@@ -567,6 +567,7 @@ app.post('/api/action-items', async (req, res) => {
         completed: !!it.completed,
         assignees: Array.isArray(it.assignees) ? it.assignees.filter(Boolean) : [],
         due_date: typeof it.due_date === 'string' && it.due_date ? it.due_date : null,
+        parent_item_id: it.parent_item_id || null,
       }));
     if (cleanItems.length === 0) {
       return res.status(400).json({ error: 'no items to save' });
@@ -610,13 +611,17 @@ app.get('/api/action-items', async (req, res) => {
   }
 });
 
-// Item-level patch — caller must be an assignee on the targeted item.
-// Body: { user_id, item_id, completed?, text? }
+// Item-level patch — update an item or add a sub-item.
+// Update body: { user_id, item_id, completed?, text?, due_date?, parent_item_id? }
+// Add sub-item body: { user_id, add_item: { text, assignees, parent_item_id, due_date? } }
 app.patch('/api/action-items/:id', async (req, res) => {
   const { id } = req.params;
-  const { user_id, item_id, completed, text, due_date } = req.body || {};
-  if (!user_id || !item_id) {
-    return res.status(400).json({ error: 'user_id and item_id required' });
+  const { user_id, item_id, completed, text, due_date, parent_item_id, add_item } = req.body || {};
+  if (!user_id) {
+    return res.status(400).json({ error: 'user_id required' });
+  }
+  if (!add_item && !item_id) {
+    return res.status(400).json({ error: 'item_id or add_item required' });
   }
   try {
     let card = null;
@@ -631,6 +636,35 @@ app.patch('/api/action-items/:id', async (req, res) => {
     if (!card) return res.status(404).json({ error: 'card not found' });
 
     const items = (card.items || []).slice();
+
+    // ── Add a new sub-item ──────────────────────────────────
+    if (add_item) {
+      if (card.assigned_by !== user_id) {
+        return res.status(403).json({ error: 'only the assigner can add sub-items' });
+      }
+      if (!add_item.text?.trim()) {
+        return res.status(400).json({ error: 'add_item.text required' });
+      }
+      const newItem = {
+        id: randomUUID(),
+        text: add_item.text.trim(),
+        completed: false,
+        assignees: Array.isArray(add_item.assignees) ? add_item.assignees.filter(Boolean) : [user_id],
+        due_date: typeof add_item.due_date === 'string' && add_item.due_date ? add_item.due_date : null,
+        parent_item_id: add_item.parent_item_id || null,
+      };
+      const newItems = [...items, newItem];
+      const updatedCard = { ...card, items: newItems, updated_at: new Date().toISOString() };
+      if (supabase) {
+        const { error } = await supabase
+          .from('action_items').update({ items: newItems, updated_at: updatedCard.updated_at }).eq('id', id);
+        if (error) throw error;
+      }
+      memoryActionItems.set(updatedCard.id, updatedCard);
+      return res.json({ card: updatedCard });
+    }
+
+    // ── Update an existing item ─────────────────────────────
     const idx = items.findIndex((it) => it.id === item_id);
     if (idx < 0) return res.status(404).json({ error: 'item not found' });
     const target = items[idx];
@@ -644,6 +678,7 @@ app.patch('/api/action-items/:id', async (req, res) => {
     if (typeof text === 'string' && text.trim()) next.text = text.trim();
     if (due_date === null) next.due_date = null;
     else if (typeof due_date === 'string' && due_date) next.due_date = due_date;
+    if (typeof parent_item_id !== 'undefined') next.parent_item_id = parent_item_id || null;
     items[idx] = next;
 
     const updatedCard = { ...card, items, updated_at: new Date().toISOString() };

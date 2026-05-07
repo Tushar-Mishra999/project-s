@@ -312,6 +312,7 @@ function ActionItemReviewModal({ pending, users, activeUserId, onClose, onSaved 
       id: it.id,
       text: it.text,
       assignees: Array.isArray(it.assignees) && it.assignees.length ? it.assignees : [activeUserId].filter(Boolean),
+      parent_item_id: null,
     }))
   );
   const [saving, setSaving] = useState(false);
@@ -327,6 +328,10 @@ function ActionItemReviewModal({ pending, users, activeUserId, onClose, onSaved 
 
   function setItemText(itemIdx, text) {
     setItems((prev) => prev.map((it, i) => (i === itemIdx ? { ...it, text } : it)));
+  }
+
+  function setItemParent(itemIdx, parentId) {
+    setItems((prev) => prev.map((it, i) => (i === itemIdx ? { ...it, parent_item_id: parentId || null } : it)));
   }
 
   function removeItem(itemIdx) {
@@ -389,6 +394,23 @@ function ActionItemReviewModal({ pending, users, activeUserId, onClose, onSaved 
                 />
                 <button className="ghost-btn small danger" onClick={() => removeItem(idx)} title="Remove">×</button>
               </div>
+              {items.length > 1 && (
+                <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#666' }}>
+                  <span>Parent item:</span>
+                  <select
+                    value={it.parent_item_id || ''}
+                    onChange={(e) => setItemParent(idx, e.target.value || null)}
+                    style={{ fontSize: 12, padding: '3px 8px', borderRadius: 6, border: '1px solid #e5e7eb' }}
+                  >
+                    <option value="">None (top-level)</option>
+                    {items.filter((_, i) => i !== idx).map((other) => (
+                      <option key={other.id} value={other.id}>
+                        {other.text.length > 60 ? other.text.slice(0, 60) + '…' : other.text}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div style={{ marginTop: 8, fontSize: 12, color: '#666', marginBottom: 4 }}>
                 Assignees ({it.assignees.length}):
               </div>

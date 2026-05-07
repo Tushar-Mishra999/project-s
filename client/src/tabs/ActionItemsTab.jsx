@@ -20,6 +20,202 @@ function dueStatus(due_date, completed) {
   return { kind: 'future', label: `Due ${formatDate(due_date)}`, color: '#6b7280' };
 }
 
+function buildItemTree(flatItems) {
+  const byId = {};
+  for (const it of flatItems) byId[it.id] = { ...it, children: [] };
+  const roots = [];
+  for (const it of flatItems) {
+    if (it.parent_item_id && byId[it.parent_item_id]) {
+      byId[it.parent_item_id].children.push(byId[it.id]);
+    } else {
+      roots.push(byId[it.id]);
+    }
+  }
+  return roots;
+}
+
+function ActionItemNode({
+  item, depth, users, activeUserId, isAssigner, saving,
+  editingId, editText, setEditText,
+  onToggle, onStartEdit, onCommitEdit, onCancelEdit, onSetDueDate, onAddSub,
+}) {
+  const [showSubForm, setShowSubForm] = useState(false);
+  const [subText, setSubText] = useState('');
+  const [subAssignees, setSubAssignees] = useState([activeUserId].filter(Boolean));
+
+  const editable = item.editable;
+
+  const submitSub = () => {
+    if (!subText.trim() || subAssignees.length === 0) return;
+    onAddSub(item.id, subText.trim(), subAssignees);
+    setShowSubForm(false);
+    setSubText('');
+    setSubAssignees([activeUserId].filter(Boolean));
+  };
+
+  const toggleSubAssignee = (userId) => {
+    setSubAssignees((prev) =>
+      prev.includes(userId) ? prev.filter((u) => u !== userId) : [...prev, userId]
+    );
+  };
+
+  return (
+    <li className={`action-item${item.completed ? ' done' : ''}${depth > 0 ? ' action-sub-item' : ''}`}>
+      <div className="action-item-row">
+        <button
+          className={`action-checkbox${item.completed ? ' checked' : ''}`}
+          onClick={() => onToggle(item)}
+          disabled={saving || !editable}
+          title={editable ? '' : 'Only assignees can change this'}
+          aria-label={item.completed ? 'Mark incomplete' : 'Mark complete'}
+        >
+          {item.completed && (
+            <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+              <path d="M2 6.5l2.5 2.5L10 3.5" stroke="white" strokeWidth="2"
+                strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          )}
+        </button>
+
+        <div className="action-item-body">
+          {editingId === item.id ? (
+            <div className="action-edit-row">
+              <input
+                className="action-edit-input"
+                value={editText}
+                onChange={(e) => setEditText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') onCommitEdit();
+                  if (e.key === 'Escape') onCancelEdit();
+                }}
+                autoFocus
+              />
+              <button className="ghost-btn small" onClick={onCommitEdit} disabled={!editText.trim()}>Save</button>
+              <button className="ghost-btn small" onClick={onCancelEdit}>Cancel</button>
+            </div>
+          ) : (
+            <>
+              <span className="action-text">{item.text}</span>
+              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+                Assigned to: {(item.assignees || []).map((id) => nameById(users, id)).join(', ') || '—'}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, fontSize: 11 }}>
+                <span style={{ color: '#64748b' }}>Due:</span>
+                {isAssigner ? (
+                  <input
+                    type="date"
+                    value={item.due_date || ''}
+                    onChange={(e) => onSetDueDate(item, e.target.value)}
+                    disabled={saving}
+                    style={{
+                      fontSize: 11, padding: '3px 10px', background: 'rgba(255,255,255,0.06)',
+                      border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, color: '#e2e8f0',
+                      outline: 'none', cursor: 'pointer', colorScheme: 'dark',
+                    }}
+                  />
+                ) : (
+                  <span style={{ color: '#94a3b8' }}>{item.due_date ? formatDate(item.due_date) : '—'}</span>
+                )}
+                {(() => {
+                  const s = dueStatus(item.due_date, item.completed);
+                  return s && s.kind !== 'future' ? (
+                    <span style={{
+                      color: s.color, fontWeight: 600, fontSize: 10,
+                      background: s.color + '1a', padding: '1px 7px', borderRadius: 4,
+                    }}>{s.label}</span>
+                  ) : null;
+                })()}
+              </div>
+            </>
+          )}
+        </div>
+
+        {editingId !== item.id && (
+          <div className="action-item-actions">
+            {editable && (
+              <button
+                className="action-icon-btn"
+                onClick={() => onStartEdit(item)}
+                title="Edit"
+                disabled={saving}
+              >
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                  <path d="M11.5 2.5a1.414 1.414 0 012 2L5 13H3v-2L11.5 2.5z"
+                    stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            )}
+            {isAssigner && (
+              <button
+                className="action-icon-btn"
+                onClick={() => setShowSubForm((v) => !v)}
+                title="Add sub-item"
+                disabled={saving}
+                style={{ color: showSubForm ? 'var(--blue)' : undefined }}
+              >
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="4" y1="8" x2="12" y2="8" /><line x1="8" y1="4" x2="8" y2="12" />
+                  <path d="M4 13h8" strokeDasharray="2 2" />
+                </svg>
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {showSubForm && (
+        <div className="action-sub-form">
+          <input
+            className="action-edit-input"
+            value={subText}
+            onChange={(e) => setSubText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') submitSub();
+              if (e.key === 'Escape') { setShowSubForm(false); setSubText(''); }
+            }}
+            placeholder="Sub-item text…"
+            autoFocus
+          />
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, margin: '6px 0' }}>
+            {users.map((u) => {
+              const checked = subAssignees.includes(u.id);
+              return (
+                <label key={u.id} className="checkbox-pill"
+                  style={{ background: checked ? 'var(--blue-soft-2)' : 'var(--surface-3)', cursor: 'pointer', fontSize: 11 }}>
+                  <input type="checkbox" checked={checked} onChange={() => toggleSubAssignee(u.id)} />
+                  <span>{u.name}</span>
+                </label>
+              );
+            })}
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="ghost-btn small" onClick={submitSub}
+              disabled={!subText.trim() || subAssignees.length === 0 || saving}>
+              Add sub-item
+            </button>
+            <button className="ghost-btn small" onClick={() => { setShowSubForm(false); setSubText(''); }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {(item.children || []).length > 0 && (
+        <ul className="action-list action-sublist">
+          {item.children.map((child) => (
+            <ActionItemNode key={child.id} item={child} depth={depth + 1}
+              users={users} activeUserId={activeUserId} isAssigner={isAssigner} saving={saving}
+              editingId={editingId} editText={editText} setEditText={setEditText}
+              onToggle={onToggle} onStartEdit={onStartEdit} onCommitEdit={onCommitEdit}
+              onCancelEdit={onCancelEdit} onSetDueDate={onSetDueDate} onAddSub={onAddSub}
+            />
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
 function ActionCard({ card, users, activeUserId, onChanged, onDelete }) {
   const [items, setItems] = useState(card.items || []);
   const [saving, setSaving] = useState(false);
@@ -30,7 +226,15 @@ function ActionCard({ card, users, activeUserId, onChanged, onDelete }) {
   useEffect(() => { setItems(card.items || []); }, [card.items]);
 
   const isAssigner = card.assigned_by === activeUserId;
-  // viewer_role from server: 'assigner' or 'assignee'. assigner cards are view-only.
+
+  const refreshItems = useCallback((json) => {
+    const newItems = (json.card.items || []).map((it) => ({
+      ...it,
+      editable: Array.isArray(it.assignees) && it.assignees.includes(activeUserId),
+    }));
+    setItems(newItems);
+    onChanged({ ...card, items: newItems });
+  }, [card, activeUserId, onChanged]);
 
   const patchItem = useCallback(async (itemId, patch) => {
     setSaving(true);
@@ -42,18 +246,31 @@ function ActionCard({ card, users, activeUserId, onChanged, onDelete }) {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Save failed');
-      const newItems = (json.card.items || []).map((it) => ({
-        ...it,
-        editable: Array.isArray(it.assignees) && it.assignees.includes(activeUserId),
-      }));
-      setItems(newItems);
-      onChanged({ ...card, items: newItems });
+      refreshItems(json);
     } catch (err) {
       alert(err.message);
     } finally {
       setSaving(false);
     }
-  }, [card, activeUserId, onChanged]);
+  }, [card, activeUserId, refreshItems]);
+
+  const addSubItem = useCallback(async (parentItemId, text, assignees) => {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/action-items/${card.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: activeUserId, add_item: { text, assignees, parent_item_id: parentItemId } }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Save failed');
+      refreshItems(json);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }, [card, activeUserId, refreshItems]);
 
   const toggleItem = (item) => {
     if (!item.editable) return;
@@ -89,9 +306,10 @@ function ActionCard({ card, users, activeUserId, onChanged, onDelete }) {
     }
   };
 
-  const completed = items.filter((it) => it.completed).length;
   const total = items.length;
+  const completed = items.filter((it) => it.completed).length;
   const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const tree = buildItemTree(items);
 
   return (
     <div className="action-card">
@@ -133,96 +351,14 @@ function ActionCard({ card, users, activeUserId, onChanged, onDelete }) {
       </div>
 
       <ul className="action-list">
-        {items.map((item) => {
-          const editable = item.editable;
-          return (
-            <li key={item.id} className={`action-item${item.completed ? ' done' : ''}`}>
-              <button
-                className={`action-checkbox${item.completed ? ' checked' : ''}`}
-                onClick={() => toggleItem(item)}
-                disabled={saving || !editable}
-                title={editable ? '' : 'Only assignees can change this'}
-                aria-label={item.completed ? 'Mark incomplete' : 'Mark complete'}
-              >
-                {item.completed && (
-                  <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
-                    <path d="M2 6.5l2.5 2.5L10 3.5" stroke="white" strokeWidth="2"
-                      strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                )}
-              </button>
-
-              <div className="action-item-body">
-                {editingId === item.id ? (
-                  <div className="action-edit-row">
-                    <input
-                      className="action-edit-input"
-                      value={editText}
-                      onChange={(e) => setEditText(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') commitEdit();
-                        if (e.key === 'Escape') cancelEdit();
-                      }}
-                      autoFocus
-                    />
-                    <button className="ghost-btn small" onClick={commitEdit} disabled={!editText.trim()}>Save</button>
-                    <button className="ghost-btn small" onClick={cancelEdit}>Cancel</button>
-                  </div>
-                ) : (
-                  <>
-                    <span className="action-text">{item.text}</span>
-                    <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
-                      Assigned to: {(item.assignees || []).map((id) => nameById(users, id)).join(', ') || '—'}
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, fontSize: 11 }}>
-                      <span style={{ color: '#64748b' }}>Due:</span>
-                      {isAssigner ? (
-                        <input
-                          type="date"
-                          value={item.due_date || ''}
-                          onChange={(e) => setDueDate(item, e.target.value)}
-                          disabled={saving}
-                          style={{
-                            fontSize: 11, padding: '3px 10px', background: 'rgba(255,255,255,0.06)',
-                            border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, color: '#e2e8f0',
-                            outline: 'none', cursor: 'pointer', colorScheme: 'dark',
-                          }}
-                        />
-                      ) : (
-                        <span style={{ color: '#94a3b8' }}>{item.due_date ? formatDate(item.due_date) : '—'}</span>
-                      )}
-                      {(() => {
-                        const s = dueStatus(item.due_date, item.completed);
-                        return s && s.kind !== 'future' ? (
-                          <span style={{
-                            color: s.color, fontWeight: 600, fontSize: 10,
-                            background: s.color + '1a', padding: '1px 7px', borderRadius: 4,
-                          }}>{s.label}</span>
-                        ) : null;
-                      })()}
-                    </div>
-                  </>
-                )}
-              </div>
-
-              {editingId !== item.id && editable && (
-                <div className="action-item-actions">
-                  <button
-                    className="action-icon-btn"
-                    onClick={() => startEdit(item)}
-                    title="Edit"
-                    disabled={saving}
-                  >
-                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-                      <path d="M11.5 2.5a1.414 1.414 0 012 2L5 13H3v-2L11.5 2.5z"
-                        stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </button>
-                </div>
-              )}
-            </li>
-          );
-        })}
+        {tree.map((root) => (
+          <ActionItemNode key={root.id} item={root} depth={0}
+            users={users} activeUserId={activeUserId} isAssigner={isAssigner} saving={saving}
+            editingId={editingId} editText={editText} setEditText={setEditText}
+            onToggle={toggleItem} onStartEdit={startEdit} onCommitEdit={commitEdit}
+            onCancelEdit={cancelEdit} onSetDueDate={setDueDate} onAddSub={addSubItem}
+          />
+        ))}
       </ul>
     </div>
   );
@@ -403,7 +539,6 @@ export default function ActionItemsTab({ users = [], activeUserId }) {
   const handleCreated = useCallback((newCard) => {
     setCards((prev) => [newCard, ...prev]);
     setShowCreate(false);
-    // Switch to "Assigned by me" so the user can see the card they just created.
     setTab('assigned');
   }, []);
 
@@ -433,15 +568,12 @@ export default function ActionItemsTab({ users = [], activeUserId }) {
     setCards((prev) => prev.filter((c) => c.id !== id));
   }, []);
 
-  // Split into "assigned to me" (has at least one item I can edit) vs "assigned by me".
   const { mine, assigned } = useMemo(() => {
     const mine = [];
     const assigned = [];
     for (const c of cards) {
       const editableItems = (c.items || []).filter((it) => it.editable);
       const assignedByMe = c.assigned_by === activeUserId;
-      // A card can have both — show the editable subset under "Mine", the full
-      // card under "Assigned by me" (view-only).
       if (editableItems.length > 0) {
         mine.push({ ...c, items: editableItems });
       }
