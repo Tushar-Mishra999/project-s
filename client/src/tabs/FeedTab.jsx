@@ -164,7 +164,6 @@ function AddSourcePanel({ activePart, onAdded, onClose }) {
   );
 }
 
-const LB_CATEGORIES = ['Overall', 'Coding', 'Small', 'Medium', 'Large'];
 const TIER_STYLES = {
   S: { bg: '#c62828', text: '#fff' },
   A: { bg: '#e65100', text: '#fff' },
@@ -178,7 +177,6 @@ function LeaderboardView() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [activeCategory, setActiveCategory] = useState('Overall');
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -193,14 +191,14 @@ function LeaderboardView() {
 
   useEffect(() => { load(); }, [load]);
 
-  const tiers = data?.categories?.[activeCategory] || [];
+  const tiers = data?.tiers || [];
 
   return (
     <div className="feed-content-area">
       <div className="feed-content-header">
         <div>
           <h2 className="feed-content-title">Open Source LLM Leaderboard</h2>
-          <p className="feed-content-sub">Tier rankings from onyx.app, refreshed via Gemini Search.</p>
+          <p className="feed-content-sub">Overall tier rankings from onyx.app, refreshed via Gemini Search.</p>
         </div>
         <button className="primary-btn" onClick={load} disabled={loading}>
           {loading ? 'Loading…' : 'Refresh'}
@@ -220,16 +218,6 @@ function LeaderboardView() {
       {!loading && !error && data && (
         <>
           {data.fetchedAt && <div className="feed-meta">Last fetched: {formatDate(data.fetchedAt)}</div>}
-
-          <div className="lb-category-tabs">
-            {LB_CATEGORIES.map(cat => (
-              <button
-                key={cat}
-                className={`lb-cat-tab${activeCategory === cat ? ' active' : ''}`}
-                onClick={() => setActiveCategory(cat)}
-              >{cat}</button>
-            ))}
-          </div>
 
           <div className="lb-tier-list">
             {tiers.map(({ tier, models }) => (
