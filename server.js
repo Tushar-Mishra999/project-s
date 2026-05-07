@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, extname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
+import { google } from 'googleapis';
 
 // Write Vertex AI service account JSON to a temp file so ADC picks it up.
 if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
@@ -2211,6 +2212,263 @@ app.post('/api/quiz/score', async (req, res) => {
     res.status(201).json({ score: data });
   } catch (err) {
     console.error('[quiz] score save error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------- Gmail Integration ----------
+function makeOAuth2Client() {
+  return new google.auth.OAuth2(
+    process.env.GMAIL_CLIENT_ID,
+    process.env.GMAIL_CLIENT_SECRET,
+    process.env.GMAIL_REDIRECT_URI || `${process.env.APP_URL || 'http://localhost:3001'}/api/email/callback`
+  );
+}
+
+async function getGmailTokens() {
+  if (process.env.GMAIL_REFRESH_TOKEN) {
+    return { refresh_token: process.env.GMAIL_REFRESH_TOKEN };
+  }
+  if (!supabase) return null;
+  const { data } = await supabase.from('email_tokens').select('tokens').eq('key', 'gmail').maybeSingle();
+  return data?.tokens || null;
+}
+
+async function saveGmailTokens(tokens) {
+  if (!supabase) return;
+  await supabase.from('email_tokens').upsert({ key: 'gmail', tokens, updated_at: new Date().toISOString() });
+}
+
+async function getAuthedGmail() {
+  const tokens = await getGmailTokens();
+  if (!tokens?.refresh_token) return null;
+  const auth = makeOAuth2Client();
+  auth.setCredentials(tokens);
+  auth.on('tokens', (newTokens) => {
+    if (newTokens.refresh_token) saveGmailTokens({ ...tokens, ...newTokens });
+  });
+  return google.gmail({ version: 'v1', auth });
+}
+
+// GET /api/email/status
+app.get('/api/email/status', async (_req, res) => {
+  try {
+    const tokens = await getGmailTokens();
+    if (!tokens?.refresh_token) return res.json({ connected: false });
+    // Quick validation — list labels
+    const gmail = await getAuthedGmail();
+    await gmail.users.getProfile({ userId: 'me' });
+    res.json({ connected: true });
+  } catch {
+    res.json({ connected: false });
+  }
+});
+
+// GET /api/email/auth
+app.get('/api/email/auth', (_req, res) => {
+  if (!process.env.GMAIL_CLIENT_ID || !process.env.GMAIL_CLIENT_SECRET) {
+    return res.status(503).json({ error: 'Gmail OAuth credentials not configured (GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET)' });
+  }
+  const auth = makeOAuth2Client();
+  const url = auth.generateAuthUrl({
+    access_type: 'offline',
+    prompt: 'consent',
+    scope: [
+      'https://www.googleapis.com/auth/gmail.readonly',
+    ],
+  });
+  res.redirect(url);
+});
+
+// GET /api/email/callback
+app.get('/api/email/callback', async (req, res) => {
+  const { code } = req.query;
+  if (!code) return res.status(400).send('Missing code');
+  try {
+    const auth = makeOAuth2Client();
+    const { tokens } = await auth.getToken(code);
+    await saveGmailTokens(tokens);
+    const appUrl = process.env.APP_URL || 'http://localhost:5173';
+    res.redirect(`${appUrl}/?gmail=connected`);
+  } catch (err) {
+    console.error('[gmail/callback]', err);
+    res.status(500).send('OAuth callback failed: ' + err.message);
+  }
+});
+
+// Helper: decode base64url
+function b64url(str) {
+  return Buffer.from(str.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf-8');
+}
+
+// Helper: extract plain-text body and attachments from a message payload
+function parsePayload(payload) {
+  let body = '';
+  const attachments = [];
+
+  function walk(part) {
+    const mime = part.mimeType || '';
+    if (mime === 'text/plain' && part.body?.data) {
+      body += b64url(part.body.data);
+    } else if (mime === 'text/html' && !body && part.body?.data) {
+      // Fallback: strip HTML tags
+      body += b64url(part.body.data).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    } else if (part.body?.attachmentId && part.filename) {
+      attachments.push({
+        attachmentId: part.body.attachmentId,
+        filename: part.filename,
+        mimeType: mime,
+        size: part.body.size || 0,
+      });
+    }
+    if (Array.isArray(part.parts)) {
+      for (const p of part.parts) walk(p);
+    }
+  }
+
+  walk(payload);
+  return { body: body.trim(), attachments };
+}
+
+// GET /api/email/messages?max=20
+app.get('/api/email/messages', async (req, res) => {
+  try {
+    const gmail = await getAuthedGmail();
+    if (!gmail) return res.status(401).json({ error: 'Gmail not connected' });
+
+    const maxResults = Math.min(parseInt(req.query.max || '20', 10), 50);
+    const listRes = await gmail.users.messages.list({
+      userId: 'me',
+      labelIds: ['INBOX'],
+      maxResults,
+    });
+
+    const msgs = listRes.data.messages || [];
+    const emails = await Promise.all(
+      msgs.map(async ({ id }) => {
+        try {
+          const msgRes = await gmail.users.messages.get({ userId: 'me', id, format: 'full' });
+          const msg = msgRes.data;
+          const headers = {};
+          for (const h of (msg.payload?.headers || [])) {
+            headers[h.name.toLowerCase()] = h.value;
+          }
+          const { body, attachments } = parsePayload(msg.payload || {});
+          return {
+            id,
+            subject: headers.subject || '(no subject)',
+            from: headers.from || '',
+            date: headers.date || '',
+            snippet: msg.snippet || '',
+            body: body.slice(0, 4000),
+            attachments,
+          };
+        } catch (e) {
+          console.warn('[gmail/messages] fetch error for', id, e.message);
+          return null;
+        }
+      })
+    );
+
+    res.json({ emails: emails.filter(Boolean) });
+  } catch (err) {
+    console.error('[gmail/messages]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/email/extract-actions  { subject, body, user_id }
+app.post('/api/email/extract-actions', async (req, res) => {
+  const { subject, body: emailBody, user_id } = req.body || {};
+  if (!emailBody?.trim()) return res.status(400).json({ error: 'body is required' });
+  try {
+    const user = await loadUser(user_id);
+    if (!user) return res.status(400).json({ error: 'unknown user' });
+    const text = `Subject: ${subject || ''}\n\n${emailBody}`;
+    const items = await extractActionItems(text, config);
+    res.json({ items });
+  } catch (err) {
+    console.error('[email/extract-actions]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/email/upload-attachment  { messageId, attachmentId, filename, mimeType, user_id }
+app.post('/api/email/upload-attachment', async (req, res) => {
+  const ready = ragReady();
+  if (!ready.ok) return res.status(503).json({ error: `RAG not configured: missing ${ready.missing.join(', ')}` });
+  const { messageId, attachmentId, filename, mimeType, user_id } = req.body || {};
+  if (!messageId || !attachmentId || !filename) return res.status(400).json({ error: 'messageId, attachmentId, filename required' });
+  if (!user_id) return res.status(400).json({ error: 'user_id required' });
+
+  try {
+    const gmail = await getAuthedGmail();
+    if (!gmail) return res.status(401).json({ error: 'Gmail not connected' });
+
+    const user = await loadUser(user_id);
+    if (!user) return res.status(400).json({ error: 'unknown user' });
+
+    const attRes = await gmail.users.messages.attachments.get({
+      userId: 'me',
+      messageId,
+      id: attachmentId,
+    });
+    const data = attRes.data.data;
+    const fileBuffer = Buffer.from(data.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+
+    const ext = extname(filename).slice(1).toLowerCase();
+    const fileMime = mimeType || 'application/octet-stream';
+    const filetype = `${fileMime} ${ext}`.trim();
+
+    const accessibleTo = user.role === 'MD'
+      ? [...(config.parts || []), 'Team 1', 'Team 2', 'Team 3']
+      : [user.part || user.team].filter(Boolean);
+
+    // Extract text
+    const extracted = await extractText(fileBuffer, filetype);
+    if (!extracted.text || extracted.text.trim().length < 30) {
+      return res.status(422).json({ error: 'No extractable text found in attachment' });
+    }
+
+    // Chunk
+    const rawChunks = chunkDocument(extracted, config.rag);
+    const chunks = addContextPrefix(rawChunks);
+
+    // Upload to Supabase Storage
+    const storagePath = `${randomUUID()}-${filename.replace(/[^\w.\-]+/g, '_')}`;
+    const { error: storageErr } = await supabase
+      .storage.from('documents')
+      .upload(storagePath, fileBuffer, { contentType: fileMime, upsert: false });
+    if (storageErr) throw new Error('storage upload failed: ' + storageErr.message);
+    const { data: pub } = supabase.storage.from('documents').getPublicUrl(storagePath);
+
+    // Insert files row
+    const { data: fileRow, error: fileErr } = await supabase
+      .from('files')
+      .insert({ filename, filetype: ext || filetype, file_url: pub.publicUrl, uploaded_by: user.name, accessible_to: accessibleTo })
+      .select().single();
+    if (fileErr) throw new Error('files insert failed: ' + fileErr.message);
+
+    // Embed + insert chunks
+    let inserted = 0;
+    for (let i = 0; i < chunks.length; i++) {
+      const c = chunks[i];
+      let enriched = { summary: '', keywords: [], hypothetical_questions: [] };
+      try { enriched = await enrichChunk(c.text, config.models.enrichment); } catch {}
+      const embeddingInput = buildEmbeddingInput(enriched) || c.text.slice(0, 2000);
+      let embedding;
+      try { embedding = await embedText(embeddingInput, config.embeddingModel, 'document'); } catch { continue; }
+      const { error: chunkErr } = await supabase.from('chunks').insert({
+        file_id: fileRow.id, chunk_text: c.text, chunk_summary: enriched.summary,
+        keywords: enriched.keywords, hypothetical_questions: enriched.hypothetical_questions,
+        embedding, chunk_index: i,
+      });
+      if (!chunkErr) inserted++;
+    }
+
+    res.json({ ok: true, file_id: fileRow.id, filename, chunk_count: inserted });
+  } catch (err) {
+    console.error('[email/upload-attachment]', err);
     res.status(500).json({ error: err.message });
   }
 });

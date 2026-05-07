@@ -2925,3 +2925,89 @@ details[open] .mom-transcript-toggle::before { transform: rotate(90deg); }
   .chat-fab { bottom: 16px; right: 16px; height: 46px; padding: 0 16px 0 14px; }
   .chat-fab-label { font-size: 13px; }
 }
+
+/* ── Quick Links FAB ──────────────────────────────────── */
+.ql-fab {
+  position: fixed;
+  bottom: 24px;
+  left: 24px;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 16px 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(15,23,42,0.88);
+  backdrop-filter: blur(12px);
+  color: #e2e8f0;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+.ql-fab:hover, .ql-fab.ql-fab-open {
+  background: rgba(30,41,59,0.95);
+  border-color: rgba(99,130,246,0.5);
+  box-shadow: 0 6px 28px rgba(0,0,0,0.5);
+}
+.ql-fab-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ql-fab-panel {
+  position: fixed;
+  bottom: 80px;
+  left: 24px;
+  z-index: 46;
+  width: 220px;
+  background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+  transition: opacity 0.16s, transform 0.16s;
+}
+.ql-fab-panel.ql-fab-panel-open {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.ql-fab-panel-title {
+  padding: 10px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #64748b;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.ql-fab-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  text-decoration: none;
+  color: #e2e8f0;
+  font-size: 13px;
+  transition: background 0.15s;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.ql-fab-link:last-child { border-bottom: none; }
+.ql-fab-link:hover { background: rgba(255,255,255,0.06); }
+.ql-fab-link-icon { font-size: 16px; }
+.ql-fab-link-label { flex: 1; }
+.ql-fab-link-arrow { font-size: 12px; color: #64748b; }
+
+.ql-fab-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 44;
+}
