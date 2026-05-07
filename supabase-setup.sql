@@ -218,7 +218,14 @@ create table if not exists tf_action_items (
 
 create index if not exists tf_action_items_tf_id_idx on tf_action_items(tf_id);
 
--- 14. Seed users (idempotent — re-running this file leaves existing rows untouched).
+-- 14. Gmail OAuth tokens — one row per key (currently just 'gmail').
+create table if not exists email_tokens (
+  key        text primary key,
+  tokens     jsonb not null,
+  updated_at timestamptz default now()
+);
+
+-- 15. Seed users (idempotent — re-running this file leaves existing rows untouched).
 insert into users (id, name, role, part, team) values
   ('u_md',        'Priya Rao',     'MD',       null,                 null),
   ('u_ph_tm',     'Arjun Mehta',   'PartHead', 'Tech Management',    null),

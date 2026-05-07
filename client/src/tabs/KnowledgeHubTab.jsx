@@ -375,41 +375,156 @@ function ActionItemReviewModal({ pending, users, activeUserId, onClose, onSaved 
   );
 }
 
-// ── Inbox email cards ────────────────────────────────────
-const MOCK_EMAILS = [
-  { id: 'em1', sender: 'priya.rao@company.com', subject: 'Q2 Tech Roadmap Sync — notes & next steps', preview: 'Thanks all for the call. Action items: (1) Arjun to circulate the revised PRISM scope by Friday, (2) Karan to validate the synthetic-data licensing path, (3) PMO to lock dates for the May review. Slides attached.', attachment: 'Q2-roadmap-sync.pdf' },
-  { id: 'em2', sender: 'newsletter@arxiv-digest.com', subject: 'Weekly digest: 12 new papers in retrieval & RAG', preview: 'This week: HyDE++ shows 9% recall@10 lift on BEIR, ColBERT-v3 release notes, and a new survey on hybrid sparse-dense retrieval. Full PDFs attached for the top-3.', attachment: 'arxiv-digest-w17.pdf' },
-  { id: 'em3', sender: 'vendor@nv-partners.com', subject: 'Jetson AGX dev kits — delivery confirmation', preview: 'Your 4 dev kits ship Monday. Please confirm the receiving contact and have the team review the attached unboxing checklist before first-power-on.', attachment: 'jetson-onboarding.pdf' },
-];
+// ── Gmail inbox ──────────────────────────────────────────
+function GmailEmailCard({ email, activeUserId, onExtract, onAttachmentUploaded }) {
+  const [uploading, setUploading] = useState({});
+  const [uploadMsg, setUploadMsg] = useState({});
+  const [extracting, setExtracting] = useState(false);
 
-function EmailCard({ email, onAction }) {
-  const [status, setStatus] = useState({});
-  const handleAdd = () => { setStatus((s) => ({ ...s, added: true })); onAction?.({ type: 'added', email }); };
-  const handleExtract = () => {
-    const numbered = (email.preview.match(/\(\d\)/g) || []).length;
-    const count = numbered > 0 ? numbered : 2;
-    setStatus((s) => ({ ...s, extracted: count }));
-    onAction?.({ type: 'extracted', email, count });
+  const senderName = email.from.replace(/<.*>/, '').trim() || email.from;
+  const avatar = (senderName[0] || '?').toUpperCase();
+
+  const handleUploadAttachment = async (att) => {
+    setUploading((s) => ({ ...s, [att.attachmentId]: true }));
+    setUploadMsg((s) => ({ ...s, [att.attachmentId]: null }));
+    try {
+      const res = await fetch('/api/email/upload-attachment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId: email.id, attachmentId: att.attachmentId, filename: att.filename, mimeType: att.mimeType, user_id: activeUserId }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Upload failed');
+      setUploadMsg((s) => ({ ...s, [att.attachmentId]: 'Added to Hub' }));
+      onAttachmentUploaded?.();
+    } catch (e) {
+      setUploadMsg((s) => ({ ...s, [att.attachmentId]: e.message }));
+    } finally {
+      setUploading((s) => ({ ...s, [att.attachmentId]: false }));
+    }
+  };
+
+  const handleExtract = async () => {
+    setExtracting(true);
+    try {
+      const res = await fetch('/api/email/extract-actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subject: email.subject, body: email.body || email.snippet, user_id: activeUserId }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Extraction failed');
+      if (json.items?.length) {
+        onExtract({ file_id: null, filename: email.subject || 'Email', accessible_to: [], items: json.items });
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setExtracting(false);
+    }
   };
 
   return (
     <div className="hub-email-card">
       <div className="hub-email-sender">
-        <span className="hub-email-avatar">{email.sender[0].toUpperCase()}</span>
-        <span>{email.sender}</span>
-        {email.attachment && <span className="hub-email-attach">📎 {email.attachment}</span>}
+        <span className="hub-email-avatar">{avatar}</span>
+        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{senderName}</span>
+        {email.date && <span style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap', marginLeft: 6 }}>{new Date(email.date).toLocaleDateString()}</span>}
       </div>
       <div className="hub-email-subject">{email.subject}</div>
-      <p className="hub-email-preview">{email.preview}</p>
+      <p className="hub-email-preview">{email.snippet || (email.body || '').slice(0, 200)}</p>
+      {email.attachments?.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+          {email.attachments.map((att) => (
+            <div key={att.attachmentId} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--surface-3)', borderRadius: 6, padding: '3px 8px', fontSize: 12 }}>
+              <span>📎 {att.filename}</span>
+              <button
+                className="ghost-btn small"
+                style={{ padding: '1px 6px', fontSize: 11 }}
+                onClick={() => handleUploadAttachment(att)}
+                disabled={uploading[att.attachmentId] || uploadMsg[att.attachmentId] === 'Added to Hub'}
+              >
+                {uploading[att.attachmentId] ? '…' : uploadMsg[att.attachmentId] || 'Upload to Hub'}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="hub-email-actions">
-        <button className="ghost-btn small" onClick={handleAdd} disabled={status.added}>
-          {status.added ? '✓ Added' : 'Add to Hub'}
-        </button>
-        <button className="ghost-btn small" onClick={handleExtract} disabled={status.extracted != null}>
-          {status.extracted != null ? `✓ ${status.extracted} items` : 'Extract Actions'}
+        <button className="ghost-btn small" onClick={handleExtract} disabled={extracting}>
+          {extracting ? 'Extracting…' : 'Extract Actions'}
         </button>
       </div>
     </div>
+  );
+}
+
+function GmailInbox({ activeUserId, onExtract, onAttachmentUploaded }) {
+  const [status, setStatus] = useState('loading'); // 'loading' | 'disconnected' | 'connected'
+  const [emails, setEmails] = useState([]);
+  const [emailsLoading, setEmailsLoading] = useState(false);
+  const [emailsErr, setEmailsErr] = useState(null);
+
+  useEffect(() => {
+    // Handle OAuth redirect param
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('gmail') === 'connected') {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('gmail');
+      window.history.replaceState({}, '', url.toString());
+    }
+
+    fetch('/api/email/status')
+      .then((r) => r.json())
+      .then((json) => setStatus(json.connected ? 'connected' : 'disconnected'))
+      .catch(() => setStatus('disconnected'));
+  }, []);
+
+  useEffect(() => {
+    if (status !== 'connected') return;
+    setEmailsLoading(true);
+    setEmailsErr(null);
+    fetch('/api/email/messages?max=10')
+      .then((r) => r.json())
+      .then((json) => setEmails(json.emails || []))
+      .catch((e) => setEmailsErr(e.message))
+      .finally(() => setEmailsLoading(false));
+  }, [status]);
+
+  if (status === 'loading') return <div className="state"><div className="spinner" /></div>;
+
+  if (status === 'disconnected') {
+    return (
+      <div style={{ padding: '24px 0', textAlign: 'center' }}>
+        <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 14 }}>
+          Connect your Gmail account to read emails and extract action items directly in the Hub.
+        </div>
+        <a href="/api/email/auth" className="primary-btn" style={{ textDecoration: 'none', display: 'inline-block' }}>
+          Connect Gmail
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {emailsLoading && <div className="state"><div className="spinner" /></div>}
+      {emailsErr && <div className="inline-msg error">{emailsErr}</div>}
+      {!emailsLoading && emails.length === 0 && !emailsErr && (
+        <div className="state-text">Inbox is empty or no recent emails.</div>
+      )}
+      <div className="hub-email-strip">
+        {emails.map((em) => (
+          <GmailEmailCard
+            key={em.id}
+            email={em}
+            activeUserId={activeUserId}
+            onExtract={onExtract}
+            onAttachmentUploaded={onAttachmentUploaded}
+          />
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -876,15 +991,16 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
             </section>
           )}
 
-          {/* Email cards */}
+          {/* Email inbox */}
           <section className="panel">
             <div className="panel-title-row">
               <h2 className="panel-title">Recent Emails</h2>
-              <span className="hub-subnav-count">{MOCK_EMAILS.length} new</span>
             </div>
-            <div className="hub-email-strip">
-              {MOCK_EMAILS.map((em) => <EmailCard key={em.id} email={em} />)}
-            </div>
+            <GmailInbox
+              activeUserId={activeUserId}
+              onExtract={(p) => setPendingItems(p)}
+              onAttachmentUploaded={loadLibrary}
+            />
           </section>
 
           {/* Recent files */}
