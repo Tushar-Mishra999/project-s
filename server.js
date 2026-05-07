@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import http from 'node:http';
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
@@ -2187,4 +2188,6 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-app.listen(PORT, () => console.log(`Server listening on http://localhost:${PORT}`));
+const httpServer = http.createServer(app);
+httpServer.timeout = 360_000; // 6 min — headroom above the 5-min LLM budget
+httpServer.listen(PORT, () => console.log(`Server listening on http://localhost:${PORT}`));
