@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import FeedTab, { feedTabLabel } from './tabs/FeedTab.jsx';
 import KnowledgeHubTab from './tabs/KnowledgeHubTab.jsx';
 import ActionItemsTab from './tabs/ActionItemsTab.jsx';
