@@ -845,6 +845,8 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
   const [refineDocText, setRefineDocText] = useState(null);
   const [refineErr, setRefineErr] = useState(null);
   const [refineStatuses, setRefineStatuses] = useState({});
+  const [refineSaving, setRefineSaving] = useState(false);
+  const [refineSaveMsg, setRefineSaveMsg] = useState(null);
 
   // Upload template state
   const [showTemplateUpload, setShowTemplateUpload] = useState(false);
@@ -976,10 +978,25 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
     finally { setUploadingTemplate(false); }
   };
 
+  // ── Refine: save edited text back to the file ──────────
+  const handleRefineSave = async () => {
+    if (!refineFileId || !refineDocText || !refineSuggestions) return;
+    const editedText = getEditedText(refineDocText, refineSuggestions, refineStatuses);
+    setRefineSaving(true); setRefineSaveMsg(null);
+    try {
+      const res = await fetch(`/api/refine/${refineFileId}/save`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ edited_text: editedText, user_id: activeUserId }) });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Save failed');
+      setRefineSaveMsg({ type: 'success', text: `Saved as "${json.file?.filename}" (v${json.file?.version}) — ${json.chunk_count} chunks re-indexed.` });
+      loadLibrary();
+    } catch (err) { setRefineSaveMsg({ type: 'error', text: err.message }); }
+    finally { setRefineSaving(false); }
+  };
+
   // ── Refine handler ─────────────────────────────────────
   const handleRefine = async () => {
     if (!refineFileId) return setRefineErr('Select a document first.');
-    setRefineLoading(true); setRefineErr(null); setRefineSuggestions(null); setRefineDocText(null); setRefineStatuses({});
+    setRefineLoading(true); setRefineErr(null); setRefineSuggestions(null); setRefineDocText(null); setRefineStatuses({}); setRefineSaveMsg(null);
     try {
       const res = await fetch('/api/refine', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file_id: refineFileId, user_id: activeUserId }) });
       const json = await res.json();
@@ -1320,7 +1337,11 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
                       a.href = URL.createObjectURL(new Blob([txt], { type: 'text/plain' }));
                       a.download = name; a.click();
                     }}>Download .txt</button>
+                    <button className="primary-btn refine-accept-btn" title="Save changes back to the original file" onClick={handleRefineSave} disabled={refineSaving || Object.values(refineStatuses).filter((v) => v === 'accepted').length === 0}>
+                      {refineSaving ? 'Saving…' : 'Save to file'}
+                    </button>
                   </div>
+                  {refineSaveMsg && <div className={`inline-msg ${refineSaveMsg.type}`} style={{ margin: '0 14px 0', borderRadius: '0 0 8px 8px' }}>{refineSaveMsg.text}</div>}
                   <div className="refine-preview-doc">
                     {refineDocText && buildPreviewSegments(refineDocText, refineSuggestions).map((seg, i) => {
                       if (seg.type === 'text') return <span key={i}>{seg.content}</span>;

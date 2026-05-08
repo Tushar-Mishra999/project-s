@@ -1552,6 +1552,109 @@ app.post('/api/refine', async (req, res) => {
   }
 });
 
+// ── Refine: save edited text back to the original file ───────────
+app.post('/api/refine/:id/save', async (req, res) => {
+  const ready = ragReady();
+  if (!ready.ok) return res.status(503).json({ error: `RAG not configured: missing ${ready.missing.join(', ')}` });
+  const { id } = req.params;
+  const { edited_text, user_id } = req.body || {};
+  if (!edited_text || !user_id) return res.status(400).json({ error: 'edited_text and user_id required' });
+
+  try {
+    const user = await loadUser(user_id);
+    if (!user) return res.status(400).json({ error: 'unknown user' });
+
+    const { data: existing, error: exErr } = await supabase.from('files').select('*').eq('id', id).maybeSingle();
+    if (exErr) throw exErr;
+    if (!existing) return res.status(404).json({ error: 'file not found' });
+    if (existing.locked_by_id && existing.locked_by_id !== user_id && user.role !== 'MD') {
+      return res.status(403).json({ error: `Locked by ${existing.locked_by_name || 'another user'}` });
+    }
+
+    const ext = extname(existing.filename).slice(1).toLowerCase();
+
+    // Build file buffer — preserve docx format; everything else saves as plain text
+    let buffer, saveExt, mimeType;
+    if (ext === 'docx') {
+      const { htmlToDocxBuffer: toDocx } = await import('./lib/htmlToDocx.js');
+      const safeText = edited_text
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const html = safeText.split('\n')
+        .map((l) => l.trim() ? `<p>${l}</p>` : '<p>&nbsp;</p>').join('');
+      buffer = await toDocx(html);
+      saveExt = 'docx';
+      mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    } else {
+      buffer = Buffer.from(edited_text, 'utf-8');
+      saveExt = ['txt', 'md'].includes(ext) ? ext : 'txt';
+      mimeType = 'text/plain';
+    }
+
+    const baseName = existing.filename.replace(/\.[^.]+$/, '');
+    const newFilename = `${baseName}.${saveExt}`;
+    const storagePath = `${randomUUID()}-${newFilename.replace(/[^\w.\-]+/g, '_')}`;
+
+    // 1. Upload new buffer to storage
+    const { error: storageErr } = await supabase.storage.from('documents')
+      .upload(storagePath, buffer, { contentType: mimeType, upsert: false });
+    if (storageErr) throw new Error('storage upload failed: ' + storageErr.message);
+    const { data: pub } = supabase.storage.from('documents').getPublicUrl(storagePath);
+
+    // 2. Delete old storage object (best-effort)
+    if (existing.file_url) {
+      const oldPath = existing.file_url.split('/documents/')[1];
+      if (oldPath) {
+        const { error: rmErr } = await supabase.storage.from('documents').remove([oldPath]);
+        if (rmErr) console.warn('[refine/save] old storage remove failed:', rmErr.message);
+      }
+    }
+
+    // 3. Wipe old chunks
+    const { error: delErr } = await supabase.from('chunks').delete().eq('file_id', id);
+    if (delErr) throw new Error('failed to clear old chunks: ' + delErr.message);
+
+    // 4. Update files row (bump version, clear lock)
+    const newVersion = (existing.version || 1) + 1;
+    const { data: updated, error: upErr } = await supabase
+      .from('files')
+      .update({
+        filename: newFilename, filetype: saveExt, file_url: pub.publicUrl,
+        version: newVersion, updated_by: user.name, updated_at: new Date().toISOString(),
+        locked_by_id: null, locked_by_name: null, locked_at: null,
+      })
+      .eq('id', id).select().single();
+    if (upErr) throw upErr;
+
+    // 5. Re-chunk and re-index the edited text
+    const rawChunks = chunkDocument({ text: edited_text, kind: 'txt' }, config.rag);
+    const chunks = addContextPrefix(rawChunks);
+    let inserted = 0;
+    for (let i = 0; i < chunks.length; i++) {
+      const c = chunks[i];
+      let enriched = { summary: '', keywords: [], hypothetical_questions: [] };
+      try { enriched = await enrichChunk(c.text, config.models.enrichment); }
+      catch (err) { console.warn(`[refine/save] enrichment chunk ${i}: ${err.message}`); }
+      const embeddingInput = buildEmbeddingInput(enriched) || c.text.slice(0, 2000);
+      let embedding;
+      try { embedding = await embedText(embeddingInput, config.embeddingModel, 'document'); }
+      catch (err) { console.warn(`[refine/save] embed chunk ${i}: ${err.message}`); continue; }
+      const { error: chunkErr } = await supabase.from('chunks').insert({
+        file_id: id, chunk_text: c.text, chunk_summary: enriched.summary,
+        keywords: enriched.keywords, hypothetical_questions: enriched.hypothetical_questions,
+        embedding, chunk_index: i,
+      });
+      if (chunkErr) console.warn(`[refine/save] chunk insert ${i}: ${chunkErr.message}`);
+      else inserted++;
+    }
+
+    console.log(`[refine/save] done. file_id=${id} v${newVersion}, ${inserted}/${chunks.length} chunks`);
+    res.json({ success: true, file: updated, chunk_count: inserted });
+  } catch (err) {
+    console.error('[refine/save] error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/report-templates/:id/generate-from-files', async (req, res) => {
   const ready = ragReady();
   if (!ready.ok) return res.status(503).json({ error: `not configured: missing ${ready.missing.join(', ')}` });
