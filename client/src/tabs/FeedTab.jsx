@@ -76,14 +76,14 @@ function Card({ item, isPrism }) {
     else { setOpen(false); }
   };
 
-  const bucket = isPrism ? relevanceBucket(item.workletRelevance) : null;
+  const bucket = relevanceBucket(item.workletRelevance);
 
   return (
     <article className="card">
       <div className="card-top-row">
         {item.date ? <div className="meta">{item.date}</div> : <div className="meta" />}
         {bucket && (
-          <span className={`relevance-badge relevance-${bucket.cls}`} title="AI-scored relevance for worklet creation">
+          <span className={`relevance-badge relevance-${bucket.cls}`} title="AI-scored relevance">
             {bucket.label} relevance
           </span>
         )}
