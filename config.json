@@ -58,6 +58,12 @@
       "parts": ["Data Management"]
     },
     {
+      "name": "KDnuggets Synthetic Data",
+      "url": "https://www.kdnuggets.com/tag/synthetic-data/",
+      "rss": "https://www.kdnuggets.com/tag/synthetic-data/feed",
+      "parts": ["Data Management"]
+    },
+    {
       "name": "Microsoft News",
       "url": "https://news.microsoft.com",
       "rss": "https://news.microsoft.com/feed/",
