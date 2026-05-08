@@ -1490,6 +1490,68 @@ app.post('/api/files/match', async (req, res) => {
   }
 });
 
+// ── Refine: grammar / spelling / paraphrase suggestions ──────────
+const REFINE_SYSTEM = `You are a writing quality reviewer for professional documents.
+
+Analyse the document text and identify genuine improvements in these categories:
+- "spelling": a word that is clearly misspelled
+- "grammar": a grammatically incorrect phrase or sentence
+- "paraphrase": a sentence or short paragraph that could be written more clearly, concisely, or professionally
+
+Return a JSON array (no wrapping object) of suggestions:
+[{"type":"spelling"|"grammar"|"paraphrase","original":"exact original segment (max 220 chars)","suggestion":"corrected or improved version","explanation":"one short sentence"}]
+
+Rules:
+- Only flag real issues — do not nitpick style preferences
+- For spelling/grammar the "original" must appear verbatim in the source text
+- Return at most 10 suggestions; if the text is clean return []
+- Return ONLY the JSON array, nothing else`;
+
+app.post('/api/refine', async (req, res) => {
+  const { file_id } = req.body || {};
+  if (!file_id) return res.status(400).json({ error: 'file_id required' });
+  try {
+    const { data: chunks, error } = await supabase
+      .from('chunks')
+      .select('chunk_text, chunk_index')
+      .eq('file_id', file_id)
+      .order('chunk_index', { ascending: true });
+    if (error) throw new Error(error.message);
+    if (!chunks || chunks.length === 0) return res.json({ suggestions: [] });
+
+    let text = chunks.map((c) => c.chunk_text).join('\n\n');
+    if (text.length > 7000) text = text.slice(0, 7000);
+
+    const raw = await generateText({
+      model: config.models.scoring,
+      system: REFINE_SYSTEM,
+      user: `Analyse this document:\n\n${text}`,
+      jsonMode: true,
+      maxTokens: 2000,
+    });
+
+    const cleaned = (raw || '').replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    let suggestions = [];
+    try {
+      const parsed = JSON.parse(cleaned);
+      suggestions = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.suggestions) ? parsed.suggestions : []);
+    } catch {
+      const m = cleaned.match(/\[[\s\S]*\]/);
+      if (m) { try { suggestions = JSON.parse(m[0]); } catch {} }
+    }
+
+    const VALID_TYPES = new Set(['spelling', 'grammar', 'paraphrase']);
+    suggestions = suggestions
+      .filter((s) => s && typeof s === 'object' && VALID_TYPES.has(s.type) && s.original && s.suggestion)
+      .slice(0, 10);
+
+    res.json({ suggestions });
+  } catch (err) {
+    console.error('[refine] error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/report-templates/:id/generate-from-files', async (req, res) => {
   const ready = ragReady();
   if (!ready.ok) return res.status(503).json({ error: `not configured: missing ${ready.missing.join(', ')}` });
