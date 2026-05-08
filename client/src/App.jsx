@@ -10,9 +10,9 @@ import ChatFAB from './components/ChatFAB.jsx';
 import QuickLinksFAB from './components/QuickLinksFAB.jsx';
 
 const PRIMARY_TABS = [
-  { id: 'home',  label: 'Home' },
-  { id: 'hub',   label: 'Knowledge Hub' },
-  { id: 'feed',  label: 'Feed' },
+  { id: 'home', label: 'Home' },
+  { id: 'hub',  label: 'Knowledge Hub' },
+  { id: 'feed', label: 'Feed' },
 ];
 
 const TOOL_FABS = [
@@ -200,8 +200,6 @@ function NotificationBell({ activeUserId, onJump }) {
   );
 }
 
-
-
 export default function App() {
   const [active, setActive] = useState('home');
   const [parts, setParts] = useState([]);
@@ -225,7 +223,6 @@ export default function App() {
   }, [activeUserId, users, parts]);
 
   const activeUserRole = activeUser?.role;
-
   const showTaskForce = activeUserRole === 'MD' || activePart === 'Tech Management';
 
   const primaryTabs = useMemo(

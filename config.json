@@ -43,21 +43,6 @@
       "parts": ["PMO"]
     },
     {
-      "name": "Appen Blog",
-      "url": "https://www.appen.com/blog",
-      "parts": ["Data Management"]
-    },
-    {
-      "name": "Sama Blog",
-      "url": "https://www.sama.com/blog",
-      "parts": ["Data Management"]
-    },
-    {
-      "name": "Encord Blog",
-      "url": "https://encord.com/blog/",
-      "parts": ["Data Management"]
-    },
-    {
       "name": "KDnuggets Synthetic Data",
       "url": "https://www.kdnuggets.com/tag/synthetic-data/",
       "rss": "https://www.kdnuggets.com/tag/synthetic-data/feed",
