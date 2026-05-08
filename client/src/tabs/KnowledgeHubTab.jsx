@@ -769,7 +769,7 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
   const isMD = activeUser?.role === 'MD';
   const userScope = activeUser?.part || activeUser?.team || null;
 
-  // Sub-section: 'browse' | 'library' | 'reports'
+  // Sub-section: 'browse' | 'library' | 'reports' | 'refine'
   const [section, setSection] = useState('browse');
 
   // ── Search state ───────────────────────────────────────
@@ -811,6 +811,13 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
   const [downloadingDocx, setDownloadingDocx] = useState(false);
   const [downloadErr, setDownloadErr] = useState(null);
   const [matchErr, setMatchErr] = useState(null);
+
+  // ── Refine state ───────────────────────────────────────
+  const [refineFileId, setRefineFileId] = useState('');
+  const [refineLoading, setRefineLoading] = useState(false);
+  const [refineSuggestions, setRefineSuggestions] = useState(null);
+  const [refineErr, setRefineErr] = useState(null);
+  const [refineStatuses, setRefineStatuses] = useState({});
 
   // Upload template state
   const [showTemplateUpload, setShowTemplateUpload] = useState(false);
@@ -942,6 +949,19 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
     finally { setUploadingTemplate(false); }
   };
 
+  // ── Refine handler ─────────────────────────────────────
+  const handleRefine = async () => {
+    if (!refineFileId) return setRefineErr('Select a document first.');
+    setRefineLoading(true); setRefineErr(null); setRefineSuggestions(null); setRefineStatuses({});
+    try {
+      const res = await fetch('/api/refine', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file_id: refineFileId, user_id: activeUserId }) });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Refine failed');
+      setRefineSuggestions(json.suggestions || []);
+    } catch (err) { setRefineErr(err.message); }
+    finally { setRefineLoading(false); }
+  };
+
   const selectedTemplate = templates.find((t) => t.id === selectedTemplateId);
   const togglePick = (id) => setMatchPicked((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
 
@@ -974,6 +994,9 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
         </button>
         <button className={`hub-subnav-btn${section === 'reports' ? ' active' : ''}`} onClick={() => setSection('reports')}>
           <IconReport /> Reports
+        </button>
+        <button className={`hub-subnav-btn${section === 'refine' ? ' active' : ''}`} onClick={() => setSection('refine')}>
+          <IconSparkle /> Refine
         </button>
       </div>
 
@@ -1170,6 +1193,90 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
             )}
           </section>
         </>
+      )}
+
+      {/* ════ REFINE section ════════════════════════════════ */}
+      {section === 'refine' && (
+        <section className="panel">
+          <div className="panel-title-row">
+            <h2 className="panel-title">Refine Document</h2>
+          </div>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 20px' }}>
+            Select a document from your library and let AI check for spelling mistakes, grammar issues, and paragraphs that could be written more clearly.
+          </p>
+
+          <div className="refine-picker-row">
+            <select value={refineFileId} onChange={(e) => { setRefineFileId(e.target.value); setRefineSuggestions(null); setRefineErr(null); setRefineStatuses({}); }} disabled={refineLoading}>
+              <option value="">Choose a document…</option>
+              {library.map((f) => <option key={f.id} value={f.id}>{f.filename}</option>)}
+            </select>
+            <button className="primary-btn" onClick={handleRefine} disabled={refineLoading || !refineFileId}>
+              {refineLoading ? 'Analysing…' : 'Analyse'}
+            </button>
+          </div>
+
+          {refineErr && <div className="inline-msg error">{refineErr}</div>}
+          {refineLoading && <div className="state"><div className="spinner" /></div>}
+
+          {refineSuggestions !== null && !refineLoading && (
+            refineSuggestions.length === 0 ? (
+              <div className="refine-empty">
+                <div className="refine-empty-icon">✨</div>
+                <strong style={{ fontSize: 15, color: 'var(--text)' }}>Looks great!</strong>
+                <p style={{ marginTop: 6, fontSize: 13, color: 'var(--text-muted)' }}>No spelling, grammar, or paraphrasing issues found.</p>
+              </div>
+            ) : (
+              <>
+                <div className="refine-summary">
+                  <strong>{refineSuggestions.filter((_, i) => refineStatuses[i] !== 'dismissed').length} of {refineSuggestions.length}</strong>&nbsp;suggestion{refineSuggestions.length !== 1 ? 's' : ''}
+                  <button className="ghost-btn small" onClick={() => { const n = {}; refineSuggestions.forEach((_, i) => { n[i] = 'accepted'; }); setRefineStatuses(n); }}>Accept all</button>
+                  <button className="ghost-btn small" onClick={() => { const n = {}; refineSuggestions.forEach((_, i) => { n[i] = 'dismissed'; }); setRefineStatuses(n); }}>Dismiss all</button>
+                </div>
+                <div className="suggestion-cards">
+                  {refineSuggestions.map((s, i) => {
+                    const status = refineStatuses[i];
+                    return (
+                      <div key={i} className={`suggestion-card${status ? ` ${status}` : ''}`}>
+                        <div className="suggestion-card-header">
+                          <span className={`suggestion-badge ${s.type}`}>{s.type}</span>
+                          {s.explanation && <span className="suggestion-explanation">{s.explanation}</span>}
+                        </div>
+                        <div className="suggestion-body">
+                          <div className="suggestion-text-row">
+                            <span className="suggestion-label">Original</span>
+                            <div className="suggestion-original-text">{s.original}</div>
+                          </div>
+                          <div className="suggestion-text-row">
+                            <span className="suggestion-label">Suggested</span>
+                            <div className="suggestion-proposed-text">{s.suggestion}</div>
+                          </div>
+                        </div>
+                        <div className="suggestion-footer">
+                          {status === 'accepted' ? (
+                            <>
+                              <span style={{ fontSize: 12, color: 'var(--text-muted)', flex: 1 }}>✓ Copied to clipboard</span>
+                              <button className="ghost-btn small" onClick={() => setRefineStatuses((p) => { const n = { ...p }; delete n[i]; return n; })}>Undo</button>
+                            </>
+                          ) : status === 'dismissed' ? (
+                            <>
+                              <span style={{ fontSize: 12, color: 'var(--text-muted)', flex: 1 }}>Dismissed</span>
+                              <button className="ghost-btn small" onClick={() => setRefineStatuses((p) => { const n = { ...p }; delete n[i]; return n; })}>Restore</button>
+                            </>
+                          ) : (
+                            <>
+                              <button className="ghost-btn small" onClick={() => setRefineStatuses((p) => ({ ...p, [i]: 'dismissed' }))}>Dismiss</button>
+                              <button className="primary-btn refine-accept-btn" onClick={() => { navigator.clipboard.writeText(s.suggestion).catch(() => {}); setRefineStatuses((p) => ({ ...p, [i]: 'accepted' })); }}>Accept &amp; Copy</button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )
+          )}
+        </section>
       )}
 
       {/* ── Upload modal overlay ──────────────────────────── */}
