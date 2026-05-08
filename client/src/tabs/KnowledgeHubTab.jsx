@@ -1132,7 +1132,7 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
                 <button className="ghost-btn small" onClick={() => setSection('library')}>View all →</button>
               </div>
               <div className="library-list">
-                {library.slice(0, 5).map((f) => (
+                {library.slice(0, 3).map((f) => (
                   <LibraryRow key={f.id} file={f} activeUserId={activeUserId}
                     onDeleted={(id) => setLibrary((c) => c.filter((x) => x.id !== id))}
                     onExtracted={(p) => setPendingItems(p)}
