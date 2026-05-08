@@ -464,6 +464,9 @@ function GmailInbox({ activeUserId, onExtract, onAttachmentUploaded }) {
   const [emails, setEmails] = useState([]);
   const [emailsLoading, setEmailsLoading] = useState(false);
   const [emailsErr, setEmailsErr] = useState(null);
+  const [summarizing, setSummarizing] = useState(false);
+  const [summary, setSummary] = useState(null);
+  const [summaryErr, setSummaryErr] = useState(null);
 
   useEffect(() => {
     // Handle OAuth redirect param
@@ -491,6 +494,22 @@ function GmailInbox({ activeUserId, onExtract, onAttachmentUploaded }) {
       .finally(() => setEmailsLoading(false));
   }, [status]);
 
+  const handleSummarize = async () => {
+    if (!emails.length) return;
+    setSummarizing(true); setSummary(null); setSummaryErr(null);
+    try {
+      const res = await fetch('/api/email/summarize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emails: emails.map((e) => ({ from: e.from, subject: e.subject, date: e.date, body: e.body || e.snippet })) }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Summarize failed');
+      setSummary(json.summary);
+    } catch (err) { setSummaryErr(err.message); }
+    finally { setSummarizing(false); }
+  };
+
   if (status === 'loading') return <div className="state"><div className="spinner" /></div>;
 
   if (status === 'disconnected') {
@@ -513,6 +532,40 @@ function GmailInbox({ activeUserId, onExtract, onAttachmentUploaded }) {
       {!emailsLoading && emails.length === 0 && !emailsErr && (
         <div className="state-text">Inbox is empty or no recent emails.</div>
       )}
+
+      {/* ── Summarize bar ─────────────────────────────────── */}
+      {emails.length > 0 && !emailsLoading && (
+        <div className="email-summary-bar">
+          {!summary && (
+            <button className="ghost-btn small email-summarize-btn" onClick={handleSummarize} disabled={summarizing}>
+              {summarizing
+                ? <><span className="email-sum-spinner" />Summarising…</>
+                : <><IconSparkle />Summarise all</>}
+            </button>
+          )}
+          {summaryErr && <span style={{ fontSize: 12, color: '#ef4444' }}>{summaryErr}</span>}
+          {summary && (
+            <div className="email-summary-card">
+              <div className="email-summary-header">
+                <div className="email-summary-title">
+                  <IconSparkle />
+                  <span>Inbox digest · {emails.length} email{emails.length !== 1 ? 's' : ''}</span>
+                </div>
+                <button className="email-summary-close" onClick={() => { setSummary(null); setSummaryErr(null); }} title="Dismiss">×</button>
+              </div>
+              <div className="email-summary-body">
+                {summary.split('\n').filter(Boolean).map((line, i) => (
+                  <p key={i} className="email-summary-line">{line}</p>
+                ))}
+              </div>
+              <div className="email-summary-footer">
+                <button className="ghost-btn small" onClick={handleSummarize} disabled={summarizing}>Refresh</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="hub-email-strip">
         {emails.map((em) => (
           <GmailEmailCard
