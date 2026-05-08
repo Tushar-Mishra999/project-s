@@ -2556,7 +2556,7 @@ Each bullet must: mention the sender's name (drop the email address), state the 
 Use plain text bullets starting with "•". Keep the whole digest under 120 words.`,
       user: `Summarise these ${emails.length} email${emails.length !== 1 ? 's' : ''}:\n\n${emailBlock}`,
       jsonMode: false,
-      maxTokens: 400,
+      maxTokens: 2000,
     });
 
     res.json({ summary: (summary || '').trim() });
