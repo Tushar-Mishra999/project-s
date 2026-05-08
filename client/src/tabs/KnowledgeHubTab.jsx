@@ -761,6 +761,32 @@ async function downloadDocx(filename, html) {
   triggerDownload(filename, blob);
 }
 
+// ── Refine: split document text at suggestion positions ──
+function buildPreviewSegments(text, suggestions) {
+  const ranges = [];
+  suggestions.forEach((s, i) => {
+    const pos = text.indexOf(s.original);
+    if (pos !== -1) ranges.push({ start: pos, end: pos + s.original.length, idx: i });
+  });
+  ranges.sort((a, b) => a.start - b.start);
+  const out = [];
+  let cur = 0;
+  for (const r of ranges) {
+    if (r.start < cur) continue;
+    if (r.start > cur) out.push({ type: 'text', content: text.slice(cur, r.start) });
+    out.push({ type: 'sugg', idx: r.idx, original: suggestions[r.idx].original, suggestion: suggestions[r.idx].suggestion });
+    cur = r.end;
+  }
+  if (cur < text.length) out.push({ type: 'text', content: text.slice(cur) });
+  return out;
+}
+
+function getEditedText(text, suggestions, statuses) {
+  return buildPreviewSegments(text, suggestions)
+    .map((seg) => seg.type === 'text' ? seg.content : (statuses[seg.idx] === 'accepted' ? seg.suggestion : seg.original))
+    .join('');
+}
+
 // ════════════════════════════════════════════════════════
 //  MAIN COMPONENT
 // ════════════════════════════════════════════════════════
@@ -816,6 +842,7 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
   const [refineFileId, setRefineFileId] = useState('');
   const [refineLoading, setRefineLoading] = useState(false);
   const [refineSuggestions, setRefineSuggestions] = useState(null);
+  const [refineDocText, setRefineDocText] = useState(null);
   const [refineErr, setRefineErr] = useState(null);
   const [refineStatuses, setRefineStatuses] = useState({});
 
@@ -952,12 +979,13 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
   // ── Refine handler ─────────────────────────────────────
   const handleRefine = async () => {
     if (!refineFileId) return setRefineErr('Select a document first.');
-    setRefineLoading(true); setRefineErr(null); setRefineSuggestions(null); setRefineStatuses({});
+    setRefineLoading(true); setRefineErr(null); setRefineSuggestions(null); setRefineDocText(null); setRefineStatuses({});
     try {
       const res = await fetch('/api/refine', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file_id: refineFileId, user_id: activeUserId }) });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Refine failed');
       setRefineSuggestions(json.suggestions || []);
+      setRefineDocText(json.text || '');
     } catch (err) { setRefineErr(err.message); }
     finally { setRefineLoading(false); }
   };
@@ -1202,11 +1230,11 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
             <h2 className="panel-title">Refine Document</h2>
           </div>
           <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 20px' }}>
-            Select a document from your library and let AI check for spelling mistakes, grammar issues, and paragraphs that could be written more clearly.
+            Select a document and let AI surface spelling, grammar, and paraphrasing improvements. Accept changes in the cards or click directly in the live preview.
           </p>
 
           <div className="refine-picker-row">
-            <select value={refineFileId} onChange={(e) => { setRefineFileId(e.target.value); setRefineSuggestions(null); setRefineErr(null); setRefineStatuses({}); }} disabled={refineLoading}>
+            <select value={refineFileId} onChange={(e) => { setRefineFileId(e.target.value); setRefineSuggestions(null); setRefineDocText(null); setRefineErr(null); setRefineStatuses({}); }} disabled={refineLoading}>
               <option value="">Choose a document…</option>
               {library.map((f) => <option key={f.id} value={f.id}>{f.filename}</option>)}
             </select>
@@ -1226,54 +1254,93 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
                 <p style={{ marginTop: 6, fontSize: 13, color: 'var(--text-muted)' }}>No spelling, grammar, or paraphrasing issues found.</p>
               </div>
             ) : (
-              <>
-                <div className="refine-summary">
-                  <strong>{refineSuggestions.filter((_, i) => refineStatuses[i] !== 'dismissed').length} of {refineSuggestions.length}</strong>&nbsp;suggestion{refineSuggestions.length !== 1 ? 's' : ''}
-                  <button className="ghost-btn small" onClick={() => { const n = {}; refineSuggestions.forEach((_, i) => { n[i] = 'accepted'; }); setRefineStatuses(n); }}>Accept all</button>
-                  <button className="ghost-btn small" onClick={() => { const n = {}; refineSuggestions.forEach((_, i) => { n[i] = 'dismissed'; }); setRefineStatuses(n); }}>Dismiss all</button>
-                </div>
-                <div className="suggestion-cards">
-                  {refineSuggestions.map((s, i) => {
-                    const status = refineStatuses[i];
-                    return (
-                      <div key={i} className={`suggestion-card${status ? ` ${status}` : ''}`}>
-                        <div className="suggestion-card-header">
-                          <span className={`suggestion-badge ${s.type}`}>{s.type}</span>
-                          {s.explanation && <span className="suggestion-explanation">{s.explanation}</span>}
-                        </div>
-                        <div className="suggestion-body">
-                          <div className="suggestion-text-row">
-                            <span className="suggestion-label">Original</span>
-                            <div className="suggestion-original-text">{s.original}</div>
+              <div className="refine-split">
+
+                {/* ── Left: suggestion cards ────────────────── */}
+                <div className="refine-cards-col">
+                  <div className="refine-summary">
+                    <strong>{refineSuggestions.filter((_, i) => !refineStatuses[i]).length}</strong> pending
+                    <span className="refine-summary-dot">·</span>
+                    <span className="refine-accepted-count">{Object.values(refineStatuses).filter((v) => v === 'accepted').length} accepted</span>
+                    <button className="ghost-btn small" style={{ marginLeft: 'auto' }} onClick={() => { const n = {}; refineSuggestions.forEach((_, i) => { n[i] = 'accepted'; }); setRefineStatuses(n); }}>Accept all</button>
+                    <button className="ghost-btn small" onClick={() => { const n = {}; refineSuggestions.forEach((_, i) => { n[i] = 'dismissed'; }); setRefineStatuses(n); }}>Dismiss all</button>
+                  </div>
+                  <div className="suggestion-cards">
+                    {refineSuggestions.map((s, i) => {
+                      const status = refineStatuses[i];
+                      return (
+                        <div key={i} className={`suggestion-card${status ? ` ${status}` : ''}`}>
+                          <div className="suggestion-card-header">
+                            <span className={`suggestion-badge ${s.type}`}>{s.type}</span>
+                            {s.explanation && <span className="suggestion-explanation">{s.explanation}</span>}
                           </div>
-                          <div className="suggestion-text-row">
-                            <span className="suggestion-label">Suggested</span>
-                            <div className="suggestion-proposed-text">{s.suggestion}</div>
+                          <div className="suggestion-body">
+                            <div className="suggestion-text-row">
+                              <span className="suggestion-label">Original</span>
+                              <div className="suggestion-original-text">{s.original}</div>
+                            </div>
+                            <div className="suggestion-text-row">
+                              <span className="suggestion-label">Suggested</span>
+                              <div className="suggestion-proposed-text">{s.suggestion}</div>
+                            </div>
+                          </div>
+                          <div className="suggestion-footer">
+                            {status === 'accepted' ? (
+                              <>
+                                <span style={{ fontSize: 12, color: 'rgba(34,197,94,.85)', flex: 1 }}>✓ Applied in preview</span>
+                                <button className="ghost-btn small" onClick={() => setRefineStatuses((p) => { const n = { ...p }; delete n[i]; return n; })}>Undo</button>
+                              </>
+                            ) : status === 'dismissed' ? (
+                              <>
+                                <span style={{ fontSize: 12, color: 'var(--text-muted)', flex: 1 }}>Dismissed</span>
+                                <button className="ghost-btn small" onClick={() => setRefineStatuses((p) => { const n = { ...p }; delete n[i]; return n; })}>Restore</button>
+                              </>
+                            ) : (
+                              <>
+                                <button className="ghost-btn small" onClick={() => setRefineStatuses((p) => ({ ...p, [i]: 'dismissed' }))}>Dismiss</button>
+                                <button className="primary-btn refine-accept-btn" onClick={() => setRefineStatuses((p) => ({ ...p, [i]: 'accepted' }))}>Accept</button>
+                              </>
+                            )}
                           </div>
                         </div>
-                        <div className="suggestion-footer">
-                          {status === 'accepted' ? (
-                            <>
-                              <span style={{ fontSize: 12, color: 'var(--text-muted)', flex: 1 }}>✓ Copied to clipboard</span>
-                              <button className="ghost-btn small" onClick={() => setRefineStatuses((p) => { const n = { ...p }; delete n[i]; return n; })}>Undo</button>
-                            </>
-                          ) : status === 'dismissed' ? (
-                            <>
-                              <span style={{ fontSize: 12, color: 'var(--text-muted)', flex: 1 }}>Dismissed</span>
-                              <button className="ghost-btn small" onClick={() => setRefineStatuses((p) => { const n = { ...p }; delete n[i]; return n; })}>Restore</button>
-                            </>
-                          ) : (
-                            <>
-                              <button className="ghost-btn small" onClick={() => setRefineStatuses((p) => ({ ...p, [i]: 'dismissed' }))}>Dismiss</button>
-                              <button className="primary-btn refine-accept-btn" onClick={() => { navigator.clipboard.writeText(s.suggestion).catch(() => {}); setRefineStatuses((p) => ({ ...p, [i]: 'accepted' })); }}>Accept &amp; Copy</button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
-              </>
+
+                {/* ── Right: live document preview ─────────── */}
+                <div className="refine-preview-col">
+                  <div className="refine-preview-toolbar">
+                    <span className="refine-preview-label">Live Preview</span>
+                    <button className="ghost-btn small" title="Copy edited text" onClick={() => navigator.clipboard.writeText(getEditedText(refineDocText, refineSuggestions, refineStatuses)).catch(() => {})}>Copy</button>
+                    <button className="ghost-btn small" title="Download as .txt" onClick={() => {
+                      const txt = getEditedText(refineDocText, refineSuggestions, refineStatuses);
+                      const name = (library.find((f) => f.id === refineFileId)?.filename || 'document').replace(/\.[^.]+$/, '') + '-refined.txt';
+                      const a = document.createElement('a');
+                      a.href = URL.createObjectURL(new Blob([txt], { type: 'text/plain' }));
+                      a.download = name; a.click();
+                    }}>Download .txt</button>
+                  </div>
+                  <div className="refine-preview-doc">
+                    {refineDocText && buildPreviewSegments(refineDocText, refineSuggestions).map((seg, i) => {
+                      if (seg.type === 'text') return <span key={i}>{seg.content}</span>;
+                      const status = refineStatuses[seg.idx];
+                      if (status === 'accepted') {
+                        return <mark key={i} className="preview-accepted" title="Click to undo" onClick={() => setRefineStatuses((p) => { const n = { ...p }; delete n[seg.idx]; return n; })}>{seg.suggestion}</mark>;
+                      }
+                      if (status === 'dismissed') {
+                        return <span key={i} className="preview-dismissed" title="Click to restore" onClick={() => setRefineStatuses((p) => { const n = { ...p }; delete n[seg.idx]; return n; })}>{seg.original}</span>;
+                      }
+                      return <mark key={i} className="preview-pending" title={`Click to accept: "${seg.suggestion}"`} onClick={() => setRefineStatuses((p) => ({ ...p, [seg.idx]: 'accepted' }))}>{seg.original}</mark>;
+                    })}
+                  </div>
+                  <div className="refine-preview-legend">
+                    <span className="legend-item"><span className="legend-swatch pending" />Pending (click to accept)</span>
+                    <span className="legend-item"><span className="legend-swatch accepted" />Accepted (click to undo)</span>
+                  </div>
+                </div>
+
+              </div>
             )
           )}
         </section>

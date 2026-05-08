@@ -1545,7 +1545,7 @@ app.post('/api/refine', async (req, res) => {
       .filter((s) => s && typeof s === 'object' && VALID_TYPES.has(s.type) && s.original && s.suggestion)
       .slice(0, 10);
 
-    res.json({ suggestions });
+    res.json({ suggestions, text });
   } catch (err) {
     console.error('[refine] error:', err.message);
     res.status(500).json({ error: err.message });
