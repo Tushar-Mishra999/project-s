@@ -2538,6 +2538,34 @@ app.get('/api/email/messages', async (req, res) => {
   }
 });
 
+// POST /api/email/summarize  { emails: [{from, subject, date, body}] }
+app.post('/api/email/summarize', async (req, res) => {
+  const { emails } = req.body || {};
+  if (!Array.isArray(emails) || emails.length === 0) {
+    return res.status(400).json({ error: 'emails array required' });
+  }
+  try {
+    const emailBlock = emails.map((e, i) =>
+      `[Email ${i + 1}]\nFrom: ${e.from}\nSubject: ${e.subject || '(no subject)'}\nDate: ${e.date || ''}\n\n${(e.body || e.snippet || '').slice(0, 1500)}`
+    ).join('\n\n---\n\n');
+
+    const summary = await generateText({
+      model: config.models.enrichment,
+      system: `You are a concise email assistant. Given a set of emails, write a short digest — one bullet point per email.
+Each bullet must: mention the sender's name (drop the email address), state the core topic or ask, and flag any action/deadline if present.
+Use plain text bullets starting with "•". Keep the whole digest under 120 words.`,
+      user: `Summarise these ${emails.length} email${emails.length !== 1 ? 's' : ''}:\n\n${emailBlock}`,
+      jsonMode: false,
+      maxTokens: 400,
+    });
+
+    res.json({ summary: (summary || '').trim() });
+  } catch (err) {
+    console.error('[email/summarize]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/email/extract-actions  { subject, body, user_id }
 app.post('/api/email/extract-actions', async (req, res) => {
   const { subject, body: emailBody, user_id } = req.body || {};
