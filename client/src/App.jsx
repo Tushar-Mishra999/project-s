@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import FeedTab, { feedTabLabel } from './tabs/FeedTab.jsx';
 import KnowledgeHubTab from './tabs/KnowledgeHubTab.jsx';
 import ActionItemsTab from './tabs/ActionItemsTab.jsx';
@@ -10,16 +10,79 @@ import ChatFAB from './components/ChatFAB.jsx';
 import QuickLinksFAB from './components/QuickLinksFAB.jsx';
 
 const PRIMARY_TABS = [
-  { id: 'home',     label: 'Home' },
-  { id: 'hub',      label: 'Knowledge Hub' },
-  { id: 'feed',     label: 'Feed' },
+  { id: 'home',  label: 'Home' },
+  { id: 'hub',   label: 'Knowledge Hub' },
+  { id: 'feed',  label: 'Feed' },
 ];
 
-const TOOLS_TABS = [
-  { id: 'actions',  label: 'Action Items' },
-  { id: 'minutes',  label: 'MoM' },
-  { id: 'quizzes',  label: 'AI Quizzes' },
+const TOOL_FABS = [
+  {
+    id: 'actions',
+    label: 'Action Items',
+    icon: (
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>
+        <rect x="9" y="3" width="6" height="4" rx="1"/>
+        <path d="m9 12 2 2 4-4"/>
+      </svg>
+    ),
+  },
+  {
+    id: 'minutes',
+    label: 'MoM',
+    icon: (
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="16" y1="13" x2="8" y2="13"/>
+        <line x1="16" y1="17" x2="8" y2="17"/>
+      </svg>
+    ),
+  },
+  {
+    id: 'quizzes',
+    label: 'AI Quizzes',
+    icon: (
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+        <line x1="12" y1="17" x2="12.01" y2="17"/>
+      </svg>
+    ),
+  },
 ];
+
+const TF_FAB = {
+  id: 'taskforce',
+  label: 'Task Force',
+  icon: (
+    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+      <circle cx="9" cy="7" r="4"/>
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+      <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+    </svg>
+  ),
+};
+
+function VerticalFABs({ active, setActive, showTaskForce }) {
+  const fabs = showTaskForce ? [...TOOL_FABS, TF_FAB] : TOOL_FABS;
+  return (
+    <div className="v-fabs">
+      {fabs.map((fab) => (
+        <button
+          key={fab.id}
+          className={`v-fab${active === fab.id ? ' v-fab-active' : ''}`}
+          onClick={() => setActive(fab.id)}
+          aria-label={fab.label}
+        >
+          {fab.icon}
+          <span className="v-fab-label">{fab.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function dueBucket(due_date) {
   if (!due_date) return null;
@@ -137,58 +200,7 @@ function NotificationBell({ activeUserId, onJump }) {
   );
 }
 
-function ToolsDropdown({ tabs, active, setActive }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-  const isToolActive = tabs.some((t) => t.id === active);
 
-  useEffect(() => {
-    function onClick(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
-    document.addEventListener('mousedown', onClick);
-    return () => document.removeEventListener('mousedown', onClick);
-  }, []);
-
-  return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <button
-        className={`tab-btn${isToolActive ? ' active' : ''}`}
-        onClick={() => setOpen((o) => !o)}
-        style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-      >
-        Tools
-        <svg width="10" height="10" viewBox="0 0 12 12" fill="none" style={{ opacity: 0.6, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }}>
-          <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-        </svg>
-      </button>
-      {open && (
-        <div style={{
-          position: 'absolute', top: 'calc(100% + 8px)', left: '50%', transform: 'translateX(-50%)',
-          background: 'var(--surface-2)', border: '1px solid var(--border-strong)', borderRadius: 12,
-          overflow: 'hidden', zIndex: 50, minWidth: 180, boxShadow: '0 12px 40px rgba(0,0,0,.5)',
-        }}>
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => { setActive(t.id); setOpen(false); }}
-              style={{
-                display: 'block', width: '100%', padding: '10px 16px', border: 'none',
-                background: active === t.id ? 'rgba(59,130,246,.12)' : 'transparent',
-                color: active === t.id ? '#93c5fd' : 'var(--text)', cursor: 'pointer',
-                textAlign: 'left', fontFamily: 'inherit', fontSize: 13, fontWeight: 500,
-                borderLeft: active === t.id ? '2px solid #3b82f6' : '2px solid transparent',
-                transition: 'background .12s',
-              }}
-              onMouseEnter={(e) => { if (active !== t.id) e.currentTarget.style.background = 'rgba(255,255,255,.04)'; }}
-              onMouseLeave={(e) => { if (active !== t.id) e.currentTarget.style.background = 'transparent'; }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 export default function App() {
   const [active, setActive] = useState('home');
@@ -243,12 +255,6 @@ export default function App() {
                 {t.label}
               </button>
             ))}
-            <ToolsDropdown tabs={TOOLS_TABS} active={active} setActive={setActive} />
-            {showTaskForce && (
-              <button className={`tab-btn ${active === 'taskforce' ? 'active' : ''}`} onClick={() => setActive('taskforce')}>
-                Task Force
-              </button>
-            )}
           </div>
         </div>
       </nav>
@@ -263,6 +269,7 @@ export default function App() {
         {active === 'taskforce' && <TaskForceTab users={users} activeUserId={activeUserId} />}
       </main>
 
+      <VerticalFABs active={active} setActive={setActive} showTaskForce={showTaskForce} />
       <QuickLinksFAB activePart={activePart} />
       <ChatFAB activePart={activePart} activeUserId={activeUserId} activeUser={activeUser} />
     </div>

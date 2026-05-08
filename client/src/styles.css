@@ -2849,6 +2849,72 @@ details[open] .mom-transcript-toggle::before { transform: rotate(90deg); }
   .chat-fab-label { font-size: 13px; }
 }
 
+/* ── Vertical tool FABs (right side) ─────────────────── */
+.v-fabs {
+  position: fixed;
+  right: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 40;
+}
+
+.v-fab {
+  position: relative;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: 1px solid rgba(168,85,247,0.25);
+  background: rgba(88,28,135,0.55);
+  backdrop-filter: blur(10px);
+  color: #e9d5ff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 14px rgba(168,85,247,0.35), 0 2px 8px rgba(0,0,0,0.4);
+  transition: background 0.2s, box-shadow 0.2s, border-color 0.2s;
+  overflow: visible;
+}
+
+.v-fab:hover {
+  background: rgba(126,34,206,0.75);
+  border-color: rgba(192,132,252,0.55);
+  box-shadow: 0 0 22px rgba(168,85,247,0.6), 0 4px 16px rgba(0,0,0,0.5);
+}
+
+.v-fab-active {
+  background: rgba(126,34,206,0.8);
+  border-color: rgba(192,132,252,0.7);
+  box-shadow: 0 0 28px rgba(168,85,247,0.75), 0 4px 16px rgba(0,0,0,0.5);
+}
+
+.v-fab-label {
+  position: absolute;
+  right: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%) translateX(6px);
+  background: rgba(88,28,135,0.92);
+  border: 1px solid rgba(168,85,247,0.3);
+  color: #e9d5ff;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  padding: 4px 10px;
+  border-radius: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.14s, transform 0.14s;
+  box-shadow: 0 0 10px rgba(168,85,247,0.3);
+}
+
+.v-fab:hover .v-fab-label {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+}
+
 /* ── Quick Links FAB ──────────────────────────────────── */
 .ql-fab {
   position: fixed;
