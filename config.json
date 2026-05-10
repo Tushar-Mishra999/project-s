@@ -31,21 +31,39 @@
       "parts": ["Tech Management","PRISM"]
     },
     {
-      "name": "CIO Project Management",
-      "url": "https://www.cio.com/project-management/",
-      "rss": "https://www.cio.com/feed/",
-      "parts": ["PMO"]
-    },
-    {
       "name": "Rebel's Guide to Project Management",
       "url": "https://rebelsguidetopm.com",
       "rss": "https://rebelsguidetopm.com/feed/",
       "parts": ["PMO"]
     },
     {
-      "name": "KDnuggets Synthetic Data",
-      "url": "https://www.kdnuggets.com/tag/synthetic-data/",
-      "rss": "https://www.kdnuggets.com/tag/synthetic-data/feed",
+      "name": "ProjectManager Blog",
+      "url": "https://www.projectmanager.com/blog",
+      "rss": "https://www.projectmanager.com/blog/feed",
+      "parts": ["PMO"]
+    },
+    {
+      "name": "Project Times",
+      "url": "https://www.projecttimes.com",
+      "rss": "https://www.projecttimes.com/feed/",
+      "parts": ["PMO"]
+    },
+    {
+      "name": "PM Today",
+      "url": "https://www.pmtoday.co.uk",
+      "rss": "https://www.pmtoday.co.uk/feed",
+      "parts": ["PMO"]
+    },
+    {
+      "name": "Scrum Expert",
+      "url": "https://www.scrumexpert.com",
+      "rss": "https://www.scrumexpert.com/feed",
+      "parts": ["PMO"]
+    },
+    {
+      "name": "mostly.ai Blog",
+      "url": "https://mostly.ai/blog",
+      "geminiSearch": true,
       "parts": ["Data Management"]
     },
     {
@@ -73,7 +91,9 @@
     { "name": "Zinnov", "url": "https://zinnov.com/blog/" },
     { "name": "PIB India", "url": "https://www.pib.gov.in/indexd.aspx?reg=3&lang=1" },
     { "name": "Atlassian — AI at Work", "url": "https://atlassianblog.wpengine.com/ai-at-work", "parts": ["PMO"] },
-    { "name": "The Digital Project Manager", "url": "https://thedigitalprojectmanager.com", "rss": "https://thedigitalprojectmanager.com/feed/", "parts": ["PMO"], "_note": "blocked by Cloudflare WAF" }
+    { "name": "The Digital Project Manager", "url": "https://thedigitalprojectmanager.com", "rss": "https://thedigitalprojectmanager.com/feed/", "parts": ["PMO"], "_note": "blocked by Cloudflare WAF" },
+    { "name": "CIO Project Management", "url": "https://www.cio.com/project-management/", "rss": "https://www.cio.com/feed/", "parts": ["PMO"] },
+    { "name": "KDnuggets Synthetic Data", "url": "https://www.kdnuggets.com/tag/synthetic-data/", "rss": "https://www.kdnuggets.com/tag/synthetic-data/feed", "parts": ["Data Management"] }
   ],
   "maxItemsPerSource": 5,
   "maxItemsPerSourceByPart": {
