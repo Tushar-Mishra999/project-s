@@ -150,6 +150,7 @@ app.post('/api/feed/refresh', (req, res) => {
   // (back-compat for any caller that hasn't migrated yet).
   const scoped = {
     ...liveConfig,
+    part,
     sources: part
       ? liveConfig.sources.filter((s) =>
           Array.isArray(s.parts)
