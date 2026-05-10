@@ -807,8 +807,15 @@ function downloadText(filename, text) {
   triggerDownload(filename, new Blob([text], { type: 'text/html;charset=utf-8' }));
 }
 
-async function downloadDocx(filename, html) {
-  const res = await fetch('/api/render-docx', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ html, filename }) });
+async function downloadPdf(filename, html) {
+  const res = await fetch('/api/render-pdf', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ html, filename }) });
+  if (!res.ok) { let msg = `Server returned ${res.status}`; try { msg = (await res.json()).error || msg; } catch {} throw new Error(msg); }
+  const blob = await res.blob();
+  triggerDownload(filename, blob);
+}
+
+async function downloadXlsx(filename, html, report_model) {
+  const res = await fetch('/api/render-xlsx', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ html, filename, report_model }) });
   if (!res.ok) { let msg = `Server returned ${res.status}`; try { msg = (await res.json()).error || msg; } catch {} throw new Error(msg); }
   const blob = await res.blob();
   triggerDownload(filename, blob);
@@ -873,6 +880,7 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
   const [libraryErr, setLibraryErr] = useState(null);
 
   // ── Reports state ──────────────────────────────────────
+  const [reportMode, setReportMode] = useState('template'); // 'template' | 'free'
   const [templates, setTemplates] = useState([]);
   const [loadingTemplates, setLoadingTemplates] = useState(true);
   const [selectedTemplateId, setSelectedTemplateId] = useState(null);
@@ -887,7 +895,8 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
   const [generating, setGenerating] = useState(false);
   const [report, setReport] = useState(null);
   const [generateErr, setGenerateErr] = useState(null);
-  const [downloadingDocx, setDownloadingDocx] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [downloadingXlsx, setDownloadingXlsx] = useState(false);
   const [downloadErr, setDownloadErr] = useState(null);
   const [matchErr, setMatchErr] = useState(null);
 
@@ -989,11 +998,14 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
   };
 
   const handleConfirmAndGenerate = async () => {
-    if (!selectedTemplateId) return setGenerateErr('Select a template first.');
+    if (reportMode === 'template' && !selectedTemplateId) return setGenerateErr('Select a template first.');
     if (matchPicked.size === 0) return setGenerateErr('Pick at least one source file.');
     setGenerating(true); setGenerateErr(null); setReport(null);
     try {
-      const res = await fetch(`/api/report-templates/${selectedTemplateId}/generate-from-files`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instruction, file_ids: Array.from(matchPicked), report_model: reportModel }) });
+      const url = reportMode === 'template'
+        ? `/api/report-templates/${selectedTemplateId}/generate-from-files`
+        : '/api/report/generate-from-files';
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instruction, file_ids: Array.from(matchPicked), report_model: reportModel }) });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Generation failed');
       setReport({ text: json.report, templateName: json.template_filename, usedFiles: json.used_files });
@@ -1003,11 +1015,17 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
 
   const handleGenerate = async (e) => {
     e?.preventDefault();
-    if (!selectedTemplateId) return setGenerateErr('Select a template first.');
+    if (reportMode === 'template' && !selectedTemplateId) return setGenerateErr('Select a template first.');
     if (!inputData.trim()) return setGenerateErr('Provide some input data.');
     setGenerating(true); setGenerateErr(null); setReport(null);
     try {
-      const res = await fetch(`/api/report-templates/${selectedTemplateId}/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ input_data: inputData, report_model: reportModel }) });
+      const url = reportMode === 'template'
+        ? `/api/report-templates/${selectedTemplateId}/generate`
+        : '/api/report/generate';
+      const body = reportMode === 'template'
+        ? { input_data: inputData, report_model: reportModel }
+        : { input_data: inputData, report_model: reportModel };
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Generation failed');
       setReport({ text: json.report, templateName: json.template_filename });
@@ -1174,121 +1192,166 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
       {/* ════ REPORTS section ═══════════════════════════════ */}
       {section === 'reports' && (
         <>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+          {/* Header row: mode toggle + model picker */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+            <div style={{ display: 'flex', background: 'var(--surface-2)', border: '1px solid var(--border-strong)', borderRadius: 10, padding: 3, gap: 2 }}>
+              <button
+                onClick={() => { setReportMode('template'); setReport(null); setGenerateErr(null); }}
+                style={{ padding: '5px 12px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', background: reportMode === 'template' ? '#3b82f6' : 'transparent', color: reportMode === 'template' ? '#fff' : 'var(--text-muted)', transition: 'background .15s, color .15s' }}
+              >With template</button>
+              <button
+                onClick={() => { setReportMode('free'); setSelectedTemplateId(null); setReport(null); setGenerateErr(null); }}
+                style={{ padding: '5px 12px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', background: reportMode === 'free' ? '#3b82f6' : 'transparent', color: reportMode === 'free' ? '#fff' : 'var(--text-muted)', transition: 'background .15s, color .15s' }}
+              >No template</button>
+            </div>
             <ModelDropdown value={reportModel} onChange={setReportModel} />
           </div>
 
-          {/* Templates */}
-          <section className="panel">
-            <div className="panel-title-row">
-              <h2 className="panel-title">Templates · {templates.length}</h2>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button className="ghost-btn small" onClick={() => setShowTemplateUpload((v) => !v)}>{showTemplateUpload ? 'Cancel' : 'Upload Template'}</button>
-                <button className="ghost-btn small" onClick={loadTemplates} disabled={loadingTemplates}>{loadingTemplates ? 'Loading…' : 'Refresh'}</button>
+          {/* Templates panel — only in template mode */}
+          {reportMode === 'template' && (
+            <section className="panel">
+              <div className="panel-title-row">
+                <h2 className="panel-title">Templates · {templates.length}</h2>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="ghost-btn small" onClick={() => setShowTemplateUpload((v) => !v)}>{showTemplateUpload ? 'Cancel' : 'Upload Template'}</button>
+                  <button className="ghost-btn small" onClick={loadTemplates} disabled={loadingTemplates}>{loadingTemplates ? 'Loading…' : 'Refresh'}</button>
+                </div>
               </div>
-            </div>
-            {showTemplateUpload && (
-              <form className="upload-form" onSubmit={handleTemplateUpload} style={{ marginBottom: 12 }}>
-                <div className="form-row"><label>Template file</label><input ref={templateFileRef} type="file" accept=".pdf,.docx,.pptx,.txt,.md" onChange={(e) => setTemplateFile(e.target.files?.[0] || null)} /></div>
-                <button className="primary-btn" disabled={uploadingTemplate} type="submit">{uploadingTemplate ? 'Uploading…' : 'Upload'}</button>
-                {templateUploadMsg && <div className={`inline-msg ${templateUploadMsg.type}`}>{templateUploadMsg.text}</div>}
-              </form>
-            )}
-            {templates.length > 0 && (
-              <div className="library-list">
-                {templates.map((t) => (
-                  <div key={t.id} className={`library-row ${selectedTemplateId === t.id ? 'selected' : ''}`}>
-                    <div className="library-row-icon"><FileIcon ext={t.filetype} /></div>
-                    <div className="library-row-main">
-                      <div className="library-row-title">{t.filename}</div>
-                      <div className="library-row-meta"><span>By <strong>{t.uploaded_by}</strong></span><span>·</span><span>{formatDate(t.uploaded_at)}</span></div>
+              {showTemplateUpload && (
+                <form className="upload-form" onSubmit={handleTemplateUpload} style={{ marginBottom: 12 }}>
+                  <div className="form-row"><label>Template file</label><input ref={templateFileRef} type="file" accept=".pdf,.docx,.pptx,.txt,.md" onChange={(e) => setTemplateFile(e.target.files?.[0] || null)} /></div>
+                  <button className="primary-btn" disabled={uploadingTemplate} type="submit">{uploadingTemplate ? 'Uploading…' : 'Upload'}</button>
+                  {templateUploadMsg && <div className={`inline-msg ${templateUploadMsg.type}`}>{templateUploadMsg.text}</div>}
+                </form>
+              )}
+              {templates.length > 0 && (
+                <div className="library-list">
+                  {templates.map((t) => (
+                    <div key={t.id} className={`library-row ${selectedTemplateId === t.id ? 'selected' : ''}`}>
+                      <div className="library-row-icon"><FileIcon ext={t.filetype} /></div>
+                      <div className="library-row-main">
+                        <div className="library-row-title">{t.filename}</div>
+                        <div className="library-row-meta"><span>By <strong>{t.uploaded_by}</strong></span><span>·</span><span>{formatDate(t.uploaded_at)}</span></div>
+                      </div>
+                      <button className={selectedTemplateId === t.id ? 'primary-btn' : 'ghost-btn'} onClick={() => { setSelectedTemplateId(t.id); setReport(null); setGenerateErr(null); }}>
+                        {selectedTemplateId === t.id ? 'Selected' : 'Use this'}
+                      </button>
                     </div>
-                    <button className={selectedTemplateId === t.id ? 'primary-btn' : 'ghost-btn'} onClick={() => { setSelectedTemplateId(t.id); setReport(null); setGenerateErr(null); }}>
-                      {selectedTemplateId === t.id ? 'Selected' : 'Use this'}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
 
-          {/* Generate from files */}
+          {/* Generate section */}
           <section className="panel">
-            <h2 className="panel-title">Generate Report {selectedTemplate ? `· ${selectedTemplate.filename}` : ''}</h2>
-            {!selectedTemplateId && <div className="state-text" style={{ marginBottom: 12 }}>Pick a template above first.</div>}
-
-            <form className="upload-form" onSubmit={handleFindFiles} style={{ marginBottom: 18 }}>
-              <div className="form-row">
-                <label>Describe your report — Kernel will pick matching files</label>
-                <textarea className="search-input" style={{ minHeight: 70, resize: 'vertical', padding: 12 }} placeholder='e.g. "Make a Q1 summary from Vision CoE monthly reports"' value={instruction} onChange={(e) => setInstruction(e.target.value)} disabled={matching} />
-              </div>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                <button className="primary-btn" type="submit" disabled={matching || !instruction.trim()}>{matching ? 'Finding files…' : 'Find matching files'}</button>
-                {matchActive && <button type="button" className="ghost-btn" onClick={() => { setMatchActive(false); setMatchPicked(new Set()); setMatchAll([]); setMatchRationale(''); }}>Clear match</button>}
-              </div>
-              {matchErr && <div className="inline-msg error">{matchErr}</div>}
-            </form>
-
-            {matchActive && (
-              <div className="panel" style={{ marginBottom: 18, padding: 14, background: 'var(--surface-2)' }}>
-                <h3 className="panel-title" style={{ fontSize: 14 }}>{matchPicked.size} of {matchAll.length} file{matchAll.length === 1 ? '' : 's'} selected</h3>
-                {matchRationale && <div className="sub" style={{ fontSize: 12, marginBottom: 10 }}><em>{matchRationale}</em></div>}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto' }}>
-                  {matchAll.map((f) => {
-                    const checked = matchPicked.has(f.id);
-                    return (
-                      <label key={f.id} className="checkbox-pill" style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 12px', background: checked ? 'var(--blue-soft-2)' : 'var(--surface)', border: `1px solid ${checked ? 'rgba(59,130,246,.45)' : 'var(--border)'}`, borderRadius: 8, cursor: 'pointer' }}>
-                        <input type="checkbox" checked={checked} onChange={() => togglePick(f.id)} style={{ marginTop: 3 }} />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 500, fontSize: 13, color: 'var(--text)' }}>{f.filename}</div>
-                          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{f.uploaded_by} · {formatDate(f.uploaded_at)}</div>
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
-                <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
-                  <button className="primary-btn" onClick={handleConfirmAndGenerate} disabled={!selectedTemplateId || matchPicked.size === 0 || generating}>
-                    {generating ? 'Generating…' : `Generate from ${matchPicked.size} file${matchPicked.size === 1 ? '' : 's'}`}
-                  </button>
-                  <button type="button" className="ghost-btn small" onClick={() => setMatchPicked(new Set(matchAll.map((f) => f.id)))}>Select all</button>
-                  <button type="button" className="ghost-btn small" onClick={() => setMatchPicked(new Set())}>Clear</button>
-                </div>
-              </div>
+            <h2 className="panel-title">
+              {reportMode === 'template'
+                ? `Generate Report${selectedTemplate ? ` · ${selectedTemplate.filename}` : ''}`
+                : 'Generate Report · free-form'}
+            </h2>
+            {reportMode === 'template' && !selectedTemplateId && (
+              <div className="state-text" style={{ marginBottom: 12 }}>Pick a template above first.</div>
             )}
 
-            <div className="sub" style={{ fontSize: 12, marginBottom: 6 }}>Or paste your own input below:</div>
-            <form className="upload-form" onSubmit={handleGenerate}>
-              <div className="form-row">
-                <label>Input data</label>
-                <textarea className="search-input" style={{ minHeight: 120, resize: 'vertical', padding: 12 }} placeholder="Paste facts, notes, or context…" value={inputData} onChange={(e) => setInputData(e.target.value)} disabled={!selectedTemplateId || generating} />
-              </div>
-              <button className="primary-btn" type="submit" disabled={!selectedTemplateId || generating}>{generating ? 'Generating…' : 'Generate report'}</button>
-              {generateErr && <div className="inline-msg error">{generateErr}</div>}
-            </form>
+            {/* Path A: from Library files */}
+            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', marginBottom: 14, background: 'var(--surface-2)' }}>
+              <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)', marginBottom: 4 }}>From Library files</div>
+              <div className="sub" style={{ fontSize: 12, marginBottom: 12 }}>Describe which files to use — Kernel will find them and generate the report from their contents.</div>
+              <form className="upload-form" onSubmit={handleFindFiles}>
+                <div className="form-row">
+                  <textarea className="search-input" style={{ minHeight: 70, resize: 'vertical', padding: 12 }} placeholder='e.g. "Make a Q1 summary from Vision CoE monthly reports"' value={instruction} onChange={(e) => setInstruction(e.target.value)} disabled={matching} />
+                </div>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  <button className="primary-btn" type="submit" disabled={matching || !instruction.trim()}>{matching ? 'Finding files…' : 'Find matching files'}</button>
+                  {matchActive && <button type="button" className="ghost-btn" onClick={() => { setMatchActive(false); setMatchPicked(new Set()); setMatchAll([]); setMatchRationale(''); }}>Clear</button>}
+                </div>
+                {matchErr && <div className="inline-msg error">{matchErr}</div>}
+              </form>
 
-            {generating && <div className="state"><div className="spinner" /></div>}
-            {report && (
-              <div className="report-output">
-                {report.usedFiles?.length > 0 && <div className="sub" style={{ marginTop: 16, fontSize: 12 }}>Built from {report.usedFiles.length} file{report.usedFiles.length === 1 ? '' : 's'}: {report.usedFiles.map((f) => f.filename).join(', ')}</div>}
-                <div className="panel-title-row" style={{ marginTop: 8 }}>
-                  <h3 className="panel-title">Generated report</h3>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    <button className="ghost-btn" onClick={() => navigator.clipboard.writeText(report.text)}>Copy HTML</button>
-                    <button className="ghost-btn" onClick={() => window.print()}>Print</button>
-                    <button className="ghost-btn" onClick={() => { const base = report.templateName.replace(/\.[^.]+$/, ''); downloadText(`${base}-${new Date().toISOString().slice(0, 10)}.html`, report.text); }}>Download .html</button>
-                    <button className="primary-btn" disabled={downloadingDocx} onClick={async () => {
-                      setDownloadingDocx(true); setDownloadErr(null);
-                      try { await downloadDocx(`${report.templateName.replace(/\.[^.]+$/, '')}-${new Date().toISOString().slice(0, 10)}.docx`, report.text); }
-                      catch (e) { setDownloadErr(e.message); }
-                      finally { setDownloadingDocx(false); }
-                    }}>{downloadingDocx ? 'Preparing…' : 'Download .docx'}</button>
+              {matchActive && (
+                <div style={{ marginTop: 14 }}>
+                  <div className="panel-title-row" style={{ marginBottom: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{matchPicked.size} of {matchAll.length} file{matchAll.length === 1 ? '' : 's'} selected</span>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button type="button" className="ghost-btn small" onClick={() => setMatchPicked(new Set(matchAll.map((f) => f.id)))}>All</button>
+                      <button type="button" className="ghost-btn small" onClick={() => setMatchPicked(new Set())}>None</button>
+                    </div>
                   </div>
+                  {matchRationale && <div className="sub" style={{ fontSize: 11, marginBottom: 10 }}><em>{matchRationale}</em></div>}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxHeight: 260, overflowY: 'auto', marginBottom: 12 }}>
+                    {matchAll.map((f) => {
+                      const checked = matchPicked.has(f.id);
+                      return (
+                        <label key={f.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 12px', background: checked ? 'var(--blue-soft-2)' : 'var(--surface)', border: `1px solid ${checked ? 'rgba(59,130,246,.45)' : 'var(--border)'}`, borderRadius: 8, cursor: 'pointer' }}>
+                          <input type="checkbox" checked={checked} onChange={() => togglePick(f.id)} style={{ marginTop: 3 }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontWeight: 500, fontSize: 13, color: 'var(--text)' }}>{f.filename}</div>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{f.uploaded_by} · {formatDate(f.uploaded_at)}</div>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <button className="primary-btn" style={{ width: '100%' }} onClick={handleConfirmAndGenerate} disabled={(reportMode === 'template' && !selectedTemplateId) || matchPicked.size === 0 || generating}>
+                    {generating ? 'Generating…' : `Generate report from ${matchPicked.size} file${matchPicked.size === 1 ? '' : 's'}`}
+                  </button>
                 </div>
-                {downloadErr && <div className="inline-msg error" style={{ marginTop: 8 }}>{downloadErr}</div>}
-                <div className="report-preview md" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(report.text) }} />
-              </div>
-            )}
+              )}
+            </div>
+
+            {/* OR divider */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+              <div style={{ flex: 1, borderTop: '1px solid var(--border)' }} />
+              <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 500 }}>OR</span>
+              <div style={{ flex: 1, borderTop: '1px solid var(--border)' }} />
+            </div>
+
+            {/* Path B: paste input */}
+            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', background: 'var(--surface-2)' }}>
+              <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)', marginBottom: 4 }}>From pasted input</div>
+              <div className="sub" style={{ fontSize: 12, marginBottom: 12 }}>Paste raw notes, data, or context and the AI will write the report directly.</div>
+              <form className="upload-form" onSubmit={handleGenerate}>
+                <div className="form-row">
+                  <textarea className="search-input" style={{ minHeight: 120, resize: 'vertical', padding: 12 }} placeholder="Paste facts, notes, or context…" value={inputData} onChange={(e) => setInputData(e.target.value)} disabled={(reportMode === 'template' && !selectedTemplateId) || generating} />
+                </div>
+                <button className="primary-btn" type="submit" style={{ width: '100%' }} disabled={(reportMode === 'template' && !selectedTemplateId) || generating}>{generating ? 'Generating…' : 'Generate report'}</button>
+                {generateErr && <div className="inline-msg error">{generateErr}</div>}
+              </form>
+            </div>
+
+            {generating && <div className="state" style={{ marginTop: 16 }}><div className="spinner" /></div>}
+
+            {report && (() => {
+              const base = (report.templateName || 'report').replace(/\.[^.]+$/, '');
+              const stamp = new Date().toISOString().slice(0, 10);
+              return (
+                <div className="report-output">
+                  {report.usedFiles?.length > 0 && <div className="sub" style={{ marginTop: 16, fontSize: 12 }}>Built from {report.usedFiles.length} file{report.usedFiles.length === 1 ? '' : 's'}: {report.usedFiles.map((f) => f.filename).join(', ')}</div>}
+                  <div className="panel-title-row" style={{ marginTop: 8 }}>
+                    <h3 className="panel-title">Generated report</h3>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <button className="ghost-btn" onClick={() => navigator.clipboard.writeText(report.text)}>Copy HTML</button>
+                      <button className="ghost-btn" onClick={() => downloadText(`${base}-${stamp}.html`, report.text)}>Download .html</button>
+                      <button className="ghost-btn" disabled={downloadingXlsx} onClick={async () => {
+                        setDownloadingXlsx(true); setDownloadErr(null);
+                        try { await downloadXlsx(`${base}-${stamp}.xlsx`, report.text, reportModel); }
+                        catch (e) { setDownloadErr(e.message); }
+                        finally { setDownloadingXlsx(false); }
+                      }}>{downloadingXlsx ? 'Preparing…' : 'Download .xlsx'}</button>
+                      <button className="primary-btn" disabled={downloadingPdf} onClick={async () => {
+                        setDownloadingPdf(true); setDownloadErr(null);
+                        try { await downloadPdf(`${base}-${stamp}.pdf`, report.text); }
+                        catch (e) { setDownloadErr(e.message); }
+                        finally { setDownloadingPdf(false); }
+                      }}>{downloadingPdf ? 'Preparing…' : 'Download .pdf'}</button>
+                    </div>
+                  </div>
+                  {downloadErr && <div className="inline-msg error" style={{ marginTop: 8 }}>{downloadErr}</div>}
+                  <div className="report-preview md" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(report.text) }} />
+                </div>
+              );
+            })()}
           </section>
         </>
       )}
