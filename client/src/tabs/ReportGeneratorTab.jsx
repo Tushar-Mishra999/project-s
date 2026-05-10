@@ -493,36 +493,54 @@ export default function ReportGeneratorTab({ activePart, activeUserId }) {
             Generate reports from templates or free-form. Download as PDF or XLSX.
           </div>
         </div>
-        <div className="chat-controls">
+        <div className="chat-controls" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Mode toggle — in the header so it's always visible */}
+          <div style={{
+            display: 'flex',
+            background: 'var(--surface-2)',
+            border: '1px solid var(--border-strong)',
+            borderRadius: 10,
+            padding: 3,
+            gap: 2,
+          }}>
+            <button
+              onClick={() => { setMode('template'); setReport(null); setGenerateErr(null); }}
+              style={{
+                padding: '5px 12px',
+                borderRadius: 7,
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: 12,
+                fontWeight: 600,
+                fontFamily: 'inherit',
+                background: mode === 'template' ? '#3b82f6' : 'transparent',
+                color: mode === 'template' ? '#fff' : 'var(--text-muted)',
+                transition: 'background .15s, color .15s',
+              }}
+            >
+              With template
+            </button>
+            <button
+              onClick={() => { setMode('free'); setSelectedId(null); setReport(null); setGenerateErr(null); }}
+              style={{
+                padding: '5px 12px',
+                borderRadius: 7,
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: 12,
+                fontWeight: 600,
+                fontFamily: 'inherit',
+                background: mode === 'free' ? '#3b82f6' : 'transparent',
+                color: mode === 'free' ? '#fff' : 'var(--text-muted)',
+                transition: 'background .15s, color .15s',
+              }}
+            >
+              No template
+            </button>
+          </div>
           <ModelDropdown value={reportModel} onChange={setReportModel} />
         </div>
       </div>
-
-      {/* Mode toggle */}
-      <section className="panel" style={{ paddingTop: 14, paddingBottom: 14 }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500, marginRight: 4 }}>Mode:</span>
-          <button
-            className={mode === 'template' ? 'primary-btn' : 'ghost-btn'}
-            style={{ fontSize: 12, padding: '5px 14px' }}
-            onClick={() => { setMode('template'); setReport(null); setGenerateErr(null); }}
-          >
-            Use template
-          </button>
-          <button
-            className={mode === 'free' ? 'primary-btn' : 'ghost-btn'}
-            style={{ fontSize: 12, padding: '5px 14px' }}
-            onClick={() => { setMode('free'); setSelectedId(null); setReport(null); setGenerateErr(null); }}
-          >
-            Free-form (no template)
-          </button>
-        </div>
-        {mode === 'free' && (
-          <div className="sub" style={{ marginTop: 8, fontSize: 12 }}>
-            The AI will choose an appropriate report structure based on your input — no template needed.
-          </div>
-        )}
-      </section>
 
       {/* Templates list — only in template mode */}
       {mode === 'template' && (
