@@ -895,6 +895,7 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
   const [generating, setGenerating] = useState(false);
   const [report, setReport] = useState(null);
   const [generateErr, setGenerateErr] = useState(null);
+  const [outputFormat, setOutputFormat] = useState('pdf');
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [downloadingXlsx, setDownloadingXlsx] = useState(false);
   const [downloadErr, setDownloadErr] = useState(null);
@@ -1005,7 +1006,7 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
       const url = reportMode === 'template'
         ? `/api/report-templates/${selectedTemplateId}/generate-from-files`
         : '/api/report/generate-from-files';
-      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instruction, file_ids: Array.from(matchPicked), report_model: reportModel }) });
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instruction, file_ids: Array.from(matchPicked), report_model: reportModel, output_format: outputFormat }) });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Generation failed');
       setReport({ text: json.report, templateName: json.template_filename, usedFiles: json.used_files });
@@ -1022,9 +1023,7 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
       const url = reportMode === 'template'
         ? `/api/report-templates/${selectedTemplateId}/generate`
         : '/api/report/generate';
-      const body = reportMode === 'template'
-        ? { input_data: inputData, report_model: reportModel }
-        : { input_data: inputData, report_model: reportModel };
+      const body = { input_data: inputData, report_model: reportModel, output_format: outputFormat };
       const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Generation failed');
@@ -1254,6 +1253,19 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
               <div className="state-text" style={{ marginBottom: 12 }}>Pick a template above first.</div>
             )}
 
+            {/* Output format selector */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, padding: '10px 14px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', flexShrink: 0 }}>Output format</span>
+              <div style={{ display: 'flex', background: 'var(--surface)', border: '1px solid var(--border-strong)', borderRadius: 8, padding: 3, gap: 2 }}>
+                {[{ id: 'pdf', label: 'PDF' }, { id: 'xlsx', label: 'Excel (XLSX)' }].map(({ id, label }) => (
+                  <button key={id} onClick={() => setOutputFormat(id)} style={{ padding: '4px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', background: outputFormat === id ? '#3b82f6' : 'transparent', color: outputFormat === id ? '#fff' : 'var(--text-muted)', transition: 'background .15s, color .15s' }}>{label}</button>
+                ))}
+              </div>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                {outputFormat === 'xlsx' ? 'Report will be structured with tables for Excel export.' : 'Report will use rich narrative formatting for PDF.'}
+              </span>
+            </div>
+
             {/* Path A: from Library files */}
             <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', marginBottom: 14, background: 'var(--surface-2)' }}>
               <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)', marginBottom: 4 }}>From Library files</div>
@@ -1333,13 +1345,13 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                       <button className="ghost-btn" onClick={() => navigator.clipboard.writeText(report.text)}>Copy HTML</button>
                       <button className="ghost-btn" onClick={() => downloadText(`${base}-${stamp}.html`, report.text)}>Download .html</button>
-                      <button className="ghost-btn" disabled={downloadingXlsx} onClick={async () => {
+                      <button className={outputFormat === 'xlsx' ? 'primary-btn' : 'ghost-btn'} disabled={downloadingXlsx} onClick={async () => {
                         setDownloadingXlsx(true); setDownloadErr(null);
                         try { await downloadXlsx(`${base}-${stamp}.xlsx`, report.text, reportModel); }
                         catch (e) { setDownloadErr(e.message); }
                         finally { setDownloadingXlsx(false); }
                       }}>{downloadingXlsx ? 'Preparing…' : 'Download .xlsx'}</button>
-                      <button className="primary-btn" disabled={downloadingPdf} onClick={async () => {
+                      <button className={outputFormat === 'pdf' ? 'primary-btn' : 'ghost-btn'} disabled={downloadingPdf} onClick={async () => {
                         setDownloadingPdf(true); setDownloadErr(null);
                         try { await downloadPdf(`${base}-${stamp}.pdf`, report.text); }
                         catch (e) { setDownloadErr(e.message); }
