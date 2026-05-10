@@ -614,139 +614,158 @@ export default function ReportGeneratorTab({ activePart, activeUserId }) {
           </div>
         )}
 
-        {/* NL flow */}
-        <form className="upload-form" onSubmit={handleFindFiles} style={{ marginBottom: 18 }}>
-          <div className="form-row">
-            <label>Describe your report — Kernel will pick matching files from the Library</label>
-            <textarea
-              className="search-input"
-              style={{ minHeight: 70, resize: 'vertical', padding: 12 }}
-              placeholder='e.g. "Make a Q1 summary from the Vision CoE monthly reports" or "Summarise all PMO submissions from April."'
-              value={instruction}
-              onChange={(e) => setInstruction(e.target.value)}
-              disabled={matching}
-            />
+        {/* ── Path A: from Library files ── */}
+        <div style={{
+          border: '1px solid var(--border)',
+          borderRadius: 10,
+          padding: '14px 16px',
+          marginBottom: 14,
+          background: 'var(--surface-2)',
+        }}>
+          <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)', marginBottom: 4 }}>
+            From Library files
           </div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <button className="primary-btn" type="submit" disabled={matching || !instruction.trim()}>
-              {matching ? 'Finding files…' : 'Find matching files'}
-            </button>
-            {matchActive && (
-              <button
-                type="button"
-                className="ghost-btn"
-                onClick={() => { setMatchActive(false); setMatchPicked(new Set()); setMatchAll([]); setMatchRationale(''); }}
-              >
-                Clear match
-              </button>
-            )}
+          <div className="sub" style={{ fontSize: 12, marginBottom: 12 }}>
+            Describe which files to use. Kernel will find them and generate the report from their contents.
           </div>
-          {matchErr && <div className="inline-msg error">{matchErr}</div>}
-        </form>
-
-        {matchActive && (
-          <div className="panel" style={{ marginBottom: 18, padding: 14, background: 'var(--surface-2)' }}>
-            <div className="panel-title-row" style={{ marginBottom: 8 }}>
-              <h3 className="panel-title" style={{ fontSize: 14 }}>
-                {matchPicked.size} of {matchAll.length} file{matchAll.length === 1 ? '' : 's'} selected
-              </h3>
+          <form className="upload-form" onSubmit={handleFindFiles}>
+            <div className="form-row">
+              <textarea
+                className="search-input"
+                style={{ minHeight: 70, resize: 'vertical', padding: 12 }}
+                placeholder='e.g. "Make a Q1 summary from the Vision CoE monthly reports" or "Summarise all PMO submissions from April."'
+                value={instruction}
+                onChange={(e) => setInstruction(e.target.value)}
+                disabled={matching}
+              />
             </div>
-            {matchRationale && (
-              <div className="sub" style={{ fontSize: 12, marginBottom: 10 }}>
-                <em>{matchRationale}</em>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <button className="primary-btn" type="submit" disabled={matching || !instruction.trim()}>
+                {matching ? 'Finding files…' : 'Find matching files'}
+              </button>
+              {matchActive && (
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  onClick={() => { setMatchActive(false); setMatchPicked(new Set()); setMatchAll([]); setMatchRationale(''); }}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            {matchErr && <div className="inline-msg error">{matchErr}</div>}
+          </form>
+
+          {matchActive && (
+            <div style={{ marginTop: 14 }}>
+              <div className="panel-title-row" style={{ marginBottom: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+                  {matchPicked.size} of {matchAll.length} file{matchAll.length === 1 ? '' : 's'} selected
+                </span>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button type="button" className="ghost-btn small" onClick={() => setMatchPicked(new Set(matchAll.map((f) => f.id)))}>
+                    All
+                  </button>
+                  <button type="button" className="ghost-btn small" onClick={() => setMatchPicked(new Set())}>
+                    None
+                  </button>
+                </div>
               </div>
-            )}
-            {matchAll.length === 0 ? (
-              <div className="state-text">No files in your scope.</div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto' }}>
-                {matchAll.map((f) => {
-                  const checked = matchPicked.has(f.id);
-                  return (
-                    <label
-                      key={f.id}
-                      className="checkbox-pill"
-                      style={{
-                        display: 'flex', alignItems: 'flex-start', gap: 8,
-                        padding: '8px 12px',
-                        background: checked ? 'var(--blue-soft-2)' : 'var(--surface)',
-                        border: `1px solid ${checked ? 'rgba(59,130,246,.45)' : 'var(--border)'}`,
-                        borderRadius: 8,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => togglePick(f.id)}
-                        style={{ marginTop: 3 }}
-                      />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 500, fontSize: 13, color: 'var(--text)' }}>{f.filename}</div>
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                          {f.uploaded_by} · {formatDate(f.uploaded_at)}
-                          {Array.isArray(f.accessible_to) && f.accessible_to.length
-                            ? ` · ${f.accessible_to.join(', ')}`
-                            : ''}
+              {matchRationale && (
+                <div className="sub" style={{ fontSize: 11, marginBottom: 10 }}>
+                  <em>{matchRationale}</em>
+                </div>
+              )}
+              {matchAll.length === 0 ? (
+                <div className="state-text">No files in your scope.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxHeight: 260, overflowY: 'auto', marginBottom: 12 }}>
+                  {matchAll.map((f) => {
+                    const checked = matchPicked.has(f.id);
+                    return (
+                      <label
+                        key={f.id}
+                        style={{
+                          display: 'flex', alignItems: 'flex-start', gap: 8,
+                          padding: '8px 12px',
+                          background: checked ? 'var(--blue-soft-2)' : 'var(--surface)',
+                          border: `1px solid ${checked ? 'rgba(59,130,246,.45)' : 'var(--border)'}`,
+                          borderRadius: 8, cursor: 'pointer',
+                        }}
+                      >
+                        <input type="checkbox" checked={checked} onChange={() => togglePick(f.id)} style={{ marginTop: 3 }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 500, fontSize: 13, color: 'var(--text)' }}>{f.filename}</div>
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                            {f.uploaded_by} · {formatDate(f.uploaded_at)}
+                            {Array.isArray(f.accessible_to) && f.accessible_to.length
+                              ? ` · ${f.accessible_to.join(', ')}`
+                              : ''}
+                          </div>
                         </div>
-                      </div>
-                    </label>
-                  );
-                })}
-              </div>
-            )}
-            <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
               <button
                 className="primary-btn"
                 onClick={handleConfirmAndGenerate}
                 disabled={(mode === 'template' && !selectedId) || matchPicked.size === 0 || generating}
+                style={{ width: '100%' }}
               >
-                {generating ? 'Generating…' : `Confirm & generate from ${matchPicked.size} file${matchPicked.size === 1 ? '' : 's'}`}
-              </button>
-              <button
-                type="button"
-                className="ghost-btn small"
-                onClick={() => setMatchPicked(new Set(matchAll.map((f) => f.id)))}
-              >
-                Select all
-              </button>
-              <button
-                type="button"
-                className="ghost-btn small"
-                onClick={() => setMatchPicked(new Set())}
-              >
-                Clear
+                {generating
+                  ? 'Generating…'
+                  : `Generate report from ${matchPicked.size} file${matchPicked.size === 1 ? '' : 's'}`}
               </button>
             </div>
-          </div>
-        )}
-
-        <div className="sub" style={{ fontSize: 12, marginBottom: 6 }}>
-          Or paste your own input below:
+          )}
         </div>
-        <form className="upload-form" onSubmit={handleGenerate}>
-          <div className="form-row">
-            <label>Input data — paste the facts, notes, or context you want written up</label>
-            <textarea
-              className="search-input"
-              style={{ minHeight: 180, resize: 'vertical', padding: 12 }}
-              placeholder="e.g. Sprint #14 ran from 14–28 April. Team: Arjun, Priya, Karan. Delivered: search reranker, file-delete API. Blockers: Voyage rate-limit, Firecrawl quota. Next sprint: ship Reports Tab."
-              value={inputData}
-              onChange={(e) => setInputData(e.target.value)}
-              disabled={(mode === 'template' && !selectedId) || generating}
-            />
-          </div>
-          <button
-            className="primary-btn"
-            type="submit"
-            disabled={(mode === 'template' && !selectedId) || generating}
-          >
-            {generating ? 'Generating…' : 'Generate report'}
-          </button>
-          {generateErr && <div className="inline-msg error">{generateErr}</div>}
-        </form>
 
-        {generating && <div className="state"><div className="spinner" /></div>}
+        {/* ── divider ── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+          <div style={{ flex: 1, borderTop: '1px solid var(--border)' }} />
+          <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 500 }}>OR</span>
+          <div style={{ flex: 1, borderTop: '1px solid var(--border)' }} />
+        </div>
+
+        {/* ── Path B: paste your own input ── */}
+        <div style={{
+          border: '1px solid var(--border)',
+          borderRadius: 10,
+          padding: '14px 16px',
+          background: 'var(--surface-2)',
+        }}>
+          <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)', marginBottom: 4 }}>
+            From pasted input
+          </div>
+          <div className="sub" style={{ fontSize: 12, marginBottom: 12 }}>
+            Paste raw notes, data, or context and the AI will write the report directly.
+          </div>
+          <form className="upload-form" onSubmit={handleGenerate}>
+            <div className="form-row">
+              <textarea
+                className="search-input"
+                style={{ minHeight: 160, resize: 'vertical', padding: 12 }}
+                placeholder="e.g. Sprint #14 ran from 14–28 April. Team: Arjun, Priya, Karan. Delivered: search reranker, file-delete API. Blockers: Voyage rate-limit, Firecrawl quota. Next sprint: ship Reports Tab."
+                value={inputData}
+                onChange={(e) => setInputData(e.target.value)}
+                disabled={(mode === 'template' && !selectedId) || generating}
+              />
+            </div>
+            <button
+              className="primary-btn"
+              type="submit"
+              style={{ width: '100%' }}
+              disabled={(mode === 'template' && !selectedId) || generating}
+            >
+              {generating ? 'Generating…' : 'Generate report'}
+            </button>
+            {generateErr && <div className="inline-msg error">{generateErr}</div>}
+          </form>
+        </div>
+
+        {generating && <div className="state" style={{ marginTop: 16 }}><div className="spinner" /></div>}
 
         {report && (
           <div className="report-output">
