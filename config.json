@@ -97,7 +97,8 @@
   ],
   "maxItemsPerSource": 5,
   "maxItemsPerSourceByPart": {
-    "MD": 3
+    "MD": 3,
+    "PMO": 10
   },
   "parts": ["Tech Management", "PRISM", "PMO", "Data Management", "MD"],
   "models": {
