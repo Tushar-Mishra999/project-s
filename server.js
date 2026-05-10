@@ -2264,6 +2264,145 @@ app.post('/api/render-xlsx', async (req, res) => {
   }
 });
 
+// ---------- Excel Compiler ----------
+const XLSX_COMPILE_SYSTEM = `You are a spreadsheet compilation assistant. You will be given one or more Excel/CSV files as JSON (each with a filename and an array of sheets, each sheet having a name and a rows array-of-arrays). You will also receive a user instruction describing how to compile or transform the data.
+
+Output ONLY valid JSON — no markdown fences, no extra text — with this exact shape:
+{
+  "sheets": [
+    {
+      "name": "Sheet name (≤31 chars)",
+      "rows": [
+        ["Column A", "Column B", "Column C"],
+        [value1, value2, value3],
+        ...
+      ]
+    }
+  ]
+}
+
+Rules:
+- Follow the instruction precisely to decide how to merge, filter, pivot, summarise, or restructure.
+- When combining sheets of the same structure from multiple files, use a single unified header row and concatenate all data rows; add a "Source File" column as the first column so origin is traceable.
+- Preserve data types: numbers stay as JSON numbers, text as strings. Empty cells as "".
+- Sheet names must be unique and ≤ 31 characters.
+- If the instruction is vague, default to: one output sheet per source sheet name, merging rows from all files that share that sheet name; otherwise one sheet per source file.
+- Do not invent data that is not in the source files.`;
+
+app.post('/api/xlsx/compile', async (req, res) => {
+  const ready = ragReady();
+  if (!ready.ok) return res.status(503).json({ error: `not configured: missing ${ready.missing.join(', ')}` });
+
+  const { file_ids, instruction, output_filename = 'compiled.xlsx', report_model } = req.body || {};
+  if (!Array.isArray(file_ids) || file_ids.length === 0) {
+    return res.status(400).json({ error: 'file_ids array is required' });
+  }
+
+  try {
+    const { data: files, error: fErr } = await supabase
+      .from('files')
+      .select('id, filename, filetype, file_url')
+      .in('id', file_ids);
+    if (fErr) throw fErr;
+    if (!files || files.length === 0) {
+      return res.status(404).json({ error: 'no files found for the provided ids' });
+    }
+
+    const EXCEL_EXTS = new Set(['xlsx', 'xls', 'xlsm', 'xlsb', 'ods', 'csv']);
+    const excelFiles = files.filter((f) => {
+      const ext = f.filename.split('.').pop().toLowerCase();
+      return EXCEL_EXTS.has(ext);
+    });
+    if (excelFiles.length === 0) {
+      return res.status(422).json({ error: 'none of the selected files are Excel or CSV files (.xlsx, .xls, .csv, .ods, …)' });
+    }
+
+    // Download and parse each file into rows-of-arrays
+    const MAX_ROWS_PER_SHEET = 500;
+    const MAX_SHEETS_PER_FILE = 10;
+    const parsedFiles = [];
+    const skipped = [];
+    for (const file of excelFiles) {
+      try {
+        const resp = await fetch(file.file_url);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const buf = Buffer.from(await resp.arrayBuffer());
+        const wb = XLSX.read(buf, { type: 'buffer', cellDates: true });
+        const sheets = wb.SheetNames.slice(0, MAX_SHEETS_PER_FILE).map((name) => {
+          const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '' });
+          const truncated = rows.length > MAX_ROWS_PER_SHEET;
+          return { name, rows: rows.slice(0, MAX_ROWS_PER_SHEET), truncated };
+        });
+        parsedFiles.push({ filename: file.filename, sheets });
+      } catch (e) {
+        console.warn(`[xlsx-compile] skipping ${file.filename}: ${e.message}`);
+        skipped.push(file.filename);
+      }
+    }
+
+    if (parsedFiles.length === 0) {
+      return res.status(422).json({ error: `could not read any Excel files${skipped.length ? ': ' + skipped.join(', ') : ''}` });
+    }
+
+    let outSheets;
+
+    if (instruction && instruction.trim()) {
+      // LLM-guided compilation
+      const dataJson = JSON.stringify(parsedFiles);
+      const userMsg = `Instruction: ${instruction}\n\nSource files:\n${dataJson}`;
+      const raw = await generateReport({ report_model, system: XLSX_COMPILE_SYSTEM, userMsg, maxTokens: 16000 });
+      let parsed;
+      try {
+        const clean = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/m, '').trim();
+        parsed = JSON.parse(clean);
+      } catch {
+        return res.status(422).json({ error: 'LLM did not return valid JSON for xlsx compilation' });
+      }
+      outSheets = parsed.sheets || [];
+    } else {
+      // Simple merge without LLM: one sheet per source sheet, all in one workbook
+      outSheets = [];
+      for (const { filename, sheets } of parsedFiles) {
+        const base = filename.replace(/\.[^.]+$/, '');
+        for (const sheet of sheets) {
+          const label = sheets.length === 1
+            ? base.slice(0, 31)
+            : `${base} - ${sheet.name}`.slice(0, 31);
+          outSheets.push({ name: label, rows: sheet.rows });
+        }
+      }
+    }
+
+    const outWb = XLSX.utils.book_new();
+    // Deduplicate sheet names
+    const usedNames = new Map();
+    for (const sheet of outSheets) {
+      let name = String(sheet.name || 'Sheet').slice(0, 31);
+      if (usedNames.has(name)) {
+        const count = usedNames.get(name) + 1;
+        usedNames.set(name, count);
+        name = `${name.slice(0, 28)} ${count}`;
+      } else {
+        usedNames.set(name, 1);
+      }
+      XLSX.utils.book_append_sheet(outWb, XLSX.utils.aoa_to_sheet(sheet.rows || []), name);
+    }
+    if (outWb.SheetNames.length === 0) {
+      XLSX.utils.book_append_sheet(outWb, XLSX.utils.aoa_to_sheet([['No data']]), 'Sheet1');
+    }
+
+    const buf = XLSX.write(outWb, { type: 'buffer', bookType: 'xlsx' });
+    const safeName = String(output_filename).replace(/[^\w.\-]+/g, '_');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+    res.setHeader('Content-Length', String(buf.length));
+    res.end(buf);
+  } catch (err) {
+    console.error('[xlsx-compile] error:', err);
+    res.status(500).json({ error: err.message || 'xlsx compilation failed' });
+  }
+});
+
 // ---------- Users ----------
 app.get('/api/users', async (_req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Supabase not configured' });

@@ -264,6 +264,17 @@ export default function ReportGeneratorTab({ activePart, activeUserId }) {
   const [matchRationale, setMatchRationale] = useState('');
   const [matchActive, setMatchActive] = useState(false);
 
+  // Excel Compiler state
+  const [xlsxInstruction, setXlsxInstruction] = useState('');
+  const [xlsxMatching, setXlsxMatching] = useState(false);
+  const [xlsxMatchErr, setXlsxMatchErr] = useState(null);
+  const [xlsxMatchAll, setXlsxMatchAll] = useState([]);
+  const [xlsxMatchPicked, setXlsxMatchPicked] = useState(new Set());
+  const [xlsxMatchRationale, setXlsxMatchRationale] = useState('');
+  const [xlsxMatchActive, setXlsxMatchActive] = useState(false);
+  const [xlsxCompiling, setXlsxCompiling] = useState(false);
+  const [xlsxCompileErr, setXlsxCompileErr] = useState(null);
+
   const handleFindFiles = async (e) => {
     e?.preventDefault();
     if (!instruction.trim()) return setMatchErr('Type an instruction first.');
@@ -323,6 +334,77 @@ export default function ReportGeneratorTab({ activePart, activeUserId }) {
       setGenerateErr(err.message);
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const EXCEL_EXTS = new Set(['xlsx', 'xls', 'xlsm', 'xlsb', 'ods', 'csv']);
+  const isExcel = (filename) => EXCEL_EXTS.has((filename || '').split('.').pop().toLowerCase());
+
+  const handleXlsxFindFiles = async (e) => {
+    e?.preventDefault();
+    if (!xlsxInstruction.trim()) return setXlsxMatchErr('Describe which files to compile first.');
+    setXlsxMatching(true);
+    setXlsxMatchErr(null);
+    try {
+      const res = await fetch('/api/files/match', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instruction: xlsxInstruction, user_id: activeUserId }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `Match failed (${res.status})`);
+      setXlsxMatchAll(json.all || []);
+      // Pre-select only Excel/CSV files from the AI's suggestions
+      const suggestedIds = new Set((json.matched || []).map((f) => f.id));
+      const excelSuggested = new Set(
+        (json.all || []).filter((f) => suggestedIds.has(f.id) && isExcel(f.filename)).map((f) => f.id)
+      );
+      setXlsxMatchPicked(excelSuggested);
+      setXlsxMatchRationale(json.rationale || '');
+      setXlsxMatchActive(true);
+    } catch (err) {
+      setXlsxMatchErr(err.message);
+    } finally {
+      setXlsxMatching(false);
+    }
+  };
+
+  const toggleXlsxPick = (id, filename) => {
+    if (!isExcel(filename)) return; // non-Excel files are not selectable
+    setXlsxMatchPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleXlsxCompile = async () => {
+    if (xlsxMatchPicked.size === 0) return setXlsxCompileErr('Select at least one Excel file.');
+    setXlsxCompiling(true);
+    setXlsxCompileErr(null);
+    try {
+      const stamp = new Date().toISOString().slice(0, 10);
+      const res = await fetch('/api/xlsx/compile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          file_ids: Array.from(xlsxMatchPicked),
+          instruction: xlsxInstruction,
+          output_filename: `compiled-${stamp}.xlsx`,
+          report_model: reportModel,
+        }),
+      });
+      if (!res.ok) {
+        let msg = `Server returned ${res.status}`;
+        try { msg = (await res.json()).error || msg; } catch { /* ignore */ }
+        throw new Error(msg);
+      }
+      const blob = await res.blob();
+      triggerDownload(`compiled-${stamp}.xlsx`, blob);
+    } catch (err) {
+      setXlsxCompileErr(err.message);
+    } finally {
+      setXlsxCompiling(false);
     }
   };
 
@@ -732,6 +814,144 @@ export default function ReportGeneratorTab({ activePart, activeUserId }) {
               className="report-preview md"
               dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(report.text) }}
             />
+          </div>
+        )}
+      </section>
+
+      {/* ── Excel Compiler ── */}
+      <section className="panel">
+        <div className="panel-title-row">
+          <h2 className="panel-title">Excel Compiler</h2>
+        </div>
+        <div className="sub" style={{ marginBottom: 14, fontSize: 12 }}>
+          Select Excel or CSV files from the Library. Optionally describe how to merge or transform them — the AI will follow your instructions. Without an instruction the sheets are combined as-is.
+        </div>
+
+        <form className="upload-form" onSubmit={handleXlsxFindFiles} style={{ marginBottom: 18 }}>
+          <div className="form-row">
+            <label>Describe which files to use (and optionally how to compile them)</label>
+            <textarea
+              className="search-input"
+              style={{ minHeight: 80, resize: 'vertical', padding: 12 }}
+              placeholder='e.g. "Merge the Q1, Q2 and Q3 sales reports into one sheet with a Source File column" or "Combine all budget trackers from Finance into a single workbook."'
+              value={xlsxInstruction}
+              onChange={(e) => setXlsxInstruction(e.target.value)}
+              disabled={xlsxMatching}
+            />
+          </div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <button className="primary-btn" type="submit" disabled={xlsxMatching || !xlsxInstruction.trim()}>
+              {xlsxMatching ? 'Finding files…' : 'Find matching files'}
+            </button>
+            {xlsxMatchActive && (
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={() => {
+                  setXlsxMatchActive(false);
+                  setXlsxMatchPicked(new Set());
+                  setXlsxMatchAll([]);
+                  setXlsxMatchRationale('');
+                  setXlsxCompileErr(null);
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          {xlsxMatchErr && <div className="inline-msg error">{xlsxMatchErr}</div>}
+        </form>
+
+        {xlsxMatchActive && (
+          <div className="panel" style={{ padding: 14, background: 'var(--surface-2)' }}>
+            <div className="panel-title-row" style={{ marginBottom: 8 }}>
+              <h3 className="panel-title" style={{ fontSize: 14 }}>
+                {xlsxMatchPicked.size} Excel file{xlsxMatchPicked.size === 1 ? '' : 's'} selected
+              </h3>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  className="ghost-btn small"
+                  onClick={() => setXlsxMatchPicked(new Set(xlsxMatchAll.filter((f) => isExcel(f.filename)).map((f) => f.id)))}
+                >
+                  Select all Excel
+                </button>
+                <button
+                  type="button"
+                  className="ghost-btn small"
+                  onClick={() => setXlsxMatchPicked(new Set())}
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+            {xlsxMatchRationale && (
+              <div className="sub" style={{ fontSize: 12, marginBottom: 10 }}>
+                <em>{xlsxMatchRationale}</em>
+              </div>
+            )}
+            {xlsxMatchAll.length === 0 ? (
+              <div className="state-text">No files in your scope.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 300, overflowY: 'auto' }}>
+                {xlsxMatchAll.map((f) => {
+                  const excel = isExcel(f.filename);
+                  const checked = xlsxMatchPicked.has(f.id);
+                  return (
+                    <label
+                      key={f.id}
+                      style={{
+                        display: 'flex', alignItems: 'flex-start', gap: 8,
+                        padding: '8px 12px',
+                        background: checked ? 'var(--blue-soft-2)' : excel ? 'var(--surface)' : 'transparent',
+                        border: `1px solid ${checked ? 'rgba(59,130,246,.45)' : excel ? 'var(--border)' : 'transparent'}`,
+                        borderRadius: 8,
+                        cursor: excel ? 'pointer' : 'default',
+                        opacity: excel ? 1 : 0.4,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={!excel}
+                        onChange={() => toggleXlsxPick(f.id, f.filename)}
+                        style={{ marginTop: 3 }}
+                      />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 500, fontSize: 13, color: 'var(--text)', display: 'flex', gap: 6, alignItems: 'center' }}>
+                          {f.filename}
+                          {excel && (
+                            <span style={{ fontSize: 10, background: 'rgba(34,197,94,.15)', color: '#4ade80', padding: '1px 6px', borderRadius: 4, fontWeight: 600 }}>
+                              EXCEL
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                          {f.uploaded_by} · {formatDate(f.uploaded_at)}
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 10, marginTop: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+              <button
+                className="primary-btn"
+                onClick={handleXlsxCompile}
+                disabled={xlsxMatchPicked.size === 0 || xlsxCompiling}
+              >
+                {xlsxCompiling
+                  ? 'Compiling…'
+                  : xlsxInstruction.trim()
+                    ? `Compile ${xlsxMatchPicked.size} file${xlsxMatchPicked.size === 1 ? '' : 's'} with AI`
+                    : `Merge ${xlsxMatchPicked.size} file${xlsxMatchPicked.size === 1 ? '' : 's'}`}
+              </button>
+              {xlsxInstruction.trim() && (
+                <span className="sub" style={{ fontSize: 11 }}>AI will follow your instruction</span>
+              )}
+            </div>
+            {xlsxCompileErr && <div className="inline-msg error" style={{ marginTop: 8 }}>{xlsxCompileErr}</div>}
           </div>
         )}
       </section>
