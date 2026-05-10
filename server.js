@@ -1256,6 +1256,13 @@ async function generateReport({ report_model, system, userMsg, maxTokens }) {
   return generateText({ model: config.models.summarisation, system, user: userMsg, maxTokens });
 }
 
+function outputFormatHint(output_format) {
+  if (output_format === 'xlsx') {
+    return '\n\n--- OUTPUT FORMAT ---\nTarget output: Excel (XLSX). Structure the report to maximise tabular data. Use HTML tables for all data, metrics, comparisons, and lists. Keep narrative text concise — prefer structured tables over long prose paragraphs.';
+  }
+  return '\n\n--- OUTPUT FORMAT ---\nTarget output: PDF. Use rich narrative text, detailed paragraphs, callout boxes, and full visual hierarchy as described in the formatting rules.';
+}
+
 const REPORT_SYSTEM = `You are a report-writing assistant that produces polished, professional HTML reports. You will be given:
 1. A TEMPLATE — example structure showing how the user wants reports formatted
 2. INPUT DATA — facts, notes, or context the user wants written up
@@ -1363,12 +1370,12 @@ Return ONLY the report HTML. No preamble, no commentary, no markdown fences.`;
 app.post('/api/report/generate', async (req, res) => {
   const ready = ragReady();
   if (!ready.ok) return res.status(503).json({ error: `not configured: missing ${ready.missing.join(', ')}` });
-  const { input_data, report_model } = req.body || {};
+  const { input_data, report_model, output_format } = req.body || {};
   if (!input_data || !input_data.trim()) {
     return res.status(400).json({ error: 'input_data is required' });
   }
   try {
-    const userMsg = `--- INPUT DATA ---\n${input_data}`;
+    const userMsg = `--- INPUT DATA ---\n${input_data}${outputFormatHint(output_format)}`;
     const report = await generateReport({ report_model, system: REPORT_SYSTEM_FREE, userMsg, maxTokens: 16000 });
     res.json({ report, template_filename: 'report' });
   } catch (err) {
@@ -1380,7 +1387,7 @@ app.post('/api/report/generate', async (req, res) => {
 app.post('/api/report/generate-from-files', async (req, res) => {
   const ready = ragReady();
   if (!ready.ok) return res.status(503).json({ error: `not configured: missing ${ready.missing.join(', ')}` });
-  const { instruction, file_ids, report_model } = req.body || {};
+  const { instruction, file_ids, report_model, output_format } = req.body || {};
   if (!Array.isArray(file_ids) || file_ids.length === 0) {
     return res.status(400).json({ error: 'file_ids array is required' });
   }
@@ -1426,7 +1433,7 @@ app.post('/api/report/generate-from-files', async (req, res) => {
       sections.join('\n\n---\n\n'),
     ].filter(Boolean).join('\n\n');
 
-    const userMsg = `--- INPUT DATA ---\n${inputData}`;
+    const userMsg = `--- INPUT DATA ---\n${inputData}${outputFormatHint(output_format)}`;
     const report = await generateReport({ report_model, system: REPORT_SYSTEM_FREE, userMsg, maxTokens: 16000 });
     res.json({
       report,
@@ -1528,7 +1535,7 @@ app.post('/api/report-templates/:id/generate', async (req, res) => {
   const ready = ragReady();
   if (!ready.ok) return res.status(503).json({ error: `not configured: missing ${ready.missing.join(', ')}` });
   const { id } = req.params;
-  const { input_data, report_model } = req.body || {};
+  const { input_data, report_model, output_format } = req.body || {};
   if (!input_data || !input_data.trim()) {
     return res.status(400).json({ error: 'input_data is required' });
   }
@@ -1538,7 +1545,7 @@ app.post('/api/report-templates/:id/generate', async (req, res) => {
     if (fetchErr) throw fetchErr;
     if (!tmpl) return res.status(404).json({ error: 'template not found' });
 
-    const userMsg = `--- TEMPLATE (${tmpl.filename}) ---\n${tmpl.template_text}\n\n--- INPUT DATA ---\n${input_data}`;
+    const userMsg = `--- TEMPLATE (${tmpl.filename}) ---\n${tmpl.template_text}\n\n--- INPUT DATA ---\n${input_data}${outputFormatHint(output_format)}`;
     const report = await generateReport({ report_model, system: REPORT_SYSTEM, userMsg, maxTokens: 16000 });
     res.json({ report, template_filename: tmpl.filename });
   } catch (err) {
@@ -1790,7 +1797,7 @@ app.post('/api/report-templates/:id/generate-from-files', async (req, res) => {
   const ready = ragReady();
   if (!ready.ok) return res.status(503).json({ error: `not configured: missing ${ready.missing.join(', ')}` });
   const { id } = req.params;
-  const { instruction, file_ids, report_model } = req.body || {};
+  const { instruction, file_ids, report_model, output_format } = req.body || {};
   if (!Array.isArray(file_ids) || file_ids.length === 0) {
     return res.status(400).json({ error: 'file_ids array is required' });
   }
@@ -1842,7 +1849,7 @@ app.post('/api/report-templates/:id/generate-from-files', async (req, res) => {
       sections.join('\n\n---\n\n'),
     ].filter(Boolean).join('\n\n');
 
-    const userMsg = `--- TEMPLATE (${tmpl.filename}) ---\n${tmpl.template_text}\n\n--- INPUT DATA ---\n${inputData}`;
+    const userMsg = `--- TEMPLATE (${tmpl.filename}) ---\n${tmpl.template_text}\n\n--- INPUT DATA ---\n${inputData}${outputFormatHint(output_format)}`;
     const report = await generateReport({ report_model, system: REPORT_SYSTEM, userMsg, maxTokens: 16000 });
     res.json({
       report,
