@@ -2202,23 +2202,28 @@ app.post('/api/tech-sensing/report', async (req, res) => {
       return res.status(404).json({ error: 'Feed has no articles. Run the feed first.' });
     }
 
-    const articleList = all
-      .map((a, i) => `${i + 1}. [${a.source}] ${a.title} — ${a.url}`)
-      .join('\n');
+    // Cap at 25 articles to keep prompt size predictable
+    const capped = all.slice(0, 25);
 
-    const prompt = `You are an R&D intelligence analyst. Below is a list of tech news articles fetched today.
+    const articleList = capped
+      .map((a, i) => {
+        const desc = (a.description || '').trim();
+        return desc
+          ? `${i + 1}. [${a.source}] ${a.title}\n   Description: ${desc}`
+          : `${i + 1}. [${a.source}] ${a.title}`;
+      })
+      .join('\n\n');
+
+    const prompt = `You are an R&D intelligence analyst. Below are tech news articles fetched today, each with a title and sometimes a short description.
 
 Select the 6 most important articles for an R&D technology organization — prioritise new technology, AI/ML advancements, emerging tools, and research breakthroughs.
 
-For each selected article, write:
-- A concise headline (can rephrase the original)
-- A 2–3 sentence description explaining what happened and why it matters for R&D
+For each selected article write:
+- A concise headline (you may rephrase)
+- A 2-sentence description: first sentence states what happened, second explains why it matters for R&D
 
-Return ONLY valid JSON — no markdown, no explanation:
-[
-  {"title": "...", "description": "...", "url": "...", "source": "..."},
-  ...
-]
+Return ONLY a valid JSON array — no markdown, no explanation:
+[{"title":"...","description":"...","url":"...","source":"..."},...]
 
 Articles:
 ${articleList}`;
@@ -2226,7 +2231,7 @@ ${articleList}`;
     const raw = await generateText({
       model: config.models.scoring,
       user: prompt,
-      maxTokens: 4000,
+      maxTokens: 8192,
     });
 
     const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
@@ -2236,6 +2241,13 @@ ${articleList}`;
     } catch {
       return res.status(500).json({ error: 'LLM returned invalid JSON', raw: raw.slice(0, 500) });
     }
+
+    // Restore original URLs — LLM may hallucinate them
+    const urlMap = Object.fromEntries(capped.map((a) => [a.title.toLowerCase().trim(), a.url]));
+    articles = articles.map((a) => ({
+      ...a,
+      url: urlMap[a.title.toLowerCase().trim()] || a.url,
+    }));
 
     if (!Array.isArray(articles) || articles.length === 0) {
       return res.status(500).json({ error: 'LLM returned no articles' });
