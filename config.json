@@ -7,9 +7,9 @@
       "parts": ["Tech Management","PRISM"]
     },
     {
-      "name": "MarkTechPost",
-      "url": "https://www.marktechpost.com/",
-      "rss": "https://www.marktechpost.com/feed/",
+      "name": "VentureBeat AI",
+      "url": "https://venturebeat.com/category/ai/",
+      "rss": "https://venturebeat.com/category/ai/feed/",
       "parts": ["Tech Management", "PRISM"]
     },
     {
@@ -73,7 +73,8 @@
     { "name": "Zinnov", "url": "https://zinnov.com/blog/" },
     { "name": "PIB India", "url": "https://www.pib.gov.in/indexd.aspx?reg=3&lang=1" },
     { "name": "Atlassian — AI at Work", "url": "https://atlassianblog.wpengine.com/ai-at-work", "parts": ["PMO"] },
-    { "name": "The Digital Project Manager", "url": "https://thedigitalprojectmanager.com", "rss": "https://thedigitalprojectmanager.com/feed/", "parts": ["PMO"], "_note": "blocked by Cloudflare WAF" }
+    { "name": "The Digital Project Manager", "url": "https://thedigitalprojectmanager.com", "rss": "https://thedigitalprojectmanager.com/feed/", "parts": ["PMO"], "_note": "blocked by Cloudflare WAF" },
+    { "name": "MarkTechPost", "url": "https://www.marktechpost.com/", "rss": "https://www.marktechpost.com/feed/", "parts": ["Tech Management", "PRISM"], "_note": "returns HTML challenge page on server-side fetch, feed unreadable" }
   ],
   "maxItemsPerSource": 5,
   "maxItemsPerSourceByPart": {
