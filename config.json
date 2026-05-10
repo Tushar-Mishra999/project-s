@@ -37,9 +37,9 @@
       "parts": ["PMO"]
     },
     {
-      "name": "The Digital Project Manager",
-      "url": "https://thedigitalprojectmanager.com",
-      "rss": "https://thedigitalprojectmanager.com/feed/",
+      "name": "Rebel's Guide to Project Management",
+      "url": "https://rebelsguidetopm.com",
+      "rss": "https://rebelsguidetopm.com/feed/",
       "parts": ["PMO"]
     },
     {
@@ -72,7 +72,8 @@
     { "name": "Meta AI Blog", "url": "https://ai.meta.com/blog/" },
     { "name": "Zinnov", "url": "https://zinnov.com/blog/" },
     { "name": "PIB India", "url": "https://www.pib.gov.in/indexd.aspx?reg=3&lang=1" },
-    { "name": "Atlassian — AI at Work", "url": "https://atlassianblog.wpengine.com/ai-at-work", "parts": ["PMO"] }
+    { "name": "Atlassian — AI at Work", "url": "https://atlassianblog.wpengine.com/ai-at-work", "parts": ["PMO"] },
+    { "name": "The Digital Project Manager", "url": "https://thedigitalprojectmanager.com", "rss": "https://thedigitalprojectmanager.com/feed/", "parts": ["PMO"], "_note": "blocked by Cloudflare WAF" }
   ],
   "maxItemsPerSource": 5,
   "maxItemsPerSourceByPart": {
