@@ -249,6 +249,78 @@ function LeaderboardView() {
   );
 }
 
+// ── Tech Sensing report modal ──
+function TechSensingReportModal({ onClose }) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [html, setHtml] = useState(null);
+  const [downloading, setDownloading] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/tech-sensing/report', { method: 'POST' })
+      .then(async (r) => {
+        const json = await r.json();
+        if (!r.ok) throw new Error(json.error || `Server error ${r.status}`);
+        setHtml(json.html);
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const downloadPdf = async () => {
+    if (!html) return;
+    setDownloading(true);
+    try {
+      const res = await fetch('/api/render-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ html, filename: 'tech-sensing-brief.pdf' }),
+      });
+      if (!res.ok) throw new Error(`PDF render failed: ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'tech-sensing-brief.pdf'; a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) { alert(err.message); }
+    finally { setDownloading(false); }
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <div style={{ background: 'var(--surface)', borderRadius: 12, width: '100%', maxWidth: 1140, maxHeight: '92vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+          <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--text)' }}>Tech Sensing — Daily Brief</span>
+          <div style={{ display: 'flex', gap: 10 }}>
+            {html && (
+              <button className="primary-btn" onClick={downloadPdf} disabled={downloading} style={{ fontSize: 13 }}>
+                {downloading ? 'Generating PDF…' : '⬇ Download PDF'}
+              </button>
+            )}
+            <button className="ghost-btn" onClick={onClose} style={{ fontSize: 13 }}>✕ Close</button>
+          </div>
+        </div>
+        {/* Content */}
+        <div style={{ flex: 1, overflow: 'auto', padding: 24, background: '#fff' }}>
+          {loading && (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: 60, color: '#64748b' }}>
+              <div className="spinner" />
+              <span>Selecting top stories and generating descriptions…</span>
+            </div>
+          )}
+          {!loading && error && (
+            <div style={{ padding: 24, color: '#ef4444', textAlign: 'center' }}>{error}</div>
+          )}
+          {!loading && html && (
+            <div dangerouslySetInnerHTML={{ __html: html }} />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Standard feed view ──
 function FeedView({ part, isPrism }) {
   const [data, setData] = useState(null);
@@ -258,6 +330,7 @@ function FeedView({ part, isPrism }) {
   const [configSources, setConfigSources] = useState([]);
   const [sourceFilter, setSourceFilter] = useState('All');
   const [showAddSource, setShowAddSource] = useState(false);
+  const [showReport, setShowReport] = useState(false);
 
   const partQs = `?part=${encodeURIComponent(part)}`;
 
@@ -340,8 +413,16 @@ function FeedView({ part, isPrism }) {
               : `Click below to scrape today's news from ${configSources.length || 0} source${(configSources.length || 0) === 1 ? '' : 's'}.`}
           </p>
         </div>
-        <button className="primary-btn" onClick={refresh} disabled={refreshing || loadingCache}>{buttonLabel}</button>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          {part === 'Tech Management' && hasData && (
+            <button className="ghost-btn" onClick={() => setShowReport(true)} style={{ fontSize: 13 }}>
+              📄 Generate Brief
+            </button>
+          )}
+          <button className="primary-btn" onClick={refresh} disabled={refreshing || loadingCache}>{buttonLabel}</button>
+        </div>
       </div>
+      {showReport && <TechSensingReportModal onClose={() => setShowReport(false)} />}
 
       {(filterOptions.length > 0 || !loadingCache) && (
         <div className="source-toolbar">
