@@ -1308,6 +1308,137 @@ Blockquotes: <blockquote style="border-left:3pt solid #94a3b8; padding:6pt 12pt;
 
 Return ONLY the report HTML. No preamble, no commentary, no markdown fences.`;
 
+// Same as REPORT_SYSTEM but without the TEMPLATE section — for free-form generation
+const REPORT_SYSTEM_FREE = `You are a report-writing assistant that produces polished, professional HTML reports.
+You will be given INPUT DATA — facts, notes, or context the user wants written up.
+
+Your job:
+- Design a well-structured, comprehensive report based solely on the input data.
+- Choose an appropriate report structure (title, introduction, sections, conclusion) that best presents the information.
+- Cover ALL input data thoroughly — do not summarise or truncate. Every data point, metric, finding, and detail should appear in the report.
+- Do NOT include <html>, <head>, <body>, or <style> tags — output only the inner content HTML.
+- Do not invent facts not present in the input data.
+
+FORMATTING RULES — use inline styles for a polished, print-ready look:
+
+Headings:
+- <h1> for report title: style="font-size:22pt; color:#1a1a2e; border-bottom:2px solid #3b82f6; padding-bottom:6pt; margin-top:20pt; margin-bottom:10pt;"
+- Introduction heading (and any section titled "Introduction"): center-align it — style="font-size:16pt; color:#1e293b; border-bottom:1px solid #e2e8f0; padding-bottom:4pt; margin-top:16pt; margin-bottom:8pt; text-align:center;"
+- <h2> for all other sections: style="font-size:16pt; color:#1e293b; border-bottom:1px solid #e2e8f0; padding-bottom:4pt; margin-top:16pt; margin-bottom:8pt;"
+- <h3> for subsections: style="font-size:13pt; color:#334155; margin-top:12pt; margin-bottom:6pt;"
+
+Table of Contents — if the report has a ToC, render it as a styled list:
+<nav style="border:1px solid #e2e8f0; border-radius:6px; padding:14pt 20pt; margin:16pt 0; background-color:#f8fafc;">
+  <p style="font-size:13pt; font-weight:bold; color:#1e293b; margin:0 0 10pt 0; border-bottom:1px solid #e2e8f0; padding-bottom:6pt;">Table of Contents</p>
+  <ol style="margin:0; padding-left:18pt; color:#334155; font-size:10pt; line-height:2;">
+    <li style="margin-bottom:2pt;">Section title</li>
+    ...
+  </ol>
+</nav>
+
+Tables — always use full styling:
+- <table>: style="width:100%; border-collapse:collapse; margin:10pt 0;"
+- <th>: style="background-color:#1e293b; color:#ffffff; padding:8pt 10pt; text-align:left; font-size:10pt; border:1px solid #cbd5e1;"
+- <td>: style="padding:7pt 10pt; font-size:10pt; border:1px solid #e2e8f0;"
+- Alternate row shading: add style="background-color:#f8fafc;" on even <tr> rows in <tbody>.
+
+Callout boxes:
+- <div style="background-color:#eff6ff; border-left:4px solid #3b82f6; padding:10pt 14pt; margin:10pt 0; border-radius:4px;">
+
+IMPORTANT — No colored highlights on numbers or text:
+- Do NOT use colored or highlighted spans for numbers, KPIs, or metrics. Write numbers as plain bold text: <strong>42</strong>.
+- Do NOT use colored badge spans for statuses. Write statuses as plain text: "On Track", "At Risk", "Delayed".
+
+Lists:
+- <ul> and <ol>: style="margin:6pt 0; padding-left:20pt;"
+- <li>: style="margin-bottom:4pt; line-height:1.5;"
+
+Paragraphs: style="margin:6pt 0; line-height:1.6;"
+
+Blockquotes: <blockquote style="border-left:3pt solid #94a3b8; padding:6pt 12pt; margin:8pt 0; color:#475569; background-color:#f8fafc;">
+
+Return ONLY the report HTML. No preamble, no commentary, no markdown fences.`;
+
+// ---------- Report Generator: free-form (no template) ----------
+app.post('/api/report/generate', async (req, res) => {
+  const ready = ragReady();
+  if (!ready.ok) return res.status(503).json({ error: `not configured: missing ${ready.missing.join(', ')}` });
+  const { input_data, report_model } = req.body || {};
+  if (!input_data || !input_data.trim()) {
+    return res.status(400).json({ error: 'input_data is required' });
+  }
+  try {
+    const userMsg = `--- INPUT DATA ---\n${input_data}`;
+    const report = await generateReport({ report_model, system: REPORT_SYSTEM_FREE, userMsg, maxTokens: 16000 });
+    res.json({ report, template_filename: 'report' });
+  } catch (err) {
+    console.error('[report-generate-free] error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/report/generate-from-files', async (req, res) => {
+  const ready = ragReady();
+  if (!ready.ok) return res.status(503).json({ error: `not configured: missing ${ready.missing.join(', ')}` });
+  const { instruction, file_ids, report_model } = req.body || {};
+  if (!Array.isArray(file_ids) || file_ids.length === 0) {
+    return res.status(400).json({ error: 'file_ids array is required' });
+  }
+  try {
+    const { data: files, error: fErr } = await supabase
+      .from('files').select('id, filename').in('id', file_ids);
+    if (fErr) throw fErr;
+    if (!files || files.length === 0) {
+      return res.status(404).json({ error: 'no files found for the provided ids' });
+    }
+
+    const fileById = new Map(files.map((f) => [f.id, f]));
+    const { data: chunks, error: cErr } = await supabase
+      .from('chunks')
+      .select('file_id, chunk_index, chunk_text')
+      .in('file_id', file_ids)
+      .order('chunk_index', { ascending: true });
+    if (cErr) throw cErr;
+    const byFile = new Map();
+    for (const c of chunks || []) {
+      if (!byFile.has(c.file_id)) byFile.set(c.file_id, []);
+      byFile.get(c.file_id).push(c.chunk_text || '');
+    }
+
+    const PER_FILE_LIMIT = 60000;
+    const sections = file_ids
+      .map((fid) => {
+        const f = fileById.get(fid);
+        if (!f) return null;
+        const text = (byFile.get(fid) || []).join('\n\n').slice(0, PER_FILE_LIMIT);
+        if (!text.trim()) return null;
+        return `### Source: ${f.filename}\n${text}`;
+      })
+      .filter(Boolean);
+
+    if (sections.length === 0) {
+      return res.status(422).json({ error: 'selected files have no extractable content' });
+    }
+
+    const inputData = [
+      instruction ? `User instruction: ${instruction}` : null,
+      'Source documents:',
+      sections.join('\n\n---\n\n'),
+    ].filter(Boolean).join('\n\n');
+
+    const userMsg = `--- INPUT DATA ---\n${inputData}`;
+    const report = await generateReport({ report_model, system: REPORT_SYSTEM_FREE, userMsg, maxTokens: 16000 });
+    res.json({
+      report,
+      template_filename: 'report',
+      used_files: files.map((f) => ({ id: f.id, filename: f.filename })),
+    });
+  } catch (err) {
+    console.error('[report-generate-free-from-files] error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/report-templates', async (_req, res) => {
   const ready = ragReady();
   if (!ready.ok) return res.status(503).json({ error: `not configured: missing ${ready.missing.join(', ')}` });
@@ -2025,7 +2156,28 @@ app.post('/api/minutes/:id/save-to-hub', async (req, res) => {
   }
 });
 
-// ---------- Render HTML to .docx ----------
+// ---------- Render HTML to .pdf ----------
+import { htmlToPdfBuffer } from './lib/htmlToPdf.js';
+
+app.post('/api/render-pdf', async (req, res) => {
+  const { html, filename = 'report.pdf' } = req.body || {};
+  if (!html || !html.trim()) {
+    return res.status(400).json({ error: 'html is required' });
+  }
+  try {
+    const out = await htmlToPdfBuffer(html);
+    const safeName = String(filename).replace(/[^\w.\-]+/g, '_');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+    res.setHeader('Content-Length', String(out.length));
+    res.end(out);
+  } catch (err) {
+    console.error('[render-pdf] error:', err);
+    res.status(500).json({ error: err.message || 'pdf render failed' });
+  }
+});
+
+// ---------- Render HTML to .docx (kept for KnowledgeHubTab compatibility) ----------
 import { htmlToDocxBuffer } from './lib/htmlToDocx.js';
 
 app.post('/api/render-docx', async (req, res) => {
@@ -2043,6 +2195,211 @@ app.post('/api/render-docx', async (req, res) => {
   } catch (err) {
     console.error('[render-docx] error:', err);
     res.status(500).json({ error: err.message || 'docx render failed' });
+  }
+});
+
+// ---------- Render report content to .xlsx ----------
+import XLSX from 'xlsx';
+
+const XLSX_SYSTEM = `You are a data extraction assistant. Given report content or raw input data, extract all structured and quantitative information and format it as JSON for Excel export.
+
+Output ONLY valid JSON — no markdown fences, no extra text — with this exact shape:
+{
+  "sheets": [
+    {
+      "name": "Sheet name (max 31 chars)",
+      "rows": [
+        ["Column A", "Column B", "Column C"],
+        ["value", 42, "another value"],
+        ...
+      ]
+    }
+  ]
+}
+
+Rules:
+- Create one sheet per major topic or category that has tabular data (metrics, action items, statuses, timelines, financials, etc.)
+- The first row of every sheet must be a header row with column names
+- If a value is numeric, output it as a number (not a string)
+- Omit purely narrative content that cannot be meaningfully tabularised
+- Sheet names must be unique and ≤ 31 characters
+- If no tabular data can be extracted, return: {"sheets": [{"name": "Data", "rows": [["No tabular data found"]]}]}`;
+
+app.post('/api/render-xlsx', async (req, res) => {
+  const { html, report_model, filename = 'report.xlsx' } = req.body || {};
+  if (!html || !html.trim()) {
+    return res.status(400).json({ error: 'html is required' });
+  }
+  try {
+    const userMsg = `Extract all structured/tabular data from the following report HTML:\n\n${html}`;
+    const raw = await generateReport({ report_model, system: XLSX_SYSTEM, userMsg, maxTokens: 8000 });
+
+    let parsed;
+    try {
+      const clean = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+      parsed = JSON.parse(clean);
+    } catch {
+      return res.status(422).json({ error: 'LLM did not return valid JSON for xlsx' });
+    }
+
+    const wb = XLSX.utils.book_new();
+    for (const sheet of parsed.sheets || []) {
+      const ws = XLSX.utils.aoa_to_sheet(sheet.rows || []);
+      XLSX.utils.book_append_sheet(wb, ws, String(sheet.name || 'Sheet').slice(0, 31));
+    }
+    if (wb.SheetNames.length === 0) {
+      const ws = XLSX.utils.aoa_to_sheet([['No data']]);
+      XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+    }
+
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    const safeName = String(filename).replace(/[^\w.\-]+/g, '_');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+    res.setHeader('Content-Length', String(buf.length));
+    res.end(buf);
+  } catch (err) {
+    console.error('[render-xlsx] error:', err);
+    res.status(500).json({ error: err.message || 'xlsx render failed' });
+  }
+});
+
+// ---------- Excel Compiler ----------
+const XLSX_COMPILE_SYSTEM = `You are a spreadsheet compilation assistant. You will be given one or more Excel/CSV files as JSON (each with a filename and an array of sheets, each sheet having a name and a rows array-of-arrays). You will also receive a user instruction describing how to compile or transform the data.
+
+Output ONLY valid JSON — no markdown fences, no extra text — with this exact shape:
+{
+  "sheets": [
+    {
+      "name": "Sheet name (≤31 chars)",
+      "rows": [
+        ["Column A", "Column B", "Column C"],
+        [value1, value2, value3],
+        ...
+      ]
+    }
+  ]
+}
+
+Rules:
+- Follow the instruction precisely to decide how to merge, filter, pivot, summarise, or restructure.
+- When combining sheets of the same structure from multiple files, use a single unified header row and concatenate all data rows; add a "Source File" column as the first column so origin is traceable.
+- Preserve data types: numbers stay as JSON numbers, text as strings. Empty cells as "".
+- Sheet names must be unique and ≤ 31 characters.
+- If the instruction is vague, default to: one output sheet per source sheet name, merging rows from all files that share that sheet name; otherwise one sheet per source file.
+- Do not invent data that is not in the source files.`;
+
+app.post('/api/xlsx/compile', async (req, res) => {
+  const ready = ragReady();
+  if (!ready.ok) return res.status(503).json({ error: `not configured: missing ${ready.missing.join(', ')}` });
+
+  const { file_ids, instruction, output_filename = 'compiled.xlsx', report_model } = req.body || {};
+  if (!Array.isArray(file_ids) || file_ids.length === 0) {
+    return res.status(400).json({ error: 'file_ids array is required' });
+  }
+
+  try {
+    const { data: files, error: fErr } = await supabase
+      .from('files')
+      .select('id, filename, filetype, file_url')
+      .in('id', file_ids);
+    if (fErr) throw fErr;
+    if (!files || files.length === 0) {
+      return res.status(404).json({ error: 'no files found for the provided ids' });
+    }
+
+    const EXCEL_EXTS = new Set(['xlsx', 'xls', 'xlsm', 'xlsb', 'ods', 'csv']);
+    const excelFiles = files.filter((f) => {
+      const ext = f.filename.split('.').pop().toLowerCase();
+      return EXCEL_EXTS.has(ext);
+    });
+    if (excelFiles.length === 0) {
+      return res.status(422).json({ error: 'none of the selected files are Excel or CSV files (.xlsx, .xls, .csv, .ods, …)' });
+    }
+
+    // Download and parse each file into rows-of-arrays
+    const MAX_ROWS_PER_SHEET = 500;
+    const MAX_SHEETS_PER_FILE = 10;
+    const parsedFiles = [];
+    const skipped = [];
+    for (const file of excelFiles) {
+      try {
+        const resp = await fetch(file.file_url);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const buf = Buffer.from(await resp.arrayBuffer());
+        const wb = XLSX.read(buf, { type: 'buffer', cellDates: true });
+        const sheets = wb.SheetNames.slice(0, MAX_SHEETS_PER_FILE).map((name) => {
+          const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '' });
+          const truncated = rows.length > MAX_ROWS_PER_SHEET;
+          return { name, rows: rows.slice(0, MAX_ROWS_PER_SHEET), truncated };
+        });
+        parsedFiles.push({ filename: file.filename, sheets });
+      } catch (e) {
+        console.warn(`[xlsx-compile] skipping ${file.filename}: ${e.message}`);
+        skipped.push(file.filename);
+      }
+    }
+
+    if (parsedFiles.length === 0) {
+      return res.status(422).json({ error: `could not read any Excel files${skipped.length ? ': ' + skipped.join(', ') : ''}` });
+    }
+
+    let outSheets;
+
+    if (instruction && instruction.trim()) {
+      // LLM-guided compilation
+      const dataJson = JSON.stringify(parsedFiles);
+      const userMsg = `Instruction: ${instruction}\n\nSource files:\n${dataJson}`;
+      const raw = await generateReport({ report_model, system: XLSX_COMPILE_SYSTEM, userMsg, maxTokens: 16000 });
+      let parsed;
+      try {
+        const clean = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/m, '').trim();
+        parsed = JSON.parse(clean);
+      } catch {
+        return res.status(422).json({ error: 'LLM did not return valid JSON for xlsx compilation' });
+      }
+      outSheets = parsed.sheets || [];
+    } else {
+      // Simple merge without LLM: one sheet per source sheet, all in one workbook
+      outSheets = [];
+      for (const { filename, sheets } of parsedFiles) {
+        const base = filename.replace(/\.[^.]+$/, '');
+        for (const sheet of sheets) {
+          const label = sheets.length === 1
+            ? base.slice(0, 31)
+            : `${base} - ${sheet.name}`.slice(0, 31);
+          outSheets.push({ name: label, rows: sheet.rows });
+        }
+      }
+    }
+
+    const outWb = XLSX.utils.book_new();
+    // Deduplicate sheet names
+    const usedNames = new Map();
+    for (const sheet of outSheets) {
+      let name = String(sheet.name || 'Sheet').slice(0, 31);
+      if (usedNames.has(name)) {
+        const count = usedNames.get(name) + 1;
+        usedNames.set(name, count);
+        name = `${name.slice(0, 28)} ${count}`;
+      } else {
+        usedNames.set(name, 1);
+      }
+      XLSX.utils.book_append_sheet(outWb, XLSX.utils.aoa_to_sheet(sheet.rows || []), name);
+    }
+    if (outWb.SheetNames.length === 0) {
+      XLSX.utils.book_append_sheet(outWb, XLSX.utils.aoa_to_sheet([['No data']]), 'Sheet1');
+    }
+
+    const buf = XLSX.write(outWb, { type: 'buffer', bookType: 'xlsx' });
+    const safeName = String(output_filename).replace(/[^\w.\-]+/g, '_');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+    res.setHeader('Content-Length', String(buf.length));
+    res.end(buf);
+  } catch (err) {
+    console.error('[xlsx-compile] error:', err);
+    res.status(500).json({ error: err.message || 'xlsx compilation failed' });
   }
 });
 
