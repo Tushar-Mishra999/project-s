@@ -141,11 +141,26 @@ function downloadText(filename, text) {
   triggerDownload(filename, new Blob([text], { type: 'text/html;charset=utf-8' }));
 }
 
-async function downloadDocx(filename, html) {
-  const res = await fetch('/api/render-docx', {
+async function downloadPdf(filename, html) {
+  const res = await fetch('/api/render-pdf', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ html, filename }),
+  });
+  if (!res.ok) {
+    let msg = `Server returned ${res.status}`;
+    try { msg = (await res.json()).error || msg; } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+  const blob = await res.blob();
+  triggerDownload(filename, blob);
+}
+
+async function downloadXlsx(filename, html, report_model) {
+  const res = await fetch('/api/render-xlsx', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ html, filename, report_model }),
   });
   if (!res.ok) {
     let msg = `Server returned ${res.status}`;
@@ -227,21 +242,25 @@ export default function ReportGeneratorTab({ activePart, activeUserId }) {
   // Model selection
   const [reportModel, setReportModel] = useState('gemini');
 
+  // Mode: 'template' | 'free'
+  const [mode, setMode] = useState('template');
+
   // Generate state
   const [selectedId, setSelectedId] = useState(null);
   const [inputData, setInputData] = useState('');
   const [generating, setGenerating] = useState(false);
   const [report, setReport] = useState(null);
   const [generateErr, setGenerateErr] = useState(null);
-  const [downloadingDocx, setDownloadingDocx] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [downloadingXlsx, setDownloadingXlsx] = useState(false);
   const [downloadErr, setDownloadErr] = useState(null);
 
   // NL "describe your report" flow
   const [instruction, setInstruction] = useState('');
   const [matching, setMatching] = useState(false);
   const [matchErr, setMatchErr] = useState(null);
-  const [matchAll, setMatchAll] = useState([]);   // every file in scope
-  const [matchPicked, setMatchPicked] = useState(new Set()); // ids checked
+  const [matchAll, setMatchAll] = useState([]);
+  const [matchPicked, setMatchPicked] = useState(new Set());
   const [matchRationale, setMatchRationale] = useState('');
   const [matchActive, setMatchActive] = useState(false);
 
@@ -278,16 +297,24 @@ export default function ReportGeneratorTab({ activePart, activeUserId }) {
   };
 
   const handleConfirmAndGenerate = async () => {
-    if (!selectedId) return setGenerateErr('Select a template first.');
+    if (mode === 'template' && !selectedId) return setGenerateErr('Select a template first.');
     if (matchPicked.size === 0) return setGenerateErr('Pick at least one source file.');
     setGenerating(true);
     setGenerateErr(null);
     setReport(null);
     try {
-      const res = await fetch(`/api/report-templates/${selectedId}/generate-from-files`, {
+      let url, body;
+      if (mode === 'template') {
+        url = `/api/report-templates/${selectedId}/generate-from-files`;
+        body = { instruction, file_ids: Array.from(matchPicked), report_model: reportModel };
+      } else {
+        url = '/api/report/generate-from-files';
+        body = { instruction, file_ids: Array.from(matchPicked), report_model: reportModel };
+      }
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ instruction, file_ids: Array.from(matchPicked), report_model: reportModel }),
+        body: JSON.stringify(body),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `Generation failed (${res.status})`);
@@ -342,16 +369,24 @@ export default function ReportGeneratorTab({ activePart, activeUserId }) {
 
   const handleGenerate = async (e) => {
     e?.preventDefault();
-    if (!selectedId) return setGenerateErr('Select a template first.');
+    if (mode === 'template' && !selectedId) return setGenerateErr('Select a template first.');
     if (!inputData.trim()) return setGenerateErr('Provide some input data.');
     setGenerating(true);
     setGenerateErr(null);
     setReport(null);
     try {
-      const res = await fetch(`/api/report-templates/${selectedId}/generate`, {
+      let url, body;
+      if (mode === 'template') {
+        url = `/api/report-templates/${selectedId}/generate`;
+        body = { input_data: inputData, report_model: reportModel };
+      } else {
+        url = '/api/report/generate';
+        body = { input_data: inputData, report_model: reportModel };
+      }
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input_data: inputData, report_model: reportModel }),
+        body: JSON.stringify(body),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `Generation failed (${res.status})`);
@@ -364,6 +399,8 @@ export default function ReportGeneratorTab({ activePart, activeUserId }) {
   };
 
   const selected = templates.find((t) => t.id === selectedId);
+  const stamp = new Date().toISOString().slice(0, 10);
+  const baseName = (selected?.filename || 'report').replace(/\.[^.]+$/, '');
 
   return (
     <div className="wrap">
@@ -371,7 +408,7 @@ export default function ReportGeneratorTab({ activePart, activeUserId }) {
         <div>
           <h1>Report Generator</h1>
           <div className="sub">
-            Upload a template once, then generate filled reports from your input data.
+            Generate reports from templates or free-form. Download as PDF or XLSX.
           </div>
         </div>
         <div className="chat-controls">
@@ -379,84 +416,117 @@ export default function ReportGeneratorTab({ activePart, activeUserId }) {
         </div>
       </div>
 
-      {/* Templates list */}
-      <section className="panel">
-        <div className="panel-title-row">
-          <h2 className="panel-title">Templates · {templates.length}</h2>
-          <button className="ghost-btn" onClick={loadTemplates} disabled={loadingList}>
-            {loadingList ? 'Refreshing…' : 'Refresh'}
+      {/* Mode toggle */}
+      <section className="panel" style={{ paddingTop: 14, paddingBottom: 14 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500, marginRight: 4 }}>Mode:</span>
+          <button
+            className={mode === 'template' ? 'primary-btn' : 'ghost-btn'}
+            style={{ fontSize: 12, padding: '5px 14px' }}
+            onClick={() => { setMode('template'); setReport(null); setGenerateErr(null); }}
+          >
+            Use template
+          </button>
+          <button
+            className={mode === 'free' ? 'primary-btn' : 'ghost-btn'}
+            style={{ fontSize: 12, padding: '5px 14px' }}
+            onClick={() => { setMode('free'); setSelectedId(null); setReport(null); setGenerateErr(null); }}
+          >
+            Free-form (no template)
           </button>
         </div>
-        {loadingList && <div className="state"><div className="spinner" /></div>}
-        {listErr && <div className="inline-msg error">{listErr}</div>}
-        {!loadingList && !listErr && templates.length === 0 && (
-          <div className="state-text" style={{ marginTop: 8 }}>
-            No templates uploaded yet. Upload one below to get started.
-          </div>
-        )}
-        {!loadingList && templates.length > 0 && (
-          <div className="library-list">
-            {templates.map((t) => (
-              <TemplateRow
-                key={t.id}
-                tmpl={t}
-                isSelected={selectedId === t.id}
-                onSelect={() => { setSelectedId(t.id); setReport(null); setGenerateErr(null); }}
-                onDeleted={(id) => {
-                  setTemplates((curr) => curr.filter((x) => x.id !== id));
-                  if (selectedId === id) setSelectedId(null);
-                }}
-              />
-            ))}
+        {mode === 'free' && (
+          <div className="sub" style={{ marginTop: 8, fontSize: 12 }}>
+            The AI will choose an appropriate report structure based on your input — no template needed.
           </div>
         )}
       </section>
 
-      {/* Upload prompt */}
-      <section className="panel upload-prompt-panel">
-        {!showUpload ? (
-          <div className="upload-prompt">
-            <div>
-              <div className="upload-prompt-title">Add a new template</div>
-              <div className="upload-prompt-sub">PDF, DOCX, PPTX, TXT or MD — used as the report's structure.</div>
-            </div>
-            <button className="primary-btn" onClick={() => setShowUpload(true)}>
-              Upload template
+      {/* Templates list — only in template mode */}
+      {mode === 'template' && (
+        <section className="panel">
+          <div className="panel-title-row">
+            <h2 className="panel-title">Templates · {templates.length}</h2>
+            <button className="ghost-btn" onClick={loadTemplates} disabled={loadingList}>
+              {loadingList ? 'Refreshing…' : 'Refresh'}
             </button>
           </div>
-        ) : (
-          <>
-            <div className="panel-title-row">
-              <h2 className="panel-title">Upload template</h2>
-              <button className="ghost-btn" onClick={() => { setShowUpload(false); setUploadMsg(null); }}>
-                Cancel
+          {loadingList && <div className="state"><div className="spinner" /></div>}
+          {listErr && <div className="inline-msg error">{listErr}</div>}
+          {!loadingList && !listErr && templates.length === 0 && (
+            <div className="state-text" style={{ marginTop: 8 }}>
+              No templates uploaded yet. Upload one below to get started.
+            </div>
+          )}
+          {!loadingList && templates.length > 0 && (
+            <div className="library-list">
+              {templates.map((t) => (
+                <TemplateRow
+                  key={t.id}
+                  tmpl={t}
+                  isSelected={selectedId === t.id}
+                  onSelect={() => { setSelectedId(t.id); setReport(null); setGenerateErr(null); }}
+                  onDeleted={(id) => {
+                    setTemplates((curr) => curr.filter((x) => x.id !== id));
+                    if (selectedId === id) setSelectedId(null);
+                  }}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Upload prompt — only in template mode */}
+      {mode === 'template' && (
+        <section className="panel upload-prompt-panel">
+          {!showUpload ? (
+            <div className="upload-prompt">
+              <div>
+                <div className="upload-prompt-title">Add a new template</div>
+                <div className="upload-prompt-sub">PDF, DOCX, PPTX, TXT or MD — used as the report's structure.</div>
+              </div>
+              <button className="primary-btn" onClick={() => setShowUpload(true)}>
+                Upload template
               </button>
             </div>
-            <form className="upload-form" onSubmit={handleUpload}>
-              <div className="form-row">
-                <label>Template file</label>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".pdf,.docx,.pptx,.txt,.md"
-                  onChange={(e) => setFile(e.target.files?.[0] || null)}
-                />
+          ) : (
+            <>
+              <div className="panel-title-row">
+                <h2 className="panel-title">Upload template</h2>
+                <button className="ghost-btn" onClick={() => { setShowUpload(false); setUploadMsg(null); }}>
+                  Cancel
+                </button>
               </div>
-              <button className="primary-btn" disabled={uploading} type="submit">
-                {uploading ? 'Uploading…' : 'Upload template'}
-              </button>
-              {uploadMsg && <div className={`inline-msg ${uploadMsg.type}`}>{uploadMsg.text}</div>}
-            </form>
-          </>
-        )}
-      </section>
+              <form className="upload-form" onSubmit={handleUpload}>
+                <div className="form-row">
+                  <label>Template file</label>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf,.docx,.pptx,.txt,.md"
+                    onChange={(e) => setFile(e.target.files?.[0] || null)}
+                  />
+                </div>
+                <button className="primary-btn" disabled={uploading} type="submit">
+                  {uploading ? 'Uploading…' : 'Upload template'}
+                </button>
+                {uploadMsg && <div className={`inline-msg ${uploadMsg.type}`}>{uploadMsg.text}</div>}
+              </form>
+            </>
+          )}
+        </section>
+      )}
 
       {/* Generate */}
       <section className="panel">
         <h2 className="panel-title">
-          Generate report {selected ? `· using ${selected.filename}` : ''}
+          {mode === 'template'
+            ? `Generate report${selected ? ` · using ${selected.filename}` : ''}`
+            : 'Generate report · free-form'}
         </h2>
-        {!selectedId && (
+
+        {mode === 'template' && !selectedId && (
           <div className="state-text" style={{ marginBottom: 12 }}>
             Pick a template from the list above first.
           </div>
@@ -547,7 +617,7 @@ export default function ReportGeneratorTab({ activePart, activeUserId }) {
               <button
                 className="primary-btn"
                 onClick={handleConfirmAndGenerate}
-                disabled={!selectedId || matchPicked.size === 0 || generating}
+                disabled={(mode === 'template' && !selectedId) || matchPicked.size === 0 || generating}
               >
                 {generating ? 'Generating…' : `Confirm & generate from ${matchPicked.size} file${matchPicked.size === 1 ? '' : 's'}`}
               </button>
@@ -581,10 +651,14 @@ export default function ReportGeneratorTab({ activePart, activeUserId }) {
               placeholder="e.g. Sprint #14 ran from 14–28 April. Team: Arjun, Priya, Karan. Delivered: search reranker, file-delete API. Blockers: Voyage rate-limit, Firecrawl quota. Next sprint: ship Reports Tab."
               value={inputData}
               onChange={(e) => setInputData(e.target.value)}
-              disabled={!selectedId || generating}
+              disabled={(mode === 'template' && !selectedId) || generating}
             />
           </div>
-          <button className="primary-btn" type="submit" disabled={!selectedId || generating}>
+          <button
+            className="primary-btn"
+            type="submit"
+            disabled={(mode === 'template' && !selectedId) || generating}
+          >
             {generating ? 'Generating…' : 'Generate report'}
           </button>
           {generateErr && <div className="inline-msg error">{generateErr}</div>}
@@ -611,38 +685,45 @@ export default function ReportGeneratorTab({ activePart, activeUserId }) {
                 </button>
                 <button
                   className="ghost-btn"
-                  onClick={() => window.print()}
-                >
-                  Print
-                </button>
-                <button
-                  className="ghost-btn"
                   onClick={() => {
-                    const base = report.templateName.replace(/\.[^.]+$/, '');
-                    const stamp = new Date().toISOString().slice(0, 10);
-                    downloadText(`${base}-${stamp}.html`, report.text);
+                    downloadText(`${baseName}-${stamp}.html`, report.text);
                   }}
                 >
                   Download .html
                 </button>
                 <button
-                  className="primary-btn"
-                  disabled={downloadingDocx}
+                  className="ghost-btn"
+                  disabled={downloadingXlsx}
                   onClick={async () => {
-                    setDownloadingDocx(true);
+                    setDownloadingXlsx(true);
                     setDownloadErr(null);
-                    const base = report.templateName.replace(/\.[^.]+$/, '');
-                    const stamp = new Date().toISOString().slice(0, 10);
                     try {
-                      await downloadDocx(`${base}-${stamp}.docx`, report.text);
+                      await downloadXlsx(`${baseName}-${stamp}.xlsx`, report.text, reportModel);
                     } catch (e) {
                       setDownloadErr(e.message);
                     } finally {
-                      setDownloadingDocx(false);
+                      setDownloadingXlsx(false);
                     }
                   }}
                 >
-                  {downloadingDocx ? 'Preparing…' : 'Download .docx'}
+                  {downloadingXlsx ? 'Preparing…' : 'Download .xlsx'}
+                </button>
+                <button
+                  className="primary-btn"
+                  disabled={downloadingPdf}
+                  onClick={async () => {
+                    setDownloadingPdf(true);
+                    setDownloadErr(null);
+                    try {
+                      await downloadPdf(`${baseName}-${stamp}.pdf`, report.text);
+                    } catch (e) {
+                      setDownloadErr(e.message);
+                    } finally {
+                      setDownloadingPdf(false);
+                    }
+                  }}
+                >
+                  {downloadingPdf ? 'Preparing…' : 'Download .pdf'}
                 </button>
               </div>
             </div>
