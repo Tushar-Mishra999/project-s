@@ -2226,7 +2226,7 @@ ${articleList}`;
     const raw = await generateText({
       model: config.models.scoring,
       user: prompt,
-      maxTokens: 2048,
+      maxTokens: 3000,
     });
 
     const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
