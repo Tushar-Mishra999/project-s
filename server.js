@@ -191,10 +191,20 @@ const LEADERBOARD_TTL = 3600000; // 1 hour
 
 app.get('/api/leaderboard', async (req, res) => {
   try {
-    // Return cache if fresh
+    // Return in-memory cache if fresh
     if (leaderboardCache.data && leaderboardCache.fetchedAt && (Date.now() - leaderboardCache.fetchedAt < LEADERBOARD_TTL)) {
       console.log('[leaderboard] returning cached data');
       return res.json(leaderboardCache.data);
+    }
+
+    // Check Supabase cache before hitting Gemini
+    if (supabase) {
+      const { data: row } = await supabase.from('feed_cache').select('data, generated_at').eq('id', 'leaderboard').maybeSingle();
+      if (row?.data && row.generated_at && (Date.now() - new Date(row.generated_at).getTime() < LEADERBOARD_TTL)) {
+        console.log('[leaderboard] returning Supabase-cached data');
+        leaderboardCache = { data: row.data, fetchedAt: new Date(row.generated_at).getTime() };
+        return res.json(row.data);
+      }
     }
 
     const prompt = `Search the current Open LLM Leaderboard tier rankings from onyx.app (https://onyx.app/open-llm-leaderboard).
@@ -309,8 +319,14 @@ Return ONLY the JSON array, no markdown fences, no explanation, no extra text.`;
     }
 
     console.log(`[leaderboard] success — got ${tiers.length} tiers`);
-    const payload = { tiers, fetchedAt: new Date().toISOString() };
+    const now = new Date().toISOString();
+    const payload = { tiers, fetchedAt: now };
     leaderboardCache = { data: payload, fetchedAt: Date.now() };
+    if (supabase) {
+      supabase.from('feed_cache').upsert({ id: 'leaderboard', data: payload, generated_at: now, updated_at: now }).then(({ error }) => {
+        if (error) console.warn('[leaderboard] cache write error:', error.message);
+      });
+    }
     res.json(payload);
   } catch (err) {
     console.error('[leaderboard] error:', err.message);
@@ -1356,9 +1372,8 @@ Your job:
 FORMATTING RULES — use inline styles for a polished, Word-ready look:
 
 Headings:
-- <h1> for report title: style="font-size:22pt; color:#1a1a2e; border-bottom:2px solid #3b82f6; padding-bottom:6pt; margin-top:20pt; margin-bottom:10pt;"
-- Introduction heading (and any section titled "Introduction"): center-align it — style="font-size:16pt; color:#1e293b; border-bottom:1px solid #e2e8f0; padding-bottom:4pt; margin-top:16pt; margin-bottom:8pt; text-align:center;"
-- <h2> for all other sections: style="font-size:16pt; color:#1e293b; border-bottom:1px solid #e2e8f0; padding-bottom:4pt; margin-top:16pt; margin-bottom:8pt;"
+- <h1> for report title: style="font-size:22pt; color:#1a1a2e; border-bottom:2px solid #3b82f6; padding-bottom:6pt; margin-top:20pt; margin-bottom:10pt; text-align:center;"
+- <h2> for all sections: style="font-size:16pt; color:#1e293b; border-bottom:1px solid #e2e8f0; padding-bottom:4pt; margin-top:16pt; margin-bottom:8pt;"
 - <h3> for subsections: style="font-size:13pt; color:#334155; margin-top:12pt; margin-bottom:6pt;"
 
 Table of Contents — if the report has a ToC, render it as a styled list (no colored backgrounds):
@@ -1407,9 +1422,8 @@ Your job:
 FORMATTING RULES — use inline styles for a polished, print-ready look:
 
 Headings:
-- <h1> for report title: style="font-size:22pt; color:#1a1a2e; border-bottom:2px solid #3b82f6; padding-bottom:6pt; margin-top:20pt; margin-bottom:10pt;"
-- Introduction heading (and any section titled "Introduction"): center-align it — style="font-size:16pt; color:#1e293b; border-bottom:1px solid #e2e8f0; padding-bottom:4pt; margin-top:16pt; margin-bottom:8pt; text-align:center;"
-- <h2> for all other sections: style="font-size:16pt; color:#1e293b; border-bottom:1px solid #e2e8f0; padding-bottom:4pt; margin-top:16pt; margin-bottom:8pt;"
+- <h1> for report title: style="font-size:22pt; color:#1a1a2e; border-bottom:2px solid #3b82f6; padding-bottom:6pt; margin-top:20pt; margin-bottom:10pt; text-align:center;"
+- <h2> for all sections: style="font-size:16pt; color:#1e293b; border-bottom:1px solid #e2e8f0; padding-bottom:4pt; margin-top:16pt; margin-bottom:8pt;"
 - <h3> for subsections: style="font-size:13pt; color:#334155; margin-top:12pt; margin-bottom:6pt;"
 
 Table of Contents — if the report has a ToC, render it as a styled list:
