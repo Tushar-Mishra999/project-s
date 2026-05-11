@@ -18,7 +18,7 @@ if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON && !process.env.GOOGLE_APPLI
 }
 
 import { supabase, ragReady } from './lib/clients.js';
-import { generateChat, generateChatGemma, generateChatGLM, generateChatKimi, generateText, generateWithParts } from './lib/llm.js';
+import { generateChat, generateChatGemma, generateChatGLM, generateChatKimi, generateText, generateWithParts, generateTextWithSearch } from './lib/llm.js';
 import { runFeedPipeline } from './lib/feed.js';
 import { extractActionItems } from './lib/actionItems.js';
 import { extractText } from './lib/extract.js';
