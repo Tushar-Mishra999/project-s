@@ -413,7 +413,7 @@ Return ONLY a valid JSON array, no markdown, no explanation:
     const { text, groundingChunks } = await generateTextWithSearch({
       model: config.models.scoring,
       user: prompt,
-      maxTokens: 4000,
+      maxTokens: 6000,
     });
 
     console.log(`[live-search] query="${query}" chunks=${groundingChunks.length} textLen=${text.length}`);
