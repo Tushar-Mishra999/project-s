@@ -1757,7 +1757,7 @@ app.post('/api/refine', async (req, res) => {
       system: REFINE_SYSTEM,
       user: `Analyse this document:\n\n${text}`,
       jsonMode: true,
-      maxTokens: 2000,
+      maxTokens: 3000,
     });
 
     const cleaned = (raw || '').replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
