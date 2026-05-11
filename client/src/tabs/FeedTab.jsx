@@ -412,7 +412,7 @@ function LiveSearchView() {
           <h2 className="source-header">Results for "{searched}" · {articles.length} article{articles.length !== 1 ? 's' : ''}</h2>
           <div className="cards">
             {articles.map((it, i) => (
-              <Card key={i} item={it} isPrism={false} />
+              <Card key={i} item={{ ...it, summary: it.summary || it.description }} isPrism={false} />
             ))}
           </div>
         </section>
