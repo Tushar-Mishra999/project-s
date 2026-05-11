@@ -427,7 +427,7 @@ Return ONLY a valid JSON array, no markdown, no explanation:
         const parsed = JSON.parse(cleaned);
         if (Array.isArray(parsed)) {
           parsed.forEach((a) => {
-            if (a.url) descMap[a.url] = { description: a.description || '', source: a.source || '' };
+            if (a.url) descMap[a.url] = { title: a.title || '', description: a.description || '', source: a.source || '' };
           });
         }
       } catch {}
@@ -437,7 +437,7 @@ Return ONLY a valid JSON array, no markdown, no explanation:
           const url = (c.web?.uri || '').trim();
           const meta = descMap[url] || {};
           return {
-            title: (c.web?.title || meta.title || '').trim(),
+            title: (meta.title || c.web?.title || '').trim(),
             url,
             description: meta.description || '',
             source: meta.source || (url ? new URL(url).hostname.replace(/^www\./, '') : ''),
