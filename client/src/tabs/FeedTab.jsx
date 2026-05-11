@@ -9,6 +9,7 @@ const FEED_CATEGORIES = [
   { id: 'prism', label: 'Worklet Radar', icon: '💡', part: 'PRISM' },
   { id: 'pmo', label: 'PM Intelligence', icon: '📋', part: 'PMO' },
   { id: 'data', label: 'Data Intelligence', icon: '🗂️', part: 'Data Management' },
+  { id: 'live', label: 'Live Search', icon: '🔍', part: null },
 ];
 
 export function feedTabLabel() {
@@ -321,6 +322,105 @@ function TechSensingReportModal({ onClose }) {
   );
 }
 
+// ── Live Search view ──
+function LiveSearchView() {
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [articles, setArticles] = useState(null);
+  const [warning, setWarning] = useState(null);
+  const [searched, setSearched] = useState('');
+
+  const handleSearch = useCallback(async (e) => {
+    e?.preventDefault();
+    const q = query.trim();
+    if (!q) return;
+    setLoading(true); setError(null); setWarning(null); setArticles(null); setSearched(q);
+    try {
+      const res = await fetch('/api/feed/live-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: q }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `Server error ${res.status}`);
+      setArticles(json.articles || []);
+      setWarning(json.warning || null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [query]);
+
+  const handleKeyDown = (e) => { if (e.key === 'Enter') handleSearch(); };
+
+  return (
+    <div className="feed-content-area">
+      <div className="feed-content-header">
+        <div>
+          <h2 className="feed-content-title">Live Search</h2>
+          <p className="feed-content-sub">Search live news via Gemini Google Search grounding</p>
+        </div>
+      </div>
+
+      {/* Search bar */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 24, padding: '14px 16px', background: 'var(--surface-2)', borderRadius: 10, border: '1px solid var(--border)' }}>
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="e.g. AI agents in production, LLM fine-tuning benchmarks…"
+          style={{ flex: 1, padding: '9px 14px', borderRadius: 8, border: '1px solid var(--border-strong)', background: 'var(--surface)', color: 'var(--text)', fontSize: 14, outline: 'none' }}
+          disabled={loading}
+          autoFocus
+        />
+        <button
+          className="primary-btn"
+          onClick={handleSearch}
+          disabled={loading || !query.trim()}
+          style={{ whiteSpace: 'nowrap' }}
+        >
+          {loading ? 'Searching…' : '🔍 Search'}
+        </button>
+      </div>
+
+      {/* Loading */}
+      {loading && (
+        <div className="state">
+          <div className="spinner" />
+          <div className="state-text">Searching live news for "{searched}"…</div>
+        </div>
+      )}
+
+      {/* Error */}
+      {!loading && error && (
+        <div className="state">
+          <div className="error-box"><h3>Search failed</h3><p>{error}</p></div>
+        </div>
+      )}
+
+      {/* Warning / no results */}
+      {!loading && warning && articles?.length === 0 && (
+        <div className="state"><div className="state-text">{warning}</div></div>
+      )}
+
+      {/* Results */}
+      {!loading && articles && articles.length > 0 && (
+        <section className="source-section">
+          <h2 className="source-header">Results for "{searched}" · {articles.length} article{articles.length !== 1 ? 's' : ''}</h2>
+          <div className="cards">
+            {articles.map((it, i) => (
+              <Card key={i} item={it} isPrism={false} />
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
 // ── Standard feed view ──
 function FeedView({ part, isPrism }) {
   const [data, setData] = useState(null);
@@ -513,7 +613,8 @@ export default function FeedTab() {
       {/* Right content */}
       <div className="feed-main">
         {activeCategory === 'leaderboard' && <LeaderboardView />}
-        {activeCategory !== 'leaderboard' && activeCat && (
+        {activeCategory === 'live' && <LiveSearchView />}
+        {activeCategory !== 'leaderboard' && activeCategory !== 'live' && activeCat && (
           <FeedView part={activeCat.part} isPrism={activeCat.part === 'PRISM'} />
         )}
       </div>

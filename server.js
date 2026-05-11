@@ -397,6 +397,83 @@ app.post('/api/worklet', async (req, res) => {
   }
 });
 
+// ---------- Live Search ----------
+app.post('/api/feed/live-search', async (req, res) => {
+  const { query } = req.body || {};
+  if (!query || !query.trim()) return res.status(400).json({ error: 'query is required' });
+
+  try {
+    const prompt = `Search for the 10 most recent and relevant news articles about: "${query.trim()}"
+
+For each article return its title, URL, and a 1-2 sentence description of what it covers.
+
+Return ONLY a valid JSON array, no markdown, no explanation:
+[{"title":"...","url":"https://...","description":"...","source":"..."},...]`;
+
+    const { text, groundingChunks } = await generateTextWithSearch({
+      model: config.models.scoring,
+      user: prompt,
+      maxTokens: 4000,
+    });
+
+    console.log(`[live-search] query="${query}" chunks=${groundingChunks.length} textLen=${text.length}`);
+
+    // 1. Try grounding chunks first — actual URLs Gemini retrieved
+    if (groundingChunks.length > 0) {
+      // Parse text for descriptions, fall back to chunk titles
+      let descMap = {};
+      try {
+        const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+        const parsed = JSON.parse(cleaned);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((a) => {
+            if (a.url) descMap[a.url] = { description: a.description || '', source: a.source || '' };
+          });
+        }
+      } catch {}
+
+      const articles = groundingChunks
+        .map((c) => {
+          const url = (c.web?.uri || '').trim();
+          const meta = descMap[url] || {};
+          return {
+            title: (c.web?.title || meta.title || '').trim(),
+            url,
+            description: meta.description || '',
+            source: meta.source || (url ? new URL(url).hostname.replace(/^www\./, '') : ''),
+          };
+        })
+        .filter((a) => a.url && a.title)
+        .slice(0, 10);
+
+      if (articles.length > 0) return res.json({ articles });
+    }
+
+    // 2. Parse JSON text response
+    try {
+      const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+      const parsed = JSON.parse(cleaned);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const articles = parsed
+          .map((a) => ({
+            title: (a.title || '').trim(),
+            url: (a.url || '').trim(),
+            description: (a.description || '').trim(),
+            source: a.source || (a.url ? new URL(a.url).hostname.replace(/^www\./, '') : ''),
+          }))
+          .filter((a) => a.title && a.url)
+          .slice(0, 10);
+        if (articles.length > 0) return res.json({ articles });
+      }
+    } catch {}
+
+    res.json({ articles: [], warning: 'No results found. Try a different query.' });
+  } catch (err) {
+    console.error('[live-search] error:', err);
+    res.status(500).json({ error: err.message || 'live search failed' });
+  }
+});
+
 // ---------- Tab 4: Action Items ----------
 const memoryActionItems = new Map(); // file_id -> card
 
