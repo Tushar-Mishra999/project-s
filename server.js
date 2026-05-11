@@ -3243,6 +3243,13 @@ app.post('/api/email/upload-attachment', async (req, res) => {
 
 app.get('/api/health', (_req, res) => res.json({ ok: true, rag: ragReady() }));
 
+// Global JSON error handler — ensures Express never returns an HTML error page
+app.use((err, req, res, next) => {
+  console.error('[unhandled-error]', err);
+  if (res.headersSent) return next(err);
+  res.status(err.status || err.statusCode || 500).json({ error: err.message || 'Internal server error' });
+});
+
 if (process.env.NODE_ENV === 'production') {
   app.get(/^\/(?!api).*/, (_req, res) => {
     res.sendFile(join(__dirname, 'client', 'dist', 'index.html'));

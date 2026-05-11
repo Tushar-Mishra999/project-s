@@ -71,7 +71,8 @@ function RecordPanel({ onTranscribed, onManual, onCancel }) {
       const form = new FormData();
       form.append('audio', audioBlob, 'recording.webm');
       const res = await fetch('/api/minutes/transcribe', { method: 'POST', body: form });
-      const json = await res.json();
+      let json;
+      try { json = await res.json(); } catch { throw new Error(`Transcription failed (server error ${res.status})`); }
       if (!res.ok) throw new Error(json.error || `Server error ${res.status}`);
       onTranscribed(json.transcript);
     } catch (e) {
