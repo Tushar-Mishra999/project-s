@@ -67,6 +67,12 @@
       "parts": ["Data Management"]
     },
     {
+      "name": "LabelYourData Blog",
+      "url": "https://labelyourdata.com/articles",
+      "geminiSearch": true,
+      "parts": ["Data Management"]
+    },
+    {
       "name": "Microsoft News",
       "url": "https://news.microsoft.com",
       "rss": "https://news.microsoft.com/feed/",
