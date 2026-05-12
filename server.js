@@ -17,7 +17,7 @@ if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON && !process.env.GOOGLE_APPLI
   process.env.GOOGLE_APPLICATION_CREDENTIALS = credPath;
 }
 
-import { supabase, ragReady } from './lib/clients.js';
+import { supabase, ragReady, voyage } from './lib/clients.js';
 import { generateChat, generateChatGemma, generateChatGLM, generateChatKimi, generateText, generateWithParts, generateTextWithSearch } from './lib/llm.js';
 import { runFeedPipeline } from './lib/feed.js';
 import { extractActionItems } from './lib/actionItems.js';
@@ -1375,7 +1375,7 @@ async function judgeChunkRelevance(query, chunkText, model) {
     system: 'You are a relevance judge. Given a query and a document chunk, return JSON {"relevant":true} if the chunk is useful for answering the query, or {"relevant":false} if it is not.',
     user: `Query: ${query}\n\nChunk: ${chunkText.slice(0, 1500)}`,
     jsonMode: true,
-    maxTokens: 20,
+    maxTokens: 100,
   });
   try { return JSON.parse(stripJsonFences(raw)).relevant === true; } catch { return false; }
 }
@@ -1386,7 +1386,7 @@ async function decomposeAnswerIntoClaims(answer, model) {
     system: 'Break the following answer into individual atomic factual claims — one per item. Return a JSON array of strings.',
     user: answer.slice(0, 3000),
     jsonMode: true,
-    maxTokens: 600,
+    maxTokens: 1200,
   });
   try {
     const arr = JSON.parse(stripJsonFences(raw));
@@ -1400,7 +1400,7 @@ async function judgeClaimsAgainstContext(claims, contextText, model) {
     system: 'Given a context and a list of claims, return a JSON array of booleans — true if the claim can be found in or directly inferred from the context, false otherwise. Same order as input.',
     user: `Context:\n${contextText.slice(0, 4000)}\n\nClaims:\n${JSON.stringify(claims)}`,
     jsonMode: true,
-    maxTokens: 300,
+    maxTokens: 600,
   });
   try {
     const arr = JSON.parse(stripJsonFences(raw));
@@ -1411,14 +1411,20 @@ async function judgeClaimsAgainstContext(claims, contextText, model) {
 async function generateArtificialQuestions(answer, model) {
   const raw = await generateText({
     model,
-    system: 'Given an answer, generate exactly 3 different questions that this answer would be a direct and complete response to. Return a JSON array of exactly 3 question strings.',
+    system: 'Given an answer, generate exactly 3 different questions that this answer would be a direct and complete response to. Return a JSON array of exactly 3 question strings. Example format: ["Question 1?", "Question 2?", "Question 3?"]',
     user: answer.slice(0, 3000),
     jsonMode: true,
-    maxTokens: 300,
+    maxTokens: 400,
   });
   try {
-    const arr = JSON.parse(stripJsonFences(raw));
-    return Array.isArray(arr) ? arr.slice(0, 3).map(String) : [];
+    const parsed = JSON.parse(stripJsonFences(raw));
+    // Handle both bare array and wrapped object e.g. {"questions":[...]}
+    const arr = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(parsed.questions)
+        ? parsed.questions
+        : Object.values(parsed).find(Array.isArray) || [];
+    return arr.slice(0, 3).map(String).filter(Boolean);
   } catch { return []; }
 }
 
@@ -1457,16 +1463,19 @@ async function computeRagMetrics({ query, answer, chunks }) {
   // Generate 3 artificial questions from the answer, embed them + embed the query,
   // then take the mean cosine similarity.
   let responseRelevance = 0;
-  const { voyage } = await import('./lib/clients.js');
   if (voyage) {
-    const questions = await generateArtificialQuestions(answer, evalModel);
-    if (questions.length > 0) {
-      const [queryEmb, ...qEmbs] = await Promise.all([
-        embedText(query, config.embeddingModel, 'query'),
-        ...questions.map((q) => embedText(q, config.embeddingModel, 'query')),
-      ]);
-      const sims = qEmbs.map((e) => cosineSimilarity(queryEmb, e));
-      responseRelevance = sims.reduce((a, b) => a + b, 0) / sims.length;
+    try {
+      const questions = await generateArtificialQuestions(answer, evalModel);
+      if (questions.length > 0) {
+        const [queryEmb, ...qEmbs] = await Promise.all([
+          embedText(query, config.embeddingModel, 'query'),
+          ...questions.map((q) => embedText(q, config.embeddingModel, 'query')),
+        ]);
+        const sims = qEmbs.map((e) => cosineSimilarity(queryEmb, e));
+        responseRelevance = sims.reduce((a, b) => a + b, 0) / sims.length;
+      }
+    } catch (e) {
+      console.warn('[eval] response relevance failed:', e.message);
     }
   }
 
