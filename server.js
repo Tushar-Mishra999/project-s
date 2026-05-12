@@ -1375,7 +1375,7 @@ async function judgeChunkRelevance(query, chunkText, model) {
     system: 'You are a relevance judge. Given a query and a document chunk, return JSON {"relevant":true} if the chunk is useful for answering the query, or {"relevant":false} if it is not.',
     user: `Query: ${query}\n\nChunk: ${chunkText.slice(0, 1500)}`,
     jsonMode: true,
-    maxTokens: 100,
+    maxTokens: 1024,
   });
   try { return JSON.parse(stripJsonFences(raw)).relevant === true; } catch { return false; }
 }
@@ -1386,7 +1386,7 @@ async function decomposeAnswerIntoClaims(answer, model) {
     system: 'Break the following answer into individual atomic factual claims — one per item. Return a JSON array of strings.',
     user: answer.slice(0, 3000),
     jsonMode: true,
-    maxTokens: 1200,
+    maxTokens: 4096,
   });
   try {
     const arr = JSON.parse(stripJsonFences(raw));
@@ -1400,7 +1400,7 @@ async function judgeClaimsAgainstContext(claims, contextText, model) {
     system: 'Given a context and a list of claims, return a JSON array of booleans — true if the claim can be found in or directly inferred from the context, false otherwise. Same order as input.',
     user: `Context:\n${contextText.slice(0, 4000)}\n\nClaims:\n${JSON.stringify(claims)}`,
     jsonMode: true,
-    maxTokens: 600,
+    maxTokens: 2048,
   });
   try {
     const arr = JSON.parse(stripJsonFences(raw));
@@ -1414,7 +1414,7 @@ async function generateArtificialQuestions(answer, model) {
     system: 'Given an answer, generate exactly 3 different questions that this answer would be a direct and complete response to. Return a JSON array of exactly 3 question strings. Example format: ["Question 1?", "Question 2?", "Question 3?"]',
     user: answer.slice(0, 3000),
     jsonMode: true,
-    maxTokens: 400,
+    maxTokens: 1024,
   });
   try {
     const parsed = JSON.parse(stripJsonFences(raw));
