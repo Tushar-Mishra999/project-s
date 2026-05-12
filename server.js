@@ -1299,6 +1299,7 @@ app.post('/api/chat', async (req, res) => {
 
     let contextBlock;
     let sources = [];
+    let evalChunks = [];
 
     if (include_chatroom) {
       // Chatroom mode — skip document search entirely, use only chatroom chunks.
@@ -1326,6 +1327,7 @@ app.post('/api/chat', async (req, res) => {
         chunk_index: c.chunk_index,
         filetype: c.filetype,
       }));
+      evalChunks = chunks.map((c) => ({ chunk_text: c.chunk_text, filename: c.filename }));
     }
 
     const history = Array.isArray(conversation_history) ? conversation_history : [];
@@ -1348,10 +1350,172 @@ app.post('/api/chat', async (req, res) => {
       answer = await generateChat({ model: config.models.chat, system: CHAT_SYSTEM, messages, maxTokens: 4096 });
     }
 
-    res.json({ answer, sources });
+    res.json({ answer, sources, eval_chunks: evalChunks });
   } catch (err) {
     console.error('[chat] error:', err);
     res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+// ---------- RAG Evaluation ----------
+
+function cosineSimilarity(a, b) {
+  let dot = 0, normA = 0, normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB) + 1e-10);
+}
+
+async function judgeChunkRelevance(query, chunkText, model) {
+  const raw = await generateText({
+    model,
+    system: 'You are a relevance judge. Given a query and a document chunk, return JSON {"relevant":true} if the chunk is useful for answering the query, or {"relevant":false} if it is not.',
+    user: `Query: ${query}\n\nChunk: ${chunkText.slice(0, 1500)}`,
+    jsonMode: true,
+    maxTokens: 20,
+  });
+  try { return JSON.parse(stripJsonFences(raw)).relevant === true; } catch { return false; }
+}
+
+async function decomposeAnswerIntoClaims(answer, model) {
+  const raw = await generateText({
+    model,
+    system: 'Break the following answer into individual atomic factual claims — one per item. Return a JSON array of strings.',
+    user: answer.slice(0, 3000),
+    jsonMode: true,
+    maxTokens: 600,
+  });
+  try {
+    const arr = JSON.parse(stripJsonFences(raw));
+    return Array.isArray(arr) ? arr.map(String) : [];
+  } catch { return []; }
+}
+
+async function judgeClaimsAgainstContext(claims, contextText, model) {
+  const raw = await generateText({
+    model,
+    system: 'Given a context and a list of claims, return a JSON array of booleans — true if the claim can be found in or directly inferred from the context, false otherwise. Same order as input.',
+    user: `Context:\n${contextText.slice(0, 4000)}\n\nClaims:\n${JSON.stringify(claims)}`,
+    jsonMode: true,
+    maxTokens: 300,
+  });
+  try {
+    const arr = JSON.parse(stripJsonFences(raw));
+    return Array.isArray(arr) ? arr.map(Boolean) : claims.map(() => false);
+  } catch { return claims.map(() => false); }
+}
+
+async function generateArtificialQuestions(answer, model) {
+  const raw = await generateText({
+    model,
+    system: 'Given an answer, generate exactly 3 different questions that this answer would be a direct and complete response to. Return a JSON array of exactly 3 question strings.',
+    user: answer.slice(0, 3000),
+    jsonMode: true,
+    maxTokens: 300,
+  });
+  try {
+    const arr = JSON.parse(stripJsonFences(raw));
+    return Array.isArray(arr) ? arr.slice(0, 3).map(String) : [];
+  } catch { return []; }
+}
+
+async function computeRagMetrics({ query, answer, chunks }) {
+  const evalModel = config.models.chat;
+
+  // 1. Context Precision@K
+  // For each chunk at rank k: v_k = 1 if relevant, 0 if not.
+  // Precision@k = relevant_so_far / k
+  // Score = Σ(Precision@k × v_k) / total_relevant
+  const relevanceFlags = await Promise.all(
+    chunks.map((c) => judgeChunkRelevance(query, c.chunk_text, evalModel))
+  );
+  let relevantSoFar = 0;
+  let sumPrecisionAtK = 0;
+  const totalRelevant = relevanceFlags.filter(Boolean).length;
+  for (let k = 0; k < relevanceFlags.length; k++) {
+    const vk = relevanceFlags[k] ? 1 : 0;
+    relevantSoFar += vk;
+    sumPrecisionAtK += (relevantSoFar / (k + 1)) * vk;
+  }
+  const contextPrecision = totalRelevant > 0 ? sumPrecisionAtK / totalRelevant : 0;
+
+  // 2. Faithfulness
+  // Decompose answer into claims, check each against context.
+  // Score = supported_claims / total_claims
+  const claims = await decomposeAnswerIntoClaims(answer, evalModel);
+  let faithfulness = 1;
+  if (claims.length > 0) {
+    const contextText = chunks.map((c) => c.chunk_text).join('\n\n');
+    const supportFlags = await judgeClaimsAgainstContext(claims, contextText, evalModel);
+    faithfulness = supportFlags.filter(Boolean).length / claims.length;
+  }
+
+  // 3. Response Relevance
+  // Generate 3 artificial questions from the answer, embed them + embed the query,
+  // then take the mean cosine similarity.
+  let responseRelevance = 0;
+  const { voyage } = await import('./lib/clients.js');
+  if (voyage) {
+    const questions = await generateArtificialQuestions(answer, evalModel);
+    if (questions.length > 0) {
+      const [queryEmb, ...qEmbs] = await Promise.all([
+        embedText(query, config.embeddingModel, 'query'),
+        ...questions.map((q) => embedText(q, config.embeddingModel, 'query')),
+      ]);
+      const sims = qEmbs.map((e) => cosineSimilarity(queryEmb, e));
+      responseRelevance = sims.reduce((a, b) => a + b, 0) / sims.length;
+    }
+  }
+
+  return {
+    contextPrecision: Math.round(contextPrecision * 1000) / 1000,
+    faithfulness: Math.round(faithfulness * 1000) / 1000,
+    responseRelevance: Math.round(responseRelevance * 1000) / 1000,
+  };
+}
+
+app.post('/api/chat/evaluate', async (req, res) => {
+  const { query, answer, chunks } = req.body || {};
+  if (!query || !answer || !Array.isArray(chunks) || chunks.length === 0) {
+    return res.status(400).json({ error: 'query, answer, and chunks array are required' });
+  }
+  try {
+    const metrics = await computeRagMetrics({ query, answer, chunks });
+
+    if (supabase) {
+      await supabase.from('rag_evaluations').insert({
+        query,
+        answer: answer.slice(0, 2000),
+        context_precision: metrics.contextPrecision,
+        faithfulness: metrics.faithfulness,
+        response_relevance: metrics.responseRelevance,
+      });
+
+      const { data: summary } = await supabase
+        .from('rag_eval_summary')
+        .select('*')
+        .eq('id', 1)
+        .maybeSingle();
+      if (summary) {
+        const n = (summary.total_count || 0) + 1;
+        await supabase.from('rag_eval_summary').upsert({
+          id: 1,
+          avg_context_precision: ((summary.avg_context_precision || 0) * (n - 1) + metrics.contextPrecision) / n,
+          avg_faithfulness: ((summary.avg_faithfulness || 0) * (n - 1) + metrics.faithfulness) / n,
+          avg_response_relevance: ((summary.avg_response_relevance || 0) * (n - 1) + metrics.responseRelevance) / n,
+          total_count: n,
+          updated_at: new Date().toISOString(),
+        });
+      }
+    }
+
+    res.json(metrics);
+  } catch (err) {
+    console.error('[chat/evaluate] error:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 

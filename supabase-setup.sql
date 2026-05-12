@@ -301,3 +301,26 @@ insert into users (id, name, role, part, team) values
   ('u_mem_t3',    'Elena Costa',   'Member',   null,                 'Team 3')
 on conflict (id) do nothing;
 
+-- 19. RAG evaluation scores — one row per evaluated chat response.
+create table if not exists rag_evaluations (
+  id                 uuid primary key default gen_random_uuid(),
+  query              text not null,
+  answer             text,
+  context_precision  float,
+  faithfulness       float,
+  response_relevance float,
+  created_at         timestamptz default now()
+);
+
+-- 20. RAG eval running averages — single row, upserted after each evaluation.
+create table if not exists rag_eval_summary (
+  id                     integer primary key default 1,
+  avg_context_precision  float not null default 0,
+  avg_faithfulness       float not null default 0,
+  avg_response_relevance float not null default 0,
+  total_count            integer not null default 0,
+  updated_at             timestamptz default now()
+);
+
+insert into rag_eval_summary (id) values (1) on conflict do nothing;
+
