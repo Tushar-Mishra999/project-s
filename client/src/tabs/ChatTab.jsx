@@ -1,19 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 
-const THINK_STEPS = ['Routing query…', 'Searching documents…', 'Generating answer…'];
-
-function ThinkingRow() {
-  const [step, setStep] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setStep((s) => (s + 1) % THINK_STEPS.length), 1500);
-    return () => clearInterval(id);
-  }, []);
+function ThinkingRow({ searchType }) {
   return (
     <div className="bubble-row assistant">
       <div className="bubble assistant" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <div className="typing"><span /><span /><span /></div>
-        <span style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>{THINK_STEPS[step]}</span>
+        {searchType
+          ? <SearchBadge searchType={searchType} />
+          : <span style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>Agent thinking…</span>
+        }
       </div>
     </div>
   );
@@ -275,9 +271,10 @@ export default function ChatTab({ activePart, activeUserId, activeUser }) {
   const scopeLabel = activeUser?.role === 'MD'
     ? 'All documents'
     : (activeUser?.part || activeUser?.team || activePart || '…');
-  const [messages, setMessages] = useState([]); // {role, content, sources?}
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [thinkingType, setThinkingType] = useState(null);
   const [chatModel, setChatModel] = useState('gemini');
   const scrollRef = useRef(null);
 
@@ -305,8 +302,13 @@ export default function ChatTab({ activePart, activeUserId, activeUser }) {
     setMessages((m) => [...m, newUser]);
     setInput('');
     setSending(true);
+    setThinkingType(null);
 
     try {
+      // Fire route lookup in parallel so the thinking bubble updates early
+      fetch('/api/chat/route', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q, user_id: activeUserId }) })
+        .then((r) => r.json()).then((j) => setThinkingType(j.search_type || null)).catch(() => {});
+
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -325,6 +327,7 @@ export default function ChatTab({ activePart, activeUserId, activeUser }) {
       ]);
     } finally {
       setSending(false);
+      setThinkingType(null);
     }
   };
 
@@ -366,7 +369,7 @@ export default function ChatTab({ activePart, activeUserId, activeUser }) {
             </div>
           </div>
         ))}
-        {sending && <ThinkingRow />}
+        {sending && <ThinkingRow searchType={thinkingType} />}
       </div>
 
       <form className="chat-input-bar" onSubmit={send}>

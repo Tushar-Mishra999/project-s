@@ -1,18 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 
-const THINK_STEPS = ['Routing query…', 'Searching documents…', 'Generating answer…'];
-
-function ThinkingBubble() {
-  const [step, setStep] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setStep((s) => (s + 1) % THINK_STEPS.length), 1500);
-    return () => clearInterval(id);
-  }, []);
+function ThinkingBubble({ searchType }) {
   return (
     <div className="chat-fab-bubble assistant" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       <div className="typing"><span /><span /><span /></div>
-      <span style={{ fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic' }}>{THINK_STEPS[step]}</span>
+      {searchType
+        ? <SearchBadge searchType={searchType} />
+        : <span style={{ fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic' }}>Agent thinking…</span>
+      }
     </div>
   );
 }
@@ -191,6 +187,7 @@ export default function ChatFAB({ activePart, activeUserId, activeUser }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [thinkingType, setThinkingType] = useState(null);
   const [chatModel, setChatModel] = useState('gemini');
   const [showModels, setShowModels] = useState(false);
   const [includeChatroom, setIncludeChatroom] = useState(false);
@@ -226,18 +223,21 @@ export default function ChatFAB({ activePart, activeUserId, activeUser }) {
     e?.preventDefault();
     const q = input.trim();
     if (!q || sending || !activeUserId) return;
-    const newUser = { role: 'user', content: q };
     const history = messages.filter((m) => m.role === 'user' || m.role === 'assistant').map((m) => ({ role: m.role, content: m.content }));
-    setMessages((m) => [...m, newUser]);
-    setInput(''); setSending(true);
+    setMessages((m) => [...m, { role: 'user', content: q }]);
+    setInput(''); setSending(true); setThinkingType(null);
     try {
+      // Fire route lookup in parallel so we can update the thinking bubble early
+      fetch('/api/chat/route', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q, user_id: activeUserId }) })
+        .then((r) => r.json()).then((j) => setThinkingType(j.search_type || null)).catch(() => {});
+
       const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q, user_id: activeUserId, conversation_history: history, chat_model: chatModel, include_chatroom: includeChatroom && isExec }) });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Request failed');
       setMessages((m) => [...m, { role: 'assistant', content: json.answer, sources: json.sources || [], evalChunks: json.eval_chunks || [], query: q, searchType: json.search_type || null }]);
     } catch (err) {
       setMessages((m) => [...m, { role: 'assistant', content: `Something went wrong. (${err.message})`, error: true }]);
-    } finally { setSending(false); }
+    } finally { setSending(false); setThinkingType(null); }
   };
 
   return (
@@ -352,7 +352,7 @@ export default function ChatFAB({ activePart, activeUserId, activeUser }) {
               )}
             </div>
           ))}
-          {sending && <ThinkingBubble />}
+          {sending && <ThinkingBubble searchType={thinkingType} />}
         </div>
 
         <form className="chat-fab-input" onSubmit={send}>

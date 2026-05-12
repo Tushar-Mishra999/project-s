@@ -1305,6 +1305,17 @@ app.post('/api/retrieve', async (req, res) => {
 const CHAT_SYSTEM =
   "You are a knowledge assistant with access to internal documents. Answer the user's question using only the context provided below. If the answer is not present in the context, say 'I could not find this in the uploaded documents' — do not use general knowledge. Always cite the source filename at the end of your answer.";
 
+app.post('/api/chat/route', async (req, res) => {
+  const { query, user_id } = req.body || {};
+  if (!query) return res.status(400).json({ error: 'query required' });
+  try {
+    const route = await routeQuery(query, config.models.chat);
+    res.json({ search_type: route.search_type, reason: route.reason });
+  } catch {
+    res.json({ search_type: 'vector', reason: 'fallback' });
+  }
+});
+
 app.post('/api/chat', async (req, res) => {
   const { query, part, user_id, conversation_history, chat_model, include_chatroom } = req.body || {};
   if (!query) return res.status(400).json({ error: 'query is required' });
