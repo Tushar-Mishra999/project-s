@@ -17,7 +17,7 @@ if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON && !process.env.GOOGLE_APPLI
   process.env.GOOGLE_APPLICATION_CREDENTIALS = credPath;
 }
 
-import { supabase, ragReady, voyage } from './lib/clients.js';
+import { supabase, ragReady } from './lib/clients.js';
 import { initConstraints, neo4jReady } from './lib/neo4j.js';
 import { extractEntities, writeDocumentToGraph, deleteDocumentFromGraph, graphSearch, routeQuery } from './lib/graphExtract.js';
 import { generateChat, generateChatGemma, generateChatGLM, generateChatKimi, generateText, generateWithParts, generateTextWithSearch } from './lib/llm.js';
@@ -1501,7 +1501,7 @@ async function computeRagMetrics({ query, answer, chunks }) {
   // Generate 3 artificial questions from the answer, embed them + embed the query,
   // then take the mean cosine similarity.
   let responseRelevance = 0;
-  if (voyage) {
+  if (true) {
     try {
       const questions = await generateArtificialQuestions(answer, evalModel);
       if (questions.length > 0) {
