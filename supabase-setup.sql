@@ -40,7 +40,7 @@ create table if not exists chunks (
   chunk_summary          text,
   keywords               text[] default '{}',
   hypothetical_questions text[] default '{}',
-  embedding              vector(1024),
+  embedding              vector(768),
   chunk_index            integer,
   created_at             timestamptz default now()
 );
@@ -52,7 +52,7 @@ create index if not exists chunks_embedding_idx
 -- 5. RPC for filtered vector search.
 -- Filters by Part-level access *before* similarity, then returns top-k.
 create or replace function match_chunks(
-  query_embedding vector(1024),
+  query_embedding vector(768),
   part_filter     text default null,
   match_count     int default 20
 )
@@ -246,7 +246,7 @@ create table if not exists chatroom_chunks (
   id             uuid primary key default gen_random_uuid(),
   chunk_text     text not null,
   topic_summary  text,
-  embedding      vector(1024),
+  embedding      vector(768),
   processed_date date not null,
   created_at     timestamptz default now()
 );
@@ -258,7 +258,7 @@ create index if not exists chatroom_chunks_date_idx
   on chatroom_chunks(processed_date);
 
 create or replace function match_chatroom_chunks(
-  query_embedding vector(1024),
+  query_embedding vector(768),
   match_count     int default 5
 )
 returns table (
