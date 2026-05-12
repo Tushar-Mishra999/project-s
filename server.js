@@ -18,6 +18,8 @@ if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON && !process.env.GOOGLE_APPLI
 }
 
 import { supabase, ragReady, voyage } from './lib/clients.js';
+import { initConstraints, neo4jReady } from './lib/neo4j.js';
+import { extractEntities, writeDocumentToGraph, deleteDocumentFromGraph, graphSearch, routeQuery } from './lib/graphExtract.js';
 import { generateChat, generateChatGemma, generateChatGLM, generateChatKimi, generateText, generateWithParts, generateTextWithSearch } from './lib/llm.js';
 import { runFeedPipeline } from './lib/feed.js';
 import { extractActionItems } from './lib/actionItems.js';
@@ -943,6 +945,7 @@ app.delete('/api/files/:id', async (req, res) => {
       if (val.file_id === id) memoryActionItems.delete(key);
     }
     console.log(`[delete] file ${id} removed (chunks + action items cascaded)`);
+    deleteDocumentFromGraph(id);
     res.json({ ok: true });
   } catch (err) {
     console.error('[delete] error:', err);
@@ -1065,6 +1068,17 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
     }
 
     console.log(`[upload] done. file_id=${fileRow.id}, ${inserted}/${chunks.length} chunks stored`);
+
+    // Graph indexing (best-effort, non-blocking)
+    if (neo4jReady()) {
+      extractEntities(extracted.text, config.models.chat).then((entities) =>
+        writeDocumentToGraph({
+          fileId: fileRow.id, filename, filetype: ext || filetype,
+          fileUrl, uploadedBy, part: accessibleTo[0] || '',
+          entities,
+        })
+      ).catch((err) => console.warn('[graph] indexing failed:', err.message));
+    }
 
     // Auto-release any locks held by this user — uploading a new version
     // implies their edit session is finished.
@@ -1291,6 +1305,17 @@ app.post('/api/retrieve', async (req, res) => {
 const CHAT_SYSTEM =
   "You are a knowledge assistant with access to internal documents. Answer the user's question using only the context provided below. If the answer is not present in the context, say 'I could not find this in the uploaded documents' — do not use general knowledge. Always cite the source filename at the end of your answer.";
 
+app.post('/api/chat/route', async (req, res) => {
+  const { query, user_id } = req.body || {};
+  if (!query) return res.status(400).json({ error: 'query required' });
+  try {
+    const route = await routeQuery(query, config.models.chat);
+    res.json({ search_type: route.search_type, reason: route.reason });
+  } catch {
+    res.json({ search_type: 'vector', reason: 'fallback' });
+  }
+});
+
 app.post('/api/chat', async (req, res) => {
   const { query, part, user_id, conversation_history, chat_model, include_chatroom } = req.body || {};
   if (!query) return res.status(400).json({ error: 'query is required' });
@@ -1300,6 +1325,7 @@ app.post('/api/chat', async (req, res) => {
     let contextBlock;
     let sources = [];
     let evalChunks = [];
+    let searchType = null;
 
     if (include_chatroom) {
       // Chatroom mode — skip document search entirely, use only chatroom chunks.
@@ -1308,8 +1334,20 @@ app.post('/api/chat', async (req, res) => {
         ? `--- Executive Chatroom History ---\n${chatroomText}`
         : '(no chatroom messages found)';
     } else {
-      // Document mode — standard RAG pipeline.
-      const chunks = await retrieve({ query, partFilter });
+      // Document mode — route to graph or vector search.
+      let chunks;
+      const route = await routeQuery(query, config.models.chat);
+      searchType = route.search_type;
+      console.log(`[chat] route=${route.search_type} (${route.reason})`);
+      if (route.search_type === 'graph' && neo4jReady()) {
+        chunks = await graphSearch({ entities: route.entities, partFilter });
+        if (chunks.length === 0) {
+          // Fallback to vector if graph returned nothing
+          chunks = await retrieve({ query, partFilter });
+        }
+      } else {
+        chunks = await retrieve({ query, partFilter });
+      }
       contextBlock = chunks.length
         ? chunks
             .map((c) => {
@@ -1350,7 +1388,7 @@ app.post('/api/chat', async (req, res) => {
       answer = await generateChat({ model: config.models.chat, system: CHAT_SYSTEM, messages, maxTokens: 4096 });
     }
 
-    res.json({ answer, sources, eval_chunks: evalChunks });
+    res.json({ answer, sources, eval_chunks: evalChunks, search_type: searchType });
   } catch (err) {
     console.error('[chat] error:', err);
     res.status(err.status || 500).json({ error: err.message });
@@ -3735,4 +3773,7 @@ if (process.env.NODE_ENV === 'production') {
 
 const httpServer = http.createServer(app);
 httpServer.timeout = 360_000; // 6 min — headroom above the 5-min LLM budget
-httpServer.listen(PORT, () => console.log(`Server listening on http://localhost:${PORT}`));
+httpServer.listen(PORT, () => {
+  console.log(`Server listening on http://localhost:${PORT}`);
+  initConstraints();
+});

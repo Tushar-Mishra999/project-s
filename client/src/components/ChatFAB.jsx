@@ -1,6 +1,38 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 
+function ThinkingBubble({ searchType }) {
+  return (
+    <div className="chat-fab-bubble assistant" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div className="typing"><span /><span /><span /></div>
+      {searchType
+        ? <SearchBadge searchType={searchType} />
+        : <span style={{ fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic' }}>Agent thinking…</span>
+      }
+    </div>
+  );
+}
+
+function SearchBadge({ searchType }) {
+  if (!searchType) return null;
+  const isGraph = searchType === 'graph';
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 5,
+      padding: '2px 7px', borderRadius: 20, fontSize: 9, fontWeight: 700,
+      letterSpacing: '0.06em', textTransform: 'uppercase',
+      background: isGraph ? 'rgba(139,92,246,0.12)' : 'rgba(59,130,246,0.12)',
+      color: isGraph ? '#a78bfa' : '#60a5fa',
+      border: `1px solid ${isGraph ? 'rgba(139,92,246,0.3)' : 'rgba(59,130,246,0.3)'}`,
+    }}>
+      {isGraph
+        ? <><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="5" cy="12" r="3"/><circle cx="19" cy="5" r="3"/><circle cx="19" cy="19" r="3"/><line x1="8" y1="11" x2="16" y2="6"/><line x1="8" y1="13" x2="16" y2="18"/></svg> Graph Search</>
+        : <><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Vector Search</>
+      }
+    </span>
+  );
+}
+
 const MODEL_ICONS = {
   gemini: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" fill="url(#fab_gi)"/><defs><radialGradient id="fab_gi" cx="30%" cy="30%"><stop offset="0%" stopColor="#a78bfa"/><stop offset="100%" stopColor="#3b82f6"/></radialGradient></defs></svg>,
   gemma: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}><path d="M12 2L4 7v10l8 5 8-5V7z" fill="url(#fab_gma)"/><defs><radialGradient id="fab_gma" cx="30%" cy="30%"><stop offset="0%" stopColor="#34d399"/><stop offset="100%" stopColor="#059669"/></radialGradient></defs></svg>,
@@ -155,6 +187,7 @@ export default function ChatFAB({ activePart, activeUserId, activeUser }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [thinkingType, setThinkingType] = useState(null);
   const [chatModel, setChatModel] = useState('gemini');
   const [showModels, setShowModels] = useState(false);
   const [includeChatroom, setIncludeChatroom] = useState(false);
@@ -190,18 +223,21 @@ export default function ChatFAB({ activePart, activeUserId, activeUser }) {
     e?.preventDefault();
     const q = input.trim();
     if (!q || sending || !activeUserId) return;
-    const newUser = { role: 'user', content: q };
     const history = messages.filter((m) => m.role === 'user' || m.role === 'assistant').map((m) => ({ role: m.role, content: m.content }));
-    setMessages((m) => [...m, newUser]);
-    setInput(''); setSending(true);
+    setMessages((m) => [...m, { role: 'user', content: q }]);
+    setInput(''); setSending(true); setThinkingType(null);
     try {
+      // Fire route lookup in parallel so we can update the thinking bubble early
+      fetch('/api/chat/route', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q, user_id: activeUserId }) })
+        .then((r) => r.json()).then((j) => setThinkingType(j.search_type || null)).catch(() => {});
+
       const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q, user_id: activeUserId, conversation_history: history, chat_model: chatModel, include_chatroom: includeChatroom && isExec }) });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Request failed');
-      setMessages((m) => [...m, { role: 'assistant', content: json.answer, sources: json.sources || [], evalChunks: json.eval_chunks || [], query: q }]);
+      setMessages((m) => [...m, { role: 'assistant', content: json.answer, sources: json.sources || [], evalChunks: json.eval_chunks || [], query: q, searchType: json.search_type || null }]);
     } catch (err) {
       setMessages((m) => [...m, { role: 'assistant', content: `Something went wrong. (${err.message})`, error: true }]);
-    } finally { setSending(false); }
+    } finally { setSending(false); setThinkingType(null); }
   };
 
   return (
@@ -309,15 +345,14 @@ export default function ChatFAB({ activePart, activeUserId, activeUser }) {
               {m.role === 'assistant' && !m.error ? (
                 <div className="md"><ReactMarkdown>{m.content}</ReactMarkdown></div>
               ) : m.content}
+              {m.role === 'assistant' && <SearchBadge searchType={m.searchType} />}
               {m.role === 'assistant' && <SourcesList sources={m.sources} />}
               {m.role === 'assistant' && !m.error && (
                 <EvalPanel query={m.query} answer={m.content} evalChunks={m.evalChunks} />
               )}
             </div>
           ))}
-          {sending && (
-            <div className="chat-fab-bubble assistant typing"><span /><span /><span /></div>
-          )}
+          {sending && <ThinkingBubble searchType={thinkingType} />}
         </div>
 
         <form className="chat-fab-input" onSubmit={send}>
