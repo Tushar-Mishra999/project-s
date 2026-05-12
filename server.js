@@ -1335,7 +1335,7 @@ app.post('/api/chat', async (req, res) => {
     } else if (chat_model === 'kimi') {
       answer = await generateChatKimi({ system: CHAT_SYSTEM, messages, maxTokens: 2048 });
     } else {
-      answer = await generateChat({ model: config.models.chat, system: CHAT_SYSTEM, messages, maxTokens: 1024 });
+      answer = await generateChat({ model: config.models.chat, system: CHAT_SYSTEM, messages, maxTokens: 4096 });
     }
 
     const sources = chunks.map((c) => ({
