@@ -1314,6 +1314,7 @@ app.post('/api/chat', async (req, res) => {
     let contextBlock;
     let sources = [];
     let evalChunks = [];
+    let searchType = null;
 
     if (include_chatroom) {
       // Chatroom mode — skip document search entirely, use only chatroom chunks.
@@ -1325,6 +1326,7 @@ app.post('/api/chat', async (req, res) => {
       // Document mode — route to graph or vector search.
       let chunks;
       const route = await routeQuery(query, config.models.chat);
+      searchType = route.search_type;
       console.log(`[chat] route=${route.search_type} (${route.reason})`);
       if (route.search_type === 'graph' && neo4jReady()) {
         chunks = await graphSearch({ entities: route.entities, partFilter });
@@ -1375,7 +1377,7 @@ app.post('/api/chat', async (req, res) => {
       answer = await generateChat({ model: config.models.chat, system: CHAT_SYSTEM, messages, maxTokens: 4096 });
     }
 
-    res.json({ answer, sources, eval_chunks: evalChunks });
+    res.json({ answer, sources, eval_chunks: evalChunks, search_type: searchType });
   } catch (err) {
     console.error('[chat] error:', err);
     res.status(err.status || 500).json({ error: err.message });
