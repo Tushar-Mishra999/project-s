@@ -1296,26 +1296,36 @@ app.post('/api/chat', async (req, res) => {
   if (!query) return res.status(400).json({ error: 'query is required' });
   try {
     const partFilter = await resolvePartFilter({ user_id, part });
-    const chunks = await retrieve({ query, partFilter });
 
-    const docContext = chunks.length
-      ? chunks
-          .map((c) => {
-            const label =
-              c.filetype && c.filetype.toLowerCase().includes('pptx')
-                ? `Slide ${c.chunk_index + 1}`
-                : `Chunk ${c.chunk_index}`;
-            return `[Source: ${c.filename}, ${label}]\n${c.chunk_text}`;
-          })
-          .join('\n\n')
-      : '(no matching context found)';
+    let contextBlock;
+    let sources = [];
 
-    let contextBlock = docContext;
     if (include_chatroom) {
+      // Chatroom mode — skip document search entirely, use only chatroom chunks.
       const chatroomText = await getChatroomContext(query);
-      if (chatroomText) {
-        contextBlock = `--- Executive Chatroom History ---\n${chatroomText}\n\n--- Document Context ---\n${docContext}`;
-      }
+      contextBlock = chatroomText
+        ? `--- Executive Chatroom History ---\n${chatroomText}`
+        : '(no chatroom messages found)';
+    } else {
+      // Document mode — standard RAG pipeline.
+      const chunks = await retrieve({ query, partFilter });
+      contextBlock = chunks.length
+        ? chunks
+            .map((c) => {
+              const label =
+                c.filetype && c.filetype.toLowerCase().includes('pptx')
+                  ? `Slide ${c.chunk_index + 1}`
+                  : `Chunk ${c.chunk_index}`;
+              return `[Source: ${c.filename}, ${label}]\n${c.chunk_text}`;
+            })
+            .join('\n\n')
+        : '(no matching context found)';
+      sources = chunks.map((c) => ({
+        filename: c.filename,
+        file_url: c.file_url,
+        chunk_index: c.chunk_index,
+        filetype: c.filetype,
+      }));
     }
 
     const history = Array.isArray(conversation_history) ? conversation_history : [];
@@ -1338,12 +1348,6 @@ app.post('/api/chat', async (req, res) => {
       answer = await generateChat({ model: config.models.chat, system: CHAT_SYSTEM, messages, maxTokens: 4096 });
     }
 
-    const sources = chunks.map((c) => ({
-      filename: c.filename,
-      file_url: c.file_url,
-      chunk_index: c.chunk_index,
-      filetype: c.filetype,
-    }));
     res.json({ answer, sources });
   } catch (err) {
     console.error('[chat] error:', err);
