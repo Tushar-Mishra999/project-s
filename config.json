@@ -114,8 +114,8 @@
     "reranker": "gemini-2.5-flash",
     "chat": "gemini-2.5-flash"
   },
-  "embeddingModel": "text-embedding-004",
-  "embeddingDimensions": 768,
+  "embeddingModel": "voyage-3",
+  "embeddingDimensions": 1024,
   "rag": {
     "vector_search_top_k": 20,
     "rerank_top_n": 5,
