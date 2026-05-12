@@ -1480,10 +1480,14 @@ app.post('/api/report/generate', async (req, res) => {
     return res.status(400).json({ error: 'input_data is required' });
   }
   try {
-    let finalInput = input_data;
+    let finalInput;
     if (include_chatroom) {
       const chatroomText = await getChatroomContext(input_data.slice(0, 500));
-      if (chatroomText) finalInput = `${finalInput}\n\n--- Executive Chatroom History ---\n${chatroomText}`;
+      finalInput = chatroomText
+        ? `Report instruction: ${input_data}\n\n--- Executive Chatroom History (Source) ---\n${chatroomText}`
+        : '(no chatroom messages found)';
+    } else {
+      finalInput = input_data;
     }
     const userMsg = `--- INPUT DATA ---\n${finalInput}${outputFormatHint(output_format)}`;
     const report = await generateReport({ report_model, system: REPORT_SYSTEM_FREE, userMsg, maxTokens: 16000 });
@@ -1502,59 +1506,69 @@ app.post('/api/report/generate-from-files', async (req, res) => {
     return res.status(400).json({ error: 'file_ids array is required' });
   }
   try {
-    const { data: files, error: fErr } = await supabase
-      .from('files').select('id, filename').in('id', file_ids);
-    if (fErr) throw fErr;
-    if (!files || files.length === 0) {
-      return res.status(404).json({ error: 'no files found for the provided ids' });
-    }
-
-    const fileById = new Map(files.map((f) => [f.id, f]));
-    const { data: chunks, error: cErr } = await supabase
-      .from('chunks')
-      .select('file_id, chunk_index, chunk_text')
-      .in('file_id', file_ids)
-      .order('chunk_index', { ascending: true });
-    if (cErr) throw cErr;
-    const byFile = new Map();
-    for (const c of chunks || []) {
-      if (!byFile.has(c.file_id)) byFile.set(c.file_id, []);
-      byFile.get(c.file_id).push(c.chunk_text || '');
-    }
-
-    const PER_FILE_LIMIT = 60000;
-    const sections = file_ids
-      .map((fid) => {
-        const f = fileById.get(fid);
-        if (!f) return null;
-        const text = (byFile.get(fid) || []).join('\n\n').slice(0, PER_FILE_LIMIT);
-        if (!text.trim()) return null;
-        return `### Source: ${f.filename}\n${text}`;
-      })
-      .filter(Boolean);
-
-    if (sections.length === 0) {
-      return res.status(422).json({ error: 'selected files have no extractable content' });
-    }
-
-    const inputParts = [
-      instruction ? `User instruction: ${instruction}` : null,
-      'Source documents:',
-      sections.join('\n\n---\n\n'),
-    ].filter(Boolean);
+    let inputData;
+    let usedFiles = [];
 
     if (include_chatroom) {
+      // Chatroom mode — skip file fetching, use only chatroom context as source.
       const chatroomText = await getChatroomContext(instruction?.slice(0, 500) || null);
-      if (chatroomText) inputParts.push(`\n--- Executive Chatroom History ---\n${chatroomText}`);
+      const parts = [
+        instruction ? `User instruction: ${instruction}` : null,
+        chatroomText
+          ? `--- Executive Chatroom History (Source) ---\n${chatroomText}`
+          : '(no chatroom messages found)',
+      ].filter(Boolean);
+      inputData = parts.join('\n\n');
+    } else {
+      const { data: files, error: fErr } = await supabase
+        .from('files').select('id, filename').in('id', file_ids);
+      if (fErr) throw fErr;
+      if (!files || files.length === 0) {
+        return res.status(404).json({ error: 'no files found for the provided ids' });
+      }
+      usedFiles = files;
+
+      const fileById = new Map(files.map((f) => [f.id, f]));
+      const { data: chunks, error: cErr } = await supabase
+        .from('chunks')
+        .select('file_id, chunk_index, chunk_text')
+        .in('file_id', file_ids)
+        .order('chunk_index', { ascending: true });
+      if (cErr) throw cErr;
+      const byFile = new Map();
+      for (const c of chunks || []) {
+        if (!byFile.has(c.file_id)) byFile.set(c.file_id, []);
+        byFile.get(c.file_id).push(c.chunk_text || '');
+      }
+
+      const PER_FILE_LIMIT = 60000;
+      const sections = file_ids
+        .map((fid) => {
+          const f = fileById.get(fid);
+          if (!f) return null;
+          const text = (byFile.get(fid) || []).join('\n\n').slice(0, PER_FILE_LIMIT);
+          if (!text.trim()) return null;
+          return `### Source: ${f.filename}\n${text}`;
+        })
+        .filter(Boolean);
+
+      if (sections.length === 0) {
+        return res.status(422).json({ error: 'selected files have no extractable content' });
+      }
+
+      inputData = [
+        instruction ? `User instruction: ${instruction}` : null,
+        'Source documents:',
+        sections.join('\n\n---\n\n'),
+      ].filter(Boolean).join('\n\n');
     }
 
-    const inputData = inputParts.join('\n\n');
     const userMsg = `--- INPUT DATA ---\n${inputData}${outputFormatHint(output_format)}`;
     const report = await generateReport({ report_model, system: REPORT_SYSTEM_FREE, userMsg, maxTokens: 16000 });
     res.json({
       report,
       template_filename: 'report',
-      used_files: files.map((f) => ({ id: f.id, filename: f.filename })),
+      used_files: usedFiles.map((f) => ({ id: f.id, filename: f.filename })),
     });
   } catch (err) {
     console.error('[report-generate-free-from-files] error:', err);
@@ -1661,10 +1675,14 @@ app.post('/api/report-templates/:id/generate', async (req, res) => {
     if (fetchErr) throw fetchErr;
     if (!tmpl) return res.status(404).json({ error: 'template not found' });
 
-    let finalInput = input_data;
+    let finalInput;
     if (include_chatroom) {
       const chatroomText = await getChatroomContext(input_data.slice(0, 500));
-      if (chatroomText) finalInput = `${finalInput}\n\n--- Executive Chatroom History ---\n${chatroomText}`;
+      finalInput = chatroomText
+        ? `Report instruction: ${input_data}\n\n--- Executive Chatroom History (Source) ---\n${chatroomText}`
+        : '(no chatroom messages found)';
+    } else {
+      finalInput = input_data;
     }
     const userMsg = `--- TEMPLATE (${tmpl.filename}) ---\n${tmpl.template_text}\n\n--- INPUT DATA ---\n${finalInput}${outputFormatHint(output_format)}`;
     const report = await generateReport({ report_model, system: REPORT_SYSTEM, userMsg, maxTokens: 16000 });
@@ -1928,60 +1946,69 @@ app.post('/api/report-templates/:id/generate-from-files', async (req, res) => {
     if (tErr) throw tErr;
     if (!tmpl) return res.status(404).json({ error: 'template not found' });
 
-    const { data: files, error: fErr } = await supabase
-      .from('files').select('id, filename').in('id', file_ids);
-    if (fErr) throw fErr;
-    if (!files || files.length === 0) {
-      return res.status(404).json({ error: 'no files found for the provided ids' });
-    }
-
-    // Stitch together chunk_text per file (chunks already hold extracted text).
-    const fileById = new Map(files.map((f) => [f.id, f]));
-    const { data: chunks, error: cErr } = await supabase
-      .from('chunks')
-      .select('file_id, chunk_index, chunk_text')
-      .in('file_id', file_ids)
-      .order('chunk_index', { ascending: true });
-    if (cErr) throw cErr;
-    const byFile = new Map();
-    for (const c of chunks || []) {
-      if (!byFile.has(c.file_id)) byFile.set(c.file_id, []);
-      byFile.get(c.file_id).push(c.chunk_text || '');
-    }
-
-    const PER_FILE_LIMIT = 60000; // chars; ~15000 tokens/file
-    const sections = file_ids
-      .map((fid) => {
-        const f = fileById.get(fid);
-        if (!f) return null;
-        const text = (byFile.get(fid) || []).join('\n\n').slice(0, PER_FILE_LIMIT);
-        if (!text.trim()) return null;
-        return `### Source: ${f.filename}\n${text}`;
-      })
-      .filter(Boolean);
-
-    if (sections.length === 0) {
-      return res.status(422).json({ error: 'selected files have no extractable content' });
-    }
-
-    const inputParts = [
-      instruction ? `User instruction: ${instruction}` : null,
-      'Source documents:',
-      sections.join('\n\n---\n\n'),
-    ].filter(Boolean);
+    let inputData;
+    let usedFiles = [];
 
     if (include_chatroom) {
+      // Chatroom mode — skip file fetching, use only chatroom context as source.
       const chatroomText = await getChatroomContext(instruction?.slice(0, 500) || null);
-      if (chatroomText) inputParts.push(`\n--- Executive Chatroom History ---\n${chatroomText}`);
+      const parts = [
+        instruction ? `User instruction: ${instruction}` : null,
+        chatroomText
+          ? `--- Executive Chatroom History (Source) ---\n${chatroomText}`
+          : '(no chatroom messages found)',
+      ].filter(Boolean);
+      inputData = parts.join('\n\n');
+    } else {
+      const { data: files, error: fErr } = await supabase
+        .from('files').select('id, filename').in('id', file_ids);
+      if (fErr) throw fErr;
+      if (!files || files.length === 0) {
+        return res.status(404).json({ error: 'no files found for the provided ids' });
+      }
+      usedFiles = files;
+
+      const fileById = new Map(files.map((f) => [f.id, f]));
+      const { data: chunks, error: cErr } = await supabase
+        .from('chunks')
+        .select('file_id, chunk_index, chunk_text')
+        .in('file_id', file_ids)
+        .order('chunk_index', { ascending: true });
+      if (cErr) throw cErr;
+      const byFile = new Map();
+      for (const c of chunks || []) {
+        if (!byFile.has(c.file_id)) byFile.set(c.file_id, []);
+        byFile.get(c.file_id).push(c.chunk_text || '');
+      }
+
+      const PER_FILE_LIMIT = 60000;
+      const sections = file_ids
+        .map((fid) => {
+          const f = fileById.get(fid);
+          if (!f) return null;
+          const text = (byFile.get(fid) || []).join('\n\n').slice(0, PER_FILE_LIMIT);
+          if (!text.trim()) return null;
+          return `### Source: ${f.filename}\n${text}`;
+        })
+        .filter(Boolean);
+
+      if (sections.length === 0) {
+        return res.status(422).json({ error: 'selected files have no extractable content' });
+      }
+
+      inputData = [
+        instruction ? `User instruction: ${instruction}` : null,
+        'Source documents:',
+        sections.join('\n\n---\n\n'),
+      ].filter(Boolean).join('\n\n');
     }
 
-    const inputData = inputParts.join('\n\n');
     const userMsg = `--- TEMPLATE (${tmpl.filename}) ---\n${tmpl.template_text}\n\n--- INPUT DATA ---\n${inputData}${outputFormatHint(output_format)}`;
     const report = await generateReport({ report_model, system: REPORT_SYSTEM, userMsg, maxTokens: 16000 });
     res.json({
       report,
       template_filename: tmpl.filename,
-      used_files: files.map((f) => ({ id: f.id, filename: f.filename })),
+      used_files: usedFiles.map((f) => ({ id: f.id, filename: f.filename })),
     });
   } catch (err) {
     console.error('[report-generate-from-files] error:', err);
