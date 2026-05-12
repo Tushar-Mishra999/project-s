@@ -1519,6 +1519,18 @@ app.post('/api/chat/evaluate', async (req, res) => {
   }
 });
 
+app.get('/api/chat/eval-summary', async (req, res) => {
+  const empty = { avg_context_precision: 0, avg_faithfulness: 0, avg_response_relevance: 0, total_count: 0 };
+  if (!supabase) return res.json(empty);
+  try {
+    const { data, error } = await supabase.from('rag_eval_summary').select('*').eq('id', 1).maybeSingle();
+    if (error || !data) return res.json(empty);
+    res.json(data);
+  } catch (err) {
+    res.json(empty);
+  }
+});
+
 // ---------- Report Generator ----------
 async function generateReport({ report_model, system, userMsg, maxTokens }) {
   if (report_model === 'gemma') return generateChatGemma({ system, messages: [{ role: 'user', content: userMsg }], maxTokens });

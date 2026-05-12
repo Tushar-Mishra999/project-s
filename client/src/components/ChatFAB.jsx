@@ -119,6 +119,37 @@ function EvalPanel({ query, answer, evalChunks }) {
   );
 }
 
+function AvgScoresBar({ summary }) {
+  if (!summary || summary.total_count === 0) return null;
+  const fmt = (v) => `${Math.round(v * 100)}%`;
+  const color = (v) => v >= 0.75 ? '#22c55e' : v >= 0.50 ? '#f59e0b' : '#ef4444';
+  return (
+    <div style={{
+      padding: '8px 16px',
+      borderBottom: '1px solid var(--border)',
+      background: 'rgba(99,102,241,0.04)',
+      display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
+    }}>
+      <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginRight: 4 }}>
+        Avg Scores
+      </span>
+      {[
+        { label: 'Context Precision', val: summary.avg_context_precision },
+        { label: 'Faithfulness', val: summary.avg_faithfulness },
+        { label: 'Response Relevance', val: summary.avg_response_relevance },
+      ].map(({ label, val }) => (
+        <span key={label} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}>
+          <span style={{ color: 'var(--text-muted)' }}>{label}</span>
+          <span style={{ fontWeight: 700, color: color(val) }}>{fmt(val)}</span>
+        </span>
+      ))}
+      <span style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 'auto' }}>
+        {summary.total_count} eval{summary.total_count !== 1 ? 's' : ''}
+      </span>
+    </div>
+  );
+}
+
 export default function ChatFAB({ activePart, activeUserId, activeUser }) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([]);
@@ -127,11 +158,11 @@ export default function ChatFAB({ activePart, activeUserId, activeUser }) {
   const [chatModel, setChatModel] = useState('gemini');
   const [showModels, setShowModels] = useState(false);
   const [includeChatroom, setIncludeChatroom] = useState(false);
+  const [evalSummary, setEvalSummary] = useState(null);
   const scrollRef = useRef(null);
   const modelRef = useRef(null);
 
   const isExec = activeUser?.role === 'MD' || activeUser?.role === 'PartHead';
-
   const scopeLabel = activeUser?.role === 'MD'
     ? 'All documents'
     : (activeUser?.part || activeUser?.team || activePart || '…');
@@ -145,6 +176,15 @@ export default function ChatFAB({ activePart, activeUserId, activeUser }) {
     document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
   }, []);
+
+  // Fetch avg eval scores whenever the panel opens
+  useEffect(() => {
+    if (!open) return;
+    fetch('/api/chat/eval-summary')
+      .then((r) => r.json())
+      .then((data) => setEvalSummary(data))
+      .catch(() => {});
+  }, [open]);
 
   const send = async (e) => {
     e?.preventDefault();
@@ -170,20 +210,23 @@ export default function ChatFAB({ activePart, activeUserId, activeUser }) {
       <button
         className={`chat-fab${open ? ' chat-fab-open' : ''}`}
         onClick={() => setOpen((o) => !o)}
+        title="Chat with Pluto"
         aria-label="Chat with Pluto"
       >
         <div className="chat-fab-inner">
           {open ? (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           ) : (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
             </svg>
           )}
         </div>
-        <span className="chat-fab-label">Chat with Pluto</span>
+        <div className="chat-fab-ring" />
+        <div className="chat-fab-ring chat-fab-ring-2" />
+        <span className="chat-fab-tooltip">Chat with Pluto</span>
       </button>
 
       {/* Backdrop overlay */}
@@ -215,6 +258,9 @@ export default function ChatFAB({ activePart, activeUserId, activeUser }) {
             )}
           </div>
         </div>
+
+        {/* Average eval scores — fetched on open, hidden until there's at least 1 eval */}
+        <AvgScoresBar summary={evalSummary} />
 
         {isExec && (
           <button
