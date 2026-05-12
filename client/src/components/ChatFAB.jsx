@@ -41,6 +41,84 @@ function SourcesList({ sources }) {
   );
 }
 
+function ScoreBadge({ label, value }) {
+  const pct = Math.round(value * 100);
+  const color = pct >= 75 ? '#22c55e' : pct >= 50 ? '#f59e0b' : '#ef4444';
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, minWidth: 68 }}>
+      <span style={{ fontSize: 15, fontWeight: 700, color }}>{pct}%</span>
+      <span style={{ fontSize: 9, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.3 }}>{label}</span>
+    </div>
+  );
+}
+
+function EvalPanel({ query, answer, evalChunks }) {
+  const [state, setState] = useState('idle');
+  const [scores, setScores] = useState(null);
+  const [error, setError] = useState(null);
+
+  if (!evalChunks || evalChunks.length === 0) return null;
+
+  const evaluate = async () => {
+    setState('loading');
+    try {
+      const res = await fetch('/api/chat/evaluate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, answer, chunks: evalChunks }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Evaluation failed');
+      setScores(json);
+      setState('done');
+    } catch (err) {
+      setError(err.message);
+      setState('error');
+    }
+  };
+
+  if (state === 'idle') {
+    return (
+      <button
+        onClick={evaluate}
+        style={{
+          marginTop: 6, padding: '3px 8px', fontSize: 10, fontWeight: 600,
+          background: 'transparent', border: '1px solid var(--border-strong)',
+          borderRadius: 5, cursor: 'pointer', color: 'var(--text-muted)',
+          fontFamily: 'inherit', transition: 'border-color .15s, color .15s',
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#6366f1'; e.currentTarget.style.color = '#a5b4fc'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-strong)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
+      >
+        Evaluate Response
+      </button>
+    );
+  }
+
+  if (state === 'loading') {
+    return <div style={{ marginTop: 6, fontSize: 10, color: 'var(--text-muted)', fontStyle: 'italic' }}>Evaluating…</div>;
+  }
+
+  if (state === 'error') {
+    return <div style={{ marginTop: 6, fontSize: 10, color: '#f87171' }}>Eval failed: {error}</div>;
+  }
+
+  return (
+    <div style={{
+      marginTop: 8, padding: '8px 10px',
+      background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.2)',
+      borderRadius: 8, display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap',
+    }}>
+      <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+        RAG Eval
+      </span>
+      <ScoreBadge label="Context Precision" value={scores.contextPrecision} />
+      <ScoreBadge label="Faithfulness" value={scores.faithfulness} />
+      <ScoreBadge label="Response Relevance" value={scores.responseRelevance} />
+    </div>
+  );
+}
+
 export default function ChatFAB({ activePart, activeUserId, activeUser }) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([]);
@@ -80,7 +158,7 @@ export default function ChatFAB({ activePart, activeUserId, activeUser }) {
       const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q, user_id: activeUserId, conversation_history: history, chat_model: chatModel, include_chatroom: includeChatroom && isExec }) });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Request failed');
-      setMessages((m) => [...m, { role: 'assistant', content: json.answer, sources: json.sources || [] }]);
+      setMessages((m) => [...m, { role: 'assistant', content: json.answer, sources: json.sources || [], evalChunks: json.eval_chunks || [], query: q }]);
     } catch (err) {
       setMessages((m) => [...m, { role: 'assistant', content: `Something went wrong. (${err.message})`, error: true }]);
     } finally { setSending(false); }
@@ -186,6 +264,9 @@ export default function ChatFAB({ activePart, activeUserId, activeUser }) {
                 <div className="md"><ReactMarkdown>{m.content}</ReactMarkdown></div>
               ) : m.content}
               {m.role === 'assistant' && <SourcesList sources={m.sources} />}
+              {m.role === 'assistant' && !m.error && (
+                <EvalPanel query={m.query} answer={m.content} evalChunks={m.evalChunks} />
+              )}
             </div>
           ))}
           {sending && (
