@@ -6,6 +6,7 @@ import AIQuizzesTab from './tabs/AIQuizzesTab.jsx';
 import TaskForceTab, { userLabel } from './tabs/TaskForceTab.jsx';
 import HomeTab from './tabs/HomeTab.jsx';
 import MinutesTab from './tabs/MinutesTab.jsx';
+import ChatroomTab from './tabs/ChatroomTab.jsx';
 import ChatFAB from './components/ChatFAB.jsx';
 import QuickLinksFAB from './components/QuickLinksFAB.jsx';
 
@@ -65,8 +66,22 @@ const TF_FAB = {
   ),
 };
 
-function VerticalFABs({ active, setActive, showTaskForce }) {
-  const fabs = showTaskForce ? [...TOOL_FABS, TF_FAB] : TOOL_FABS;
+const CHATROOM_FAB = {
+  id: 'chatroom',
+  label: 'Exec Chatroom',
+  icon: (
+    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+      <line x1="9" y1="10" x2="15" y2="10"/>
+      <line x1="9" y1="14" x2="13" y2="14"/>
+    </svg>
+  ),
+};
+
+function VerticalFABs({ active, setActive, showTaskForce, showChatroom }) {
+  let fabs = [...TOOL_FABS];
+  if (showChatroom) fabs = [...fabs, CHATROOM_FAB];
+  if (showTaskForce) fabs = [...fabs, TF_FAB];
   return (
     <div className="v-fabs">
       {fabs.map((fab) => (
@@ -224,6 +239,7 @@ export default function App() {
 
   const activeUserRole = activeUser?.role;
   const showTaskForce = activeUserRole === 'MD' || activePart === 'Tech Management';
+  const showChatroom = activeUserRole === 'MD' || activeUserRole === 'PartHead';
 
   const primaryTabs = useMemo(
     () => PRIMARY_TABS.map((t) => t.id === 'feed' ? { ...t, label: feedTabLabel() } : t),
@@ -264,9 +280,10 @@ export default function App() {
         {active === 'minutes'   && <MinutesTab parts={parts} users={users} activeUserId={activeUserId} />}
         {active === 'quizzes'   && <AIQuizzesTab activePart={activePart} activeUserId={activeUserId} users={users} />}
         {active === 'taskforce' && <TaskForceTab users={users} activeUserId={activeUserId} />}
+        {active === 'chatroom'  && <ChatroomTab activeUserId={activeUserId} activeUser={activeUser} users={users} />}
       </main>
 
-      <VerticalFABs active={active} setActive={setActive} showTaskForce={showTaskForce} />
+      <VerticalFABs active={active} setActive={setActive} showTaskForce={showTaskForce} showChatroom={showChatroom} />
       <QuickLinksFAB activePart={activePart} />
       <ChatFAB activePart={activePart} activeUserId={activeUserId} activeUser={activeUser} />
     </div>

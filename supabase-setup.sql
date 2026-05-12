@@ -225,9 +225,65 @@ create table if not exists email_tokens (
   updated_at timestamptz default now()
 );
 
--- 15. Seed users (idempotent — re-running this file leaves existing rows untouched).
+-- 15. Executive Chatroom — private channel for MD and Part Heads.
+create table if not exists chatroom_messages (
+  id              uuid primary key default gen_random_uuid(),
+  conversation_id text not null,
+  sender_id       text not null,
+  sender_name     text not null,
+  content         text not null,
+  created_at      timestamptz default now()
+);
+
+-- For existing tables without conversation_id:
+alter table chatroom_messages add column if not exists conversation_id text not null default '';
+
+create index if not exists chatroom_messages_conv_idx on chatroom_messages(conversation_id, created_at);
+
+-- 17. Chatroom chunks — AI-partitioned topical segments produced by the nightly 7am job.
+--     Each row represents a group of messages from a single day that discuss the same topic.
+create table if not exists chatroom_chunks (
+  id             uuid primary key default gen_random_uuid(),
+  chunk_text     text not null,
+  topic_summary  text,
+  embedding      vector(1024),
+  processed_date date not null,
+  created_at     timestamptz default now()
+);
+
+create index if not exists chatroom_chunks_embedding_idx
+  on chatroom_chunks using hnsw (embedding vector_cosine_ops);
+
+create index if not exists chatroom_chunks_date_idx
+  on chatroom_chunks(processed_date);
+
+create or replace function match_chatroom_chunks(
+  query_embedding vector(1024),
+  match_count     int default 5
+)
+returns table (
+  id             uuid,
+  chunk_text     text,
+  topic_summary  text,
+  processed_date date,
+  similarity     float
+)
+language sql stable
+as $$
+  select
+    id,
+    chunk_text,
+    topic_summary,
+    processed_date,
+    1 - (embedding <=> query_embedding) as similarity
+  from chatroom_chunks
+  order by embedding <=> query_embedding
+  limit match_count;
+$$;
+
+-- 18. Seed users (idempotent — re-running this file leaves existing rows untouched).
 insert into users (id, name, role, part, team) values
-  ('u_md',        'Priya Rao',     'MD',       null,                 null),
+  ('u_md',        'Aryan Sharma',  'MD',       null,                 null),
   ('u_ph_tm',     'Arjun Mehta',   'PartHead', 'Tech Management',    null),
   ('u_ph_prism',  'John Iyer',     'PartHead', 'PRISM',              null),
   ('u_ph_dm',     'Karan Shah',    'PartHead', 'Data Management',    null),

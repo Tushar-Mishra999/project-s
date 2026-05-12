@@ -28,6 +28,7 @@ import {
   embedText,
   buildEmbeddingInput,
   rerankChunks,
+  stripJsonFences,
 } from './lib/rag.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -1291,13 +1292,13 @@ const CHAT_SYSTEM =
   "You are a knowledge assistant with access to internal documents. Answer the user's question using only the context provided below. If the answer is not present in the context, say 'I could not find this in the uploaded documents' — do not use general knowledge. Always cite the source filename at the end of your answer.";
 
 app.post('/api/chat', async (req, res) => {
-  const { query, part, user_id, conversation_history, chat_model } = req.body || {};
+  const { query, part, user_id, conversation_history, chat_model, include_chatroom } = req.body || {};
   if (!query) return res.status(400).json({ error: 'query is required' });
   try {
     const partFilter = await resolvePartFilter({ user_id, part });
     const chunks = await retrieve({ query, partFilter });
 
-    const contextBlock = chunks.length
+    const docContext = chunks.length
       ? chunks
           .map((c) => {
             const label =
@@ -1308,6 +1309,14 @@ app.post('/api/chat', async (req, res) => {
           })
           .join('\n\n')
       : '(no matching context found)';
+
+    let contextBlock = docContext;
+    if (include_chatroom) {
+      const chatroomText = await getChatroomContext(query);
+      if (chatroomText) {
+        contextBlock = `--- Executive Chatroom History ---\n${chatroomText}\n\n--- Document Context ---\n${docContext}`;
+      }
+    }
 
     const history = Array.isArray(conversation_history) ? conversation_history : [];
     const messages = [
@@ -1462,12 +1471,17 @@ Return ONLY the report HTML. No preamble, no commentary, no markdown fences.`;
 app.post('/api/report/generate', async (req, res) => {
   const ready = ragReady();
   if (!ready.ok) return res.status(503).json({ error: `not configured: missing ${ready.missing.join(', ')}` });
-  const { input_data, report_model, output_format } = req.body || {};
+  const { input_data, report_model, output_format, include_chatroom } = req.body || {};
   if (!input_data || !input_data.trim()) {
     return res.status(400).json({ error: 'input_data is required' });
   }
   try {
-    const userMsg = `--- INPUT DATA ---\n${input_data}${outputFormatHint(output_format)}`;
+    let finalInput = input_data;
+    if (include_chatroom) {
+      const chatroomText = await getChatroomContext(input_data.slice(0, 500));
+      if (chatroomText) finalInput = `${finalInput}\n\n--- Executive Chatroom History ---\n${chatroomText}`;
+    }
+    const userMsg = `--- INPUT DATA ---\n${finalInput}${outputFormatHint(output_format)}`;
     const report = await generateReport({ report_model, system: REPORT_SYSTEM_FREE, userMsg, maxTokens: 16000 });
     res.json({ report, template_filename: 'report' });
   } catch (err) {
@@ -1479,7 +1493,7 @@ app.post('/api/report/generate', async (req, res) => {
 app.post('/api/report/generate-from-files', async (req, res) => {
   const ready = ragReady();
   if (!ready.ok) return res.status(503).json({ error: `not configured: missing ${ready.missing.join(', ')}` });
-  const { instruction, file_ids, report_model, output_format } = req.body || {};
+  const { instruction, file_ids, report_model, output_format, include_chatroom } = req.body || {};
   if (!Array.isArray(file_ids) || file_ids.length === 0) {
     return res.status(400).json({ error: 'file_ids array is required' });
   }
@@ -1519,12 +1533,18 @@ app.post('/api/report/generate-from-files', async (req, res) => {
       return res.status(422).json({ error: 'selected files have no extractable content' });
     }
 
-    const inputData = [
+    const inputParts = [
       instruction ? `User instruction: ${instruction}` : null,
       'Source documents:',
       sections.join('\n\n---\n\n'),
-    ].filter(Boolean).join('\n\n');
+    ].filter(Boolean);
 
+    if (include_chatroom) {
+      const chatroomText = await getChatroomContext(instruction?.slice(0, 500) || null);
+      if (chatroomText) inputParts.push(`\n--- Executive Chatroom History ---\n${chatroomText}`);
+    }
+
+    const inputData = inputParts.join('\n\n');
     const userMsg = `--- INPUT DATA ---\n${inputData}${outputFormatHint(output_format)}`;
     const report = await generateReport({ report_model, system: REPORT_SYSTEM_FREE, userMsg, maxTokens: 16000 });
     res.json({
@@ -1627,7 +1647,7 @@ app.post('/api/report-templates/:id/generate', async (req, res) => {
   const ready = ragReady();
   if (!ready.ok) return res.status(503).json({ error: `not configured: missing ${ready.missing.join(', ')}` });
   const { id } = req.params;
-  const { input_data, report_model, output_format } = req.body || {};
+  const { input_data, report_model, output_format, include_chatroom } = req.body || {};
   if (!input_data || !input_data.trim()) {
     return res.status(400).json({ error: 'input_data is required' });
   }
@@ -1637,7 +1657,12 @@ app.post('/api/report-templates/:id/generate', async (req, res) => {
     if (fetchErr) throw fetchErr;
     if (!tmpl) return res.status(404).json({ error: 'template not found' });
 
-    const userMsg = `--- TEMPLATE (${tmpl.filename}) ---\n${tmpl.template_text}\n\n--- INPUT DATA ---\n${input_data}${outputFormatHint(output_format)}`;
+    let finalInput = input_data;
+    if (include_chatroom) {
+      const chatroomText = await getChatroomContext(input_data.slice(0, 500));
+      if (chatroomText) finalInput = `${finalInput}\n\n--- Executive Chatroom History ---\n${chatroomText}`;
+    }
+    const userMsg = `--- TEMPLATE (${tmpl.filename}) ---\n${tmpl.template_text}\n\n--- INPUT DATA ---\n${finalInput}${outputFormatHint(output_format)}`;
     const report = await generateReport({ report_model, system: REPORT_SYSTEM, userMsg, maxTokens: 16000 });
     res.json({ report, template_filename: tmpl.filename });
   } catch (err) {
@@ -1889,7 +1914,7 @@ app.post('/api/report-templates/:id/generate-from-files', async (req, res) => {
   const ready = ragReady();
   if (!ready.ok) return res.status(503).json({ error: `not configured: missing ${ready.missing.join(', ')}` });
   const { id } = req.params;
-  const { instruction, file_ids, report_model, output_format } = req.body || {};
+  const { instruction, file_ids, report_model, output_format, include_chatroom } = req.body || {};
   if (!Array.isArray(file_ids) || file_ids.length === 0) {
     return res.status(400).json({ error: 'file_ids array is required' });
   }
@@ -1935,12 +1960,18 @@ app.post('/api/report-templates/:id/generate-from-files', async (req, res) => {
       return res.status(422).json({ error: 'selected files have no extractable content' });
     }
 
-    const inputData = [
+    const inputParts = [
       instruction ? `User instruction: ${instruction}` : null,
       'Source documents:',
       sections.join('\n\n---\n\n'),
-    ].filter(Boolean).join('\n\n');
+    ].filter(Boolean);
 
+    if (include_chatroom) {
+      const chatroomText = await getChatroomContext(instruction?.slice(0, 500) || null);
+      if (chatroomText) inputParts.push(`\n--- Executive Chatroom History ---\n${chatroomText}`);
+    }
+
+    const inputData = inputParts.join('\n\n');
     const userMsg = `--- TEMPLATE (${tmpl.filename}) ---\n${tmpl.template_text}\n\n--- INPUT DATA ---\n${inputData}${outputFormatHint(output_format)}`;
     const report = await generateReport({ report_model, system: REPORT_SYSTEM, userMsg, maxTokens: 16000 });
     res.json({
@@ -3237,6 +3268,243 @@ app.post('/api/email/upload-attachment', async (req, res) => {
     res.json({ ok: true, file_id: fileRow.id, filename, chunk_count: inserted });
   } catch (err) {
     console.error('[email/upload-attachment]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------- Executive Chatroom ----------
+function isExecUser(user) {
+  return user && (user.role === 'MD' || user.role === 'PartHead');
+}
+
+function convId(a, b) {
+  return [a, b].sort().join(':');
+}
+
+// Returns today's raw messages + semantically relevant historical chunks (via vector search).
+async function getChatroomContext(query = null) {
+  try {
+    if (!supabase) return '';
+
+    // Always include today's messages raw — they haven't been chunked yet.
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+    const { data: todayMsgs } = await supabase
+      .from('chatroom_messages')
+      .select('sender_name, content, created_at')
+      .gte('created_at', todayStart.toISOString())
+      .order('created_at', { ascending: true });
+
+    const todayText = todayMsgs?.length
+      ? '--- Today ---\n' + todayMsgs.map((m) => {
+          const ts = new Date(m.created_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' });
+          return `[${ts}] ${m.sender_name}: ${m.content}`;
+        }).join('\n')
+      : '';
+
+    // For historical data, do vector search on embedded chunks if a query is provided.
+    let historicalText = '';
+    if (query) {
+      try {
+        const qEmbedding = await embedText(query.slice(0, 2000), config.embeddingModel, 'query');
+        const { data: chunks } = await supabase.rpc('match_chatroom_chunks', {
+          query_embedding: qEmbedding,
+          match_count: 5,
+        });
+        if (chunks?.length) {
+          historicalText = '--- Relevant Past Discussions ---\n' +
+            chunks.map((c) => `[Topic: ${c.topic_summary || 'Chat'}]\n${c.chunk_text}`).join('\n\n');
+        }
+      } catch {
+        // Vector search unavailable (table may not exist yet) — silently skip.
+      }
+    }
+
+    return [historicalText, todayText].filter(Boolean).join('\n\n') || '';
+  } catch {
+    return '';
+  }
+}
+
+const CHATROOM_PARTITION_SYSTEM = `You are analyzing executive chat messages from a single day.
+Group them into topically coherent chunks — messages discussing the same subject, project, or decision belong together.
+Return a JSON array where each element has:
+  "indices": array of message indices (0-based) belonging to this topic group
+  "summary": one short sentence describing what this group of messages is about
+Example: [{"indices":[0,1,2],"summary":"PRISM audit timeline"},{"indices":[3,4],"summary":"Data Management hiring"}]
+Return only valid JSON.`;
+
+// Processes one day's chatroom messages: partitions by topic (AI), embeds each partition, stores in chatroom_chunks.
+async function processDayChatroom(dateStr) {
+  if (!supabase) return;
+  const dayStart = new Date(dateStr + 'T00:00:00.000Z');
+  const dayEnd   = new Date(dateStr + 'T23:59:59.999Z');
+
+  const { data: messages, error } = await supabase
+    .from('chatroom_messages')
+    .select('id, sender_name, content, created_at')
+    .gte('created_at', dayStart.toISOString())
+    .lte('created_at', dayEnd.toISOString())
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+  if (!messages || messages.length === 0) {
+    console.log(`[chatroom-chunker] no messages for ${dateStr}, skipping`);
+    return;
+  }
+
+  // Clear any previous chunks for this date so re-runs are idempotent.
+  await supabase.from('chatroom_chunks').delete().eq('processed_date', dateStr);
+
+  const formatted = messages.map((m, i) => {
+    const ts = new Date(m.created_at).toLocaleTimeString('en-IN', { timeStyle: 'short' });
+    return `[${i}] [${ts}] ${m.sender_name}: ${m.content}`;
+  }).join('\n');
+
+  let groups;
+  try {
+    const raw = await generateText({
+      model: config.models.enrichment,
+      system: CHATROOM_PARTITION_SYSTEM,
+      user: `Messages from ${dateStr}:\n${formatted}`,
+      jsonMode: true,
+      maxTokens: 1500,
+    });
+    groups = JSON.parse(stripJsonFences(raw));
+    if (!Array.isArray(groups)) throw new Error('not an array');
+  } catch (err) {
+    console.warn(`[chatroom-chunker] partition parse failed for ${dateStr}, using single chunk:`, err.message);
+    groups = [{ indices: messages.map((_, i) => i), summary: `Executive discussion on ${dateStr}` }];
+  }
+
+  let inserted = 0;
+  for (const group of groups) {
+    const { indices, summary } = group || {};
+    if (!Array.isArray(indices) || indices.length === 0) continue;
+
+    const groupMessages = indices
+      .filter((i) => Number.isInteger(i) && i >= 0 && i < messages.length)
+      .map((i) => messages[i]);
+    if (groupMessages.length === 0) continue;
+
+    const chunkText = groupMessages.map((m) => {
+      const ts = new Date(m.created_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' });
+      return `[${ts}] ${m.sender_name}: ${m.content}`;
+    }).join('\n');
+
+    try {
+      const embedding = await embedText(chunkText, config.embeddingModel, 'document');
+      await supabase.from('chatroom_chunks').insert({
+        chunk_text: chunkText,
+        topic_summary: String(summary || '').trim() || null,
+        embedding,
+        processed_date: dateStr,
+      });
+      inserted++;
+    } catch (err) {
+      console.warn(`[chatroom-chunker] embed/insert failed for group:`, err.message);
+    }
+  }
+
+  console.log(`[chatroom-chunker] ${dateStr}: ${inserted} chunks stored from ${messages.length} messages`);
+}
+
+// Schedules processDayChatroom to run daily at 07:00 server local time for the previous day.
+function scheduleChatroomChunker() {
+  const now = new Date();
+  const next = new Date();
+  next.setHours(7, 0, 0, 0);
+  if (next <= now) next.setDate(next.getDate() + 1);
+  const ms = next - now;
+  console.log(`[chatroom-chunker] next run scheduled at ${next.toLocaleString()}`);
+  setTimeout(async () => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    const dateStr = d.toISOString().slice(0, 10);
+    try { await processDayChatroom(dateStr); }
+    catch (err) { console.error('[chatroom-chunker] error:', err.message); }
+    scheduleChatroomChunker();
+  }, ms);
+}
+
+scheduleChatroomChunker();
+
+// GET /api/chatroom?user_id=X&with=Y  — fetch 1:1 conversation
+app.get('/api/chatroom', async (req, res) => {
+  const { user_id, with: withId } = req.query;
+  if (!user_id || !withId) return res.status(400).json({ error: 'user_id and with are required' });
+  try {
+    const user = await loadUser(user_id);
+    if (!user || !isExecUser(user)) return res.status(403).json({ error: 'Access restricted to MD and Part Heads' });
+    const cid = convId(user_id, withId);
+    const { data, error } = await supabase
+      .from('chatroom_messages')
+      .select('*')
+      .eq('conversation_id', cid)
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    res.json({ messages: data || [], conversation_id: cid });
+  } catch (err) {
+    console.error('[chatroom] get error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/chatroom  — send a 1:1 message
+app.post('/api/chatroom', async (req, res) => {
+  const { user_id, recipient_id, content } = req.body || {};
+  if (!user_id || !recipient_id || !content?.trim()) {
+    return res.status(400).json({ error: 'user_id, recipient_id and content are required' });
+  }
+  try {
+    const user = await loadUser(user_id);
+    if (!user || !isExecUser(user)) return res.status(403).json({ error: 'Access restricted to MD and Part Heads' });
+    const cid = convId(user_id, recipient_id);
+    const { data, error } = await supabase
+      .from('chatroom_messages')
+      .insert({ conversation_id: cid, sender_id: user_id, sender_name: user.name, content: content.trim() })
+      .select()
+      .single();
+    if (error) throw error;
+    res.status(201).json({ message: data });
+  } catch (err) {
+    console.error('[chatroom] post error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/chatroom/:id
+app.delete('/api/chatroom/:id', async (req, res) => {
+  const { user_id } = req.body || {};
+  const { id } = req.params;
+  if (!user_id) return res.status(400).json({ error: 'user_id required' });
+  try {
+    const user = await loadUser(user_id);
+    if (!user || !isExecUser(user)) return res.status(403).json({ error: 'Access restricted to MD and Part Heads' });
+    const { data: msg, error: fetchErr } = await supabase
+      .from('chatroom_messages').select('sender_id').eq('id', id).maybeSingle();
+    if (fetchErr) throw fetchErr;
+    if (!msg) return res.status(404).json({ error: 'Message not found' });
+    if (msg.sender_id !== user_id && user.role !== 'MD') {
+      return res.status(403).json({ error: 'You can only delete your own messages' });
+    }
+    const { error } = await supabase.from('chatroom_messages').delete().eq('id', id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[chatroom] delete error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/chatroom/process-chunks?date=YYYY-MM-DD  — manually trigger chunk processing for a date.
+app.post('/api/admin/chatroom/process-chunks', async (req, res) => {
+  const dateStr = req.query.date || new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  try {
+    await processDayChatroom(dateStr);
+    res.json({ ok: true, date: dateStr });
+  } catch (err) {
+    console.error('[chatroom-chunker] manual trigger error:', err);
     res.status(500).json({ error: err.message });
   }
 });

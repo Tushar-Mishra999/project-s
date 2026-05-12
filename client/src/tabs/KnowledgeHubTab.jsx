@@ -900,6 +900,8 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
   const [downloadingXlsx, setDownloadingXlsx] = useState(false);
   const [downloadErr, setDownloadErr] = useState(null);
   const [matchErr, setMatchErr] = useState(null);
+  const [includeChatroom, setIncludeChatroom] = useState(false);
+  const isExec = isMD || activeUser?.role === 'PartHead';
 
   // ── Refine state ───────────────────────────────────────
   const [refineFileId, setRefineFileId] = useState('');
@@ -1006,7 +1008,7 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
       const url = reportMode === 'template'
         ? `/api/report-templates/${selectedTemplateId}/generate-from-files`
         : '/api/report/generate-from-files';
-      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instruction, file_ids: Array.from(matchPicked), report_model: reportModel, output_format: outputFormat }) });
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instruction, file_ids: Array.from(matchPicked), report_model: reportModel, output_format: outputFormat, include_chatroom: includeChatroom && isExec }) });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Generation failed');
       setReport({ text: json.report, templateName: json.template_filename, usedFiles: json.used_files });
@@ -1023,7 +1025,7 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
       const url = reportMode === 'template'
         ? `/api/report-templates/${selectedTemplateId}/generate`
         : '/api/report/generate';
-      const body = { input_data: inputData, report_model: reportModel, output_format: outputFormat };
+      const body = { input_data: inputData, report_model: reportModel, output_format: outputFormat, include_chatroom: includeChatroom && isExec };
       const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Generation failed');
@@ -1265,6 +1267,46 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
                 {outputFormat === 'xlsx' ? 'Report will be structured with tables for Excel export.' : 'Report will use rich narrative formatting for PDF.'}
               </span>
             </div>
+
+            {/* Exec chatroom source toggle */}
+            {isExec && (
+              <button
+                type="button"
+                onClick={() => setIncludeChatroom((v) => !v)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  width: '100%', padding: '10px 14px', marginBottom: 14,
+                  background: includeChatroom ? 'rgba(99,102,241,0.1)' : 'var(--surface-2)',
+                  border: '1px solid',
+                  borderColor: includeChatroom ? 'rgba(99,102,241,0.35)' : 'var(--border)',
+                  borderRadius: 10, cursor: 'pointer',
+                  color: 'var(--text)', fontFamily: 'inherit', textAlign: 'left',
+                  transition: 'background .15s, border-color .15s',
+                }}
+              >
+                <span style={{
+                  width: 16, height: 16, borderRadius: 4, flexShrink: 0,
+                  background: includeChatroom ? '#6366f1' : 'var(--surface-3)',
+                  border: '1px solid',
+                  borderColor: includeChatroom ? '#6366f1' : 'var(--border-strong)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  {includeChatroom && (
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                      <path d="M1.5 5l2.5 2.5 5-5" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  )}
+                </span>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: includeChatroom ? '#a5b4fc' : 'var(--text)' }}>
+                    Include Executive Chat history
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                    Adds the exec chatroom conversation as an additional source for the report.
+                  </div>
+                </div>
+              </button>
+            )}
 
             {/* Path A: from Library files */}
             <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', marginBottom: 14, background: 'var(--surface-2)' }}>

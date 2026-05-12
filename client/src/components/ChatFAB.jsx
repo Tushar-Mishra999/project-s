@@ -48,8 +48,11 @@ export default function ChatFAB({ activePart, activeUserId, activeUser }) {
   const [sending, setSending] = useState(false);
   const [chatModel, setChatModel] = useState('gemini');
   const [showModels, setShowModels] = useState(false);
+  const [includeChatroom, setIncludeChatroom] = useState(false);
   const scrollRef = useRef(null);
   const modelRef = useRef(null);
+
+  const isExec = activeUser?.role === 'MD' || activeUser?.role === 'PartHead';
 
   const scopeLabel = activeUser?.role === 'MD'
     ? 'All documents'
@@ -74,7 +77,7 @@ export default function ChatFAB({ activePart, activeUserId, activeUser }) {
     setMessages((m) => [...m, newUser]);
     setInput(''); setSending(true);
     try {
-      const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q, user_id: activeUserId, conversation_history: history, chat_model: chatModel }) });
+      const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q, user_id: activeUserId, conversation_history: history, chat_model: chatModel, include_chatroom: includeChatroom && isExec }) });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Request failed');
       setMessages((m) => [...m, { role: 'assistant', content: json.answer, sources: json.sources || [] }]);
@@ -134,6 +137,36 @@ export default function ChatFAB({ activePart, activeUserId, activeUser }) {
             )}
           </div>
         </div>
+
+        {isExec && (
+          <button
+            onClick={() => { setIncludeChatroom((v) => !v); setMessages([]); }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 7,
+              width: '100%', padding: '6px 12px',
+              background: includeChatroom ? 'rgba(99,102,241,0.12)' : 'transparent',
+              border: 'none', borderBottom: '1px solid var(--border-strong)',
+              cursor: 'pointer', color: includeChatroom ? '#a5b4fc' : 'var(--text-muted)',
+              fontSize: 11, fontFamily: 'inherit', textAlign: 'left',
+              transition: 'background .15s, color .15s',
+            }}
+          >
+            <span style={{
+              width: 14, height: 14, borderRadius: 3, flexShrink: 0,
+              background: includeChatroom ? '#6366f1' : 'var(--surface-3)',
+              border: '1px solid',
+              borderColor: includeChatroom ? '#6366f1' : 'var(--border-strong)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              {includeChatroom && (
+                <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
+                  <path d="M1.5 5l2.5 2.5 5-5" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              )}
+            </span>
+            Include Exec Chatroom as source
+          </button>
+        )}
 
         <div className="chat-fab-messages" ref={scrollRef}>
           {messages.length === 0 && (
