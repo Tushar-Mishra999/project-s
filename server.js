@@ -1386,7 +1386,7 @@ async function decomposeAnswerIntoClaims(answer, model) {
     system: 'Break the following answer into individual atomic factual claims — one per item. Return a JSON array of strings.',
     user: answer.slice(0, 3000),
     jsonMode: true,
-    maxTokens: 600,
+    maxTokens: 1200,
   });
   try {
     const arr = JSON.parse(stripJsonFences(raw));
@@ -1400,7 +1400,7 @@ async function judgeClaimsAgainstContext(claims, contextText, model) {
     system: 'Given a context and a list of claims, return a JSON array of booleans — true if the claim can be found in or directly inferred from the context, false otherwise. Same order as input.',
     user: `Context:\n${contextText.slice(0, 4000)}\n\nClaims:\n${JSON.stringify(claims)}`,
     jsonMode: true,
-    maxTokens: 300,
+    maxTokens: 600,
   });
   try {
     const arr = JSON.parse(stripJsonFences(raw));
