@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 function ThinkingBubble({ searchType }) {
   return (
@@ -345,7 +346,7 @@ export default function ChatFAB({ activePart, activeUserId, activeUser }) {
           {messages.map((m, i) => (
             <div key={i} className={`chat-fab-bubble ${m.role}${m.error ? ' error' : ''}`}>
               {m.role === 'assistant' && !m.error ? (
-                <div className="md"><ReactMarkdown>{m.content}</ReactMarkdown></div>
+                <div className="md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown></div>
               ) : m.content}
               {m.role === 'assistant' && <SearchBadge searchType={m.searchType} />}
               {m.role === 'assistant' && <SourcesList sources={m.sources} />}
