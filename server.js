@@ -20,7 +20,7 @@ if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON && !process.env.GOOGLE_APPLI
 import { supabase, ragReady } from './lib/clients.js';
 import { initConstraints, neo4jReady } from './lib/neo4j.js';
 import { extractEntities, writeDocumentToGraph, deleteDocumentFromGraph, graphSearch, routeQuery } from './lib/graphExtract.js';
-import { generateChat, generateChatGemma, generateChatGLM, generateChatKimi, generateChatGPTOSS, generateText, generateWithParts, generateTextWithSearch } from './lib/llm.js';
+import { generateChat, generateChatStream, generateChatGemma, generateChatGemmaStream, generateChatGLM, generateChatGLMStream, generateChatGPTOSS, generateChatGPTOSSStream, generateText, generateWithParts, generateTextWithSearch } from './lib/llm.js';
 import { runFeedPipeline } from './lib/feed.js';
 import { extractActionItems } from './lib/actionItems.js';
 import { extractText } from './lib/extract.js';
@@ -1382,8 +1382,6 @@ app.post('/api/chat', async (req, res) => {
       answer = await generateChatGemma({ system: CHAT_SYSTEM, messages, maxTokens: 2048 });
     } else if (chat_model === 'glm') {
       answer = await generateChatGLM({ system: CHAT_SYSTEM, messages, maxTokens: 2048 });
-    } else if (chat_model === 'kimi') {
-      answer = await generateChatKimi({ system: CHAT_SYSTEM, messages, maxTokens: 2048 });
     } else if (chat_model === 'gpt') {
       answer = await generateChatGPTOSS({ system: CHAT_SYSTEM, messages, maxTokens: 2048 });
     } else {
@@ -1395,6 +1393,79 @@ app.post('/api/chat', async (req, res) => {
     console.error('[chat] error:', err);
     res.status(err.status || 500).json({ error: err.message });
   }
+});
+
+// ---------- Streaming chat ----------
+
+app.post('/api/chat/stream', async (req, res) => {
+  const { query, part, user_id, conversation_history, chat_model, include_chatroom } = req.body || {};
+  if (!query) { res.status(400).json({ error: 'query is required' }); return; }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const sse = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+
+  try {
+    const partFilter = await resolvePartFilter({ user_id, part });
+    let contextBlock, sources = [], evalChunks = [], searchType = null;
+
+    if (include_chatroom) {
+      const chatroomText = await getChatroomContext(query);
+      contextBlock = chatroomText
+        ? `--- Executive Chatroom History ---\n${chatroomText}`
+        : '(no chatroom messages found)';
+    } else {
+      const route = await routeQuery(query, config.models.chat);
+      searchType = route.search_type;
+      console.log(`[chat/stream] route=${route.search_type} (${route.reason})`);
+      let chunks;
+      if (route.search_type === 'graph' && neo4jReady()) {
+        chunks = await graphSearch({ entities: route.entities, partFilter });
+        if (chunks.length === 0) chunks = await retrieve({ query, partFilter });
+      } else {
+        chunks = await retrieve({ query, partFilter });
+      }
+      contextBlock = chunks.length
+        ? chunks.map((c) => {
+            const label = c.filetype?.toLowerCase().includes('pptx') ? `Slide ${c.chunk_index + 1}` : `Chunk ${c.chunk_index}`;
+            return `[Source: ${c.filename}, ${label}]\n${c.chunk_text}`;
+          }).join('\n\n')
+        : '(no matching context found)';
+      sources = chunks.map((c) => ({ filename: c.filename, file_url: c.file_url, chunk_index: c.chunk_index, filetype: c.filetype }));
+      evalChunks = chunks.map((c) => ({ chunk_text: c.chunk_text, filename: c.filename }));
+    }
+
+    sse('meta', { sources, eval_chunks: evalChunks, search_type: searchType });
+
+    const history = Array.isArray(conversation_history) ? conversation_history : [];
+    const messages = [
+      ...history.map((m) => ({ role: m.role, content: m.content })),
+      { role: 'user', content: `--- Context ---\n${contextBlock}\n\n--- Question ---\n${query}` },
+    ];
+
+    let stream;
+    if (chat_model === 'gemma') {
+      stream = generateChatGemmaStream({ system: CHAT_SYSTEM, messages, maxTokens: 2048 });
+    } else if (chat_model === 'glm') {
+      stream = generateChatGLMStream({ system: CHAT_SYSTEM, messages, maxTokens: 2048 });
+    } else if (chat_model === 'gpt') {
+      stream = generateChatGPTOSSStream({ system: CHAT_SYSTEM, messages, maxTokens: 2048 });
+    } else {
+      stream = generateChatStream({ model: config.models.chat, system: CHAT_SYSTEM, messages, maxTokens: 4096 });
+    }
+
+    for await (const chunk of stream) {
+      sse('chunk', { text: chunk });
+    }
+    sse('done', {});
+  } catch (err) {
+    console.error('[chat/stream] error:', err);
+    sse('error', { message: err.message });
+  }
+  res.end();
 });
 
 // ---------- RAG Evaluation ----------
@@ -1584,8 +1655,7 @@ app.get('/api/chat/eval-summary', async (req, res) => {
 async function generateReport({ report_model, system, userMsg, maxTokens }) {
   if (report_model === 'gemma') return generateChatGemma({ system, messages: [{ role: 'user', content: userMsg }], maxTokens });
   if (report_model === 'glm')  return generateChatGLM({ system, messages: [{ role: 'user', content: userMsg }], maxTokens });
-  if (report_model === 'kimi') return generateChatKimi({ system, messages: [{ role: 'user', content: userMsg }], maxTokens });
-  if (report_model === 'gpt')  return generateChatGPTOSS({ system, messages: [{ role: 'user', content: userMsg }], maxTokens });
+if (report_model === 'gpt')  return generateChatGPTOSS({ system, messages: [{ role: 'user', content: userMsg }], maxTokens });
   return generateText({ model: config.models.summarisation, system, user: userMsg, maxTokens });
 }
 

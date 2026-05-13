@@ -44,7 +44,6 @@ const MODEL_ICONS = {
   gemini: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" fill="url(#fab_gi)"/><defs><radialGradient id="fab_gi" cx="30%" cy="30%"><stop offset="0%" stopColor="#a78bfa"/><stop offset="100%" stopColor="#3b82f6"/></radialGradient></defs></svg>,
   gemma: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}><path d="M12 2L4 7v10l8 5 8-5V7z" fill="url(#fab_gma)"/><defs><radialGradient id="fab_gma" cx="30%" cy="30%"><stop offset="0%" stopColor="#34d399"/><stop offset="100%" stopColor="#059669"/></radialGradient></defs></svg>,
   glm: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}><rect x="3" y="3" width="18" height="18" rx="4" fill="url(#fab_glm)"/><defs><radialGradient id="fab_glm" cx="30%" cy="30%"><stop offset="0%" stopColor="#f472b6"/><stop offset="100%" stopColor="#9333ea"/></radialGradient></defs></svg>,
-  kimi: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 4l2 4h4l-3 3 1 4-4-2.5L8 17l1-4-3-3h4z" fill="url(#fab_kimi)"/><defs><radialGradient id="fab_kimi" cx="30%" cy="30%"><stop offset="0%" stopColor="#fbbf24"/><stop offset="100%" stopColor="#f59e0b"/></radialGradient></defs></svg>,
   gpt: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}><circle cx="12" cy="12" r="10" fill="url(#fab_gpt)"/><path d="M8 12h8M12 8v8" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"/><defs><radialGradient id="fab_gpt" cx="30%" cy="30%"><stop offset="0%" stopColor="#4ade80"/><stop offset="100%" stopColor="#16a34a"/></radialGradient></defs></svg>,
 };
 
@@ -52,7 +51,6 @@ const MODEL_OPTIONS = [
   { id: 'gemini', label: 'Gemini 2.5 Flash' },
   { id: 'gemma', label: 'Gemma 4 26B A4B IT' },
   { id: 'glm', label: 'GLM 5' },
-  { id: 'kimi', label: 'Kimi K2 Thinking' },
   { id: 'gpt', label: 'GPT OSS 20B' },
 ];
 
@@ -233,19 +231,74 @@ export default function ChatFAB({ activePart, activeUserId, activeUser }) {
     const q = input.trim();
     if (!q || sending || !activeUserId) return;
     const history = messages.filter((m) => m.role === 'user' || m.role === 'assistant').map((m) => ({ role: m.role, content: m.content }));
-    setMessages((m) => [...m, { role: 'user', content: q }]);
+    setMessages((m) => [...m, { role: 'user', content: q }, { role: 'assistant', content: '', streaming: true }]);
     setInput(''); setSending(true); setThinkingType(null);
     try {
-      // Fire route lookup in parallel so we can update the thinking bubble early
-      fetch('/api/chat/route', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q, user_id: activeUserId }) })
-        .then((r) => r.json()).then((j) => setThinkingType(j.search_type || null)).catch(() => {});
+      const res = await fetch('/api/chat/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: q, user_id: activeUserId, conversation_history: history, chat_model: chatModel, include_chatroom: includeChatroom && isExec }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.error || 'Request failed');
+      }
 
-      const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q, user_id: activeUserId, conversation_history: history, chat_model: chatModel, include_chatroom: includeChatroom && isExec }) });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Request failed');
-      setMessages((m) => [...m, { role: 'assistant', content: json.answer, sources: json.sources || [], evalChunks: json.eval_chunks || [], query: q, searchType: json.search_type || null }]);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '', currentEvent = null, meta = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          if (line === '') { currentEvent = null; continue; }
+          if (line.startsWith('event: ')) { currentEvent = line.slice(7).trim(); continue; }
+          if (line.startsWith('data: ') && currentEvent) {
+            const data = JSON.parse(line.slice(6));
+            if (currentEvent === 'meta') {
+              meta = data;
+              setThinkingType(data.search_type || null);
+            } else if (currentEvent === 'chunk') {
+              setMessages((m) => {
+                const copy = [...m];
+                const last = { ...copy[copy.length - 1] };
+                last.content += data.text;
+                copy[copy.length - 1] = last;
+                return copy;
+              });
+            } else if (currentEvent === 'done') {
+              setMessages((m) => {
+                const copy = [...m];
+                const last = { ...copy[copy.length - 1] };
+                last.streaming = false;
+                last.sources = meta?.sources || [];
+                last.evalChunks = meta?.eval_chunks || [];
+                last.searchType = meta?.search_type || null;
+                last.query = q;
+                copy[copy.length - 1] = last;
+                return copy;
+              });
+            } else if (currentEvent === 'error') {
+              throw new Error(data.message);
+            }
+          }
+        }
+      }
     } catch (err) {
-      setMessages((m) => [...m, { role: 'assistant', content: `Something went wrong. (${err.message})`, error: true }]);
+      setMessages((m) => {
+        const copy = [...m];
+        const last = copy[copy.length - 1];
+        if (last?.streaming) {
+          copy[copy.length - 1] = { role: 'assistant', content: `Something went wrong. (${err.message})`, error: true };
+        } else {
+          copy.push({ role: 'assistant', content: `Something went wrong. (${err.message})`, error: true });
+        }
+        return copy;
+      });
     } finally { setSending(false); setThinkingType(null); }
   };
 
@@ -348,16 +401,18 @@ export default function ChatFAB({ activePart, activeUserId, activeUser }) {
           {messages.map((m, i) => (
             <div key={i} className={`chat-fab-bubble ${m.role}${m.error ? ' error' : ''}`}>
               {m.role === 'assistant' && !m.error ? (
-                <div className="md"><ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{m.content}</ReactMarkdown></div>
+                <div className={`md${m.streaming ? ' streaming' : ''}`}>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{m.content || ' '}</ReactMarkdown>
+                </div>
               ) : m.content}
-              {m.role === 'assistant' && <SearchBadge searchType={m.searchType} />}
-              {m.role === 'assistant' && <SourcesList sources={m.sources} />}
-              {m.role === 'assistant' && !m.error && (
+              {m.role === 'assistant' && !m.streaming && <SearchBadge searchType={m.searchType} />}
+              {m.role === 'assistant' && !m.streaming && <SourcesList sources={m.sources} />}
+              {m.role === 'assistant' && !m.streaming && !m.error && (
                 <EvalPanel query={m.query} answer={m.content} evalChunks={m.evalChunks} />
               )}
             </div>
           ))}
-          {sending && <ThinkingBubble searchType={thinkingType} />}
+          {sending && messages[messages.length - 1]?.content === '' && <ThinkingBubble searchType={thinkingType} />}
         </div>
 
         <form className="chat-fab-input" onSubmit={send}>

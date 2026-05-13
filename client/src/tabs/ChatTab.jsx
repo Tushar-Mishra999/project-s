@@ -61,12 +61,6 @@ const MODEL_ICONS = {
       <defs><radialGradient id="glm" cx="30%" cy="30%"><stop offset="0%" stopColor="#f472b6"/><stop offset="100%" stopColor="#9333ea"/></radialGradient></defs>
     </svg>
   ),
-  kimi: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
-      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 4l2 4h4l-3 3 1 4-4-2.5L8 17l1-4-3-3h4z" fill="url(#kimi)"/>
-      <defs><radialGradient id="kimi" cx="30%" cy="30%"><stop offset="0%" stopColor="#fbbf24"/><stop offset="100%" stopColor="#f59e0b"/></radialGradient></defs>
-    </svg>
-  ),
   gpt: (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
       <circle cx="12" cy="12" r="10" fill="url(#ct_gpt)"/>
@@ -278,7 +272,6 @@ const MODEL_OPTIONS = [
   { id: 'gemini', label: 'Gemini 2.5 Flash' },
   { id: 'gemma', label: 'Gemma 4 26B A4B IT' },
   { id: 'glm', label: 'GLM 5' },
-  { id: 'kimi', label: 'Kimi K2 Thinking' },
   { id: 'gpt', label: 'GPT OSS 20B' },
 ];
 
@@ -309,37 +302,84 @@ export default function ChatTab({ activePart, activeUserId, activeUser }) {
     if (!q || sending) return;
     if (!activeUserId) return;
 
-    const newUser = { role: 'user', content: q };
     const history = messages
       .filter((m) => m.role === 'user' || m.role === 'assistant')
       .map((m) => ({ role: m.role, content: m.content }));
 
-    setMessages((m) => [...m, newUser]);
+    setMessages((m) => [...m, { role: 'user', content: q }, { role: 'assistant', content: '', streaming: true }]);
     setInput('');
     setSending(true);
     setThinkingType(null);
 
     try {
-      // Fire route lookup in parallel so the thinking bubble updates early
-      fetch('/api/chat/route', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q, user_id: activeUserId }) })
-        .then((r) => r.json()).then((j) => setThinkingType(j.search_type || null)).catch(() => {});
-
-      const res = await fetch('/api/chat', {
+      const res = await fetch('/api/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: q, user_id: activeUserId, conversation_history: history, chat_model: chatModel }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Request failed');
-      setMessages((m) => [
-        ...m,
-        { role: 'assistant', content: json.answer, sources: json.sources || [], evalChunks: json.eval_chunks || [], query: q, searchType: json.search_type || null },
-      ]);
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.error || 'Request failed');
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let currentEvent = null;
+      let meta = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (line === '') { currentEvent = null; continue; }
+          if (line.startsWith('event: ')) { currentEvent = line.slice(7).trim(); continue; }
+          if (line.startsWith('data: ') && currentEvent) {
+            const data = JSON.parse(line.slice(6));
+            if (currentEvent === 'meta') {
+              meta = data;
+              setThinkingType(data.search_type || null);
+            } else if (currentEvent === 'chunk') {
+              setMessages((m) => {
+                const copy = [...m];
+                const last = { ...copy[copy.length - 1] };
+                last.content += data.text;
+                copy[copy.length - 1] = last;
+                return copy;
+              });
+            } else if (currentEvent === 'done') {
+              setMessages((m) => {
+                const copy = [...m];
+                const last = { ...copy[copy.length - 1] };
+                last.streaming = false;
+                last.sources = meta?.sources || [];
+                last.evalChunks = meta?.eval_chunks || [];
+                last.searchType = meta?.search_type || null;
+                last.query = q;
+                copy[copy.length - 1] = last;
+                return copy;
+              });
+            } else if (currentEvent === 'error') {
+              throw new Error(data.message);
+            }
+          }
+        }
+      }
     } catch (err) {
-      setMessages((m) => [
-        ...m,
-        { role: 'assistant', content: `Something went wrong, please try again. (${err.message})`, error: true },
-      ]);
+      setMessages((m) => {
+        const copy = [...m];
+        const last = copy[copy.length - 1];
+        if (last?.streaming) {
+          copy[copy.length - 1] = { role: 'assistant', content: `Something went wrong, please try again. (${err.message})`, error: true };
+        } else {
+          copy.push({ role: 'assistant', content: `Something went wrong, please try again. (${err.message})`, error: true });
+        }
+        return copy;
+      });
     } finally {
       setSending(false);
       setThinkingType(null);
@@ -372,19 +412,21 @@ export default function ChatTab({ activePart, activeUserId, activeUser }) {
           <div key={i} className={`bubble-row ${m.role}`}>
             <div className={`bubble ${m.role}${m.error ? ' error' : ''}`}>
               {m.role === 'assistant' && !m.error ? (
-                <div className="md"><ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{m.content}</ReactMarkdown></div>
+                <div className={`md${m.streaming ? ' streaming' : ''}`}>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{m.content || ' '}</ReactMarkdown>
+                </div>
               ) : (
                 m.content
               )}
-              {m.role === 'assistant' && <SearchBadge searchType={m.searchType} />}
-              {m.role === 'assistant' && <SourcesList sources={m.sources} />}
-              {m.role === 'assistant' && !m.error && (
+              {m.role === 'assistant' && !m.streaming && <SearchBadge searchType={m.searchType} />}
+              {m.role === 'assistant' && !m.streaming && <SourcesList sources={m.sources} />}
+              {m.role === 'assistant' && !m.streaming && !m.error && (
                 <EvalPanel query={m.query} answer={m.content} evalChunks={m.evalChunks} />
               )}
             </div>
           </div>
         ))}
-        {sending && <ThinkingRow searchType={thinkingType} />}
+        {sending && messages[messages.length - 1]?.content === '' && <ThinkingRow searchType={thinkingType} />}
       </div>
 
       <form className="chat-input-bar" onSubmit={send}>
