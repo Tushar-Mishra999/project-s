@@ -639,6 +639,18 @@ select {
   margin: 6px 0; padding: 4px 12px; border-left: 3px solid var(--blue);
   color: var(--text-mid); background: var(--blue-soft);
 }
+/* Blinking cursor while tokens are streaming in */
+@keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+.md.streaming > *:last-child::after {
+  content: '▋';
+  display: inline-block;
+  color: var(--blue-bright);
+  animation: blink 0.9s step-start infinite;
+  margin-left: 1px;
+  font-size: 0.85em;
+  vertical-align: baseline;
+}
+
 .bubble .md .md-table-wrap {
   overflow-x: auto; margin: 10px 0;
   border-radius: 8px; border: 1px solid var(--border);
