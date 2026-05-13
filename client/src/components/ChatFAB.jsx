@@ -8,13 +8,23 @@ const MD_COMPONENTS = {
   ),
 };
 
+function ThinkingDots() {
+  const FRAMES = ['', ' .', ' . .', ' . . .', ' . . . .'];
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setI((f) => (f + 1) % FRAMES.length), 380);
+    return () => clearInterval(t);
+  }, []);
+  return <span style={{ display: 'inline-block', minWidth: 40, letterSpacing: 1 }}>{FRAMES[i]}</span>;
+}
+
 function ThinkingBubble({ searchType }) {
   return (
     <div className="chat-fab-bubble assistant" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       <div className="typing"><span /><span /><span /></div>
       {searchType
         ? <SearchBadge searchType={searchType} />
-        : <span style={{ fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic' }}>Agent thinking…</span>
+        : <span style={{ fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic' }}>Agent thinking<ThinkingDots /></span>
       }
     </div>
   );
@@ -201,6 +211,8 @@ export default function ChatFAB({ activePart, activeUserId, activeUser }) {
   const [evalSummary, setEvalSummary] = useState(null);
   const scrollRef = useRef(null);
   const modelRef = useRef(null);
+  const streamBuf = useRef('');
+  const rafId = useRef(null);
 
   const isExec = activeUser?.role === 'MD' || activeUser?.role === 'PartHead';
   const scopeLabel = activeUser?.role === 'MD'
@@ -263,17 +275,28 @@ export default function ChatFAB({ activePart, activeUserId, activeUser }) {
               meta = data;
               setThinkingType(data.search_type || null);
             } else if (currentEvent === 'chunk') {
-              setMessages((m) => {
-                const copy = [...m];
-                const last = { ...copy[copy.length - 1] };
-                last.content += data.text;
-                copy[copy.length - 1] = last;
-                return copy;
-              });
+              streamBuf.current += data.text;
+              if (!rafId.current) {
+                rafId.current = requestAnimationFrame(() => {
+                  const flush = streamBuf.current;
+                  streamBuf.current = '';
+                  rafId.current = null;
+                  setMessages((m) => {
+                    const copy = [...m];
+                    const last = { ...copy[copy.length - 1] };
+                    last.content += flush;
+                    copy[copy.length - 1] = last;
+                    return copy;
+                  });
+                });
+              }
             } else if (currentEvent === 'done') {
+              if (rafId.current) { cancelAnimationFrame(rafId.current); rafId.current = null; }
+              const remaining = streamBuf.current; streamBuf.current = '';
               setMessages((m) => {
                 const copy = [...m];
                 const last = { ...copy[copy.length - 1] };
+                last.content += remaining;
                 last.streaming = false;
                 last.sources = meta?.sources || [];
                 last.evalChunks = meta?.eval_chunks || [];
@@ -289,6 +312,8 @@ export default function ChatFAB({ activePart, activeUserId, activeUser }) {
         }
       }
     } catch (err) {
+      if (rafId.current) { cancelAnimationFrame(rafId.current); rafId.current = null; }
+      streamBuf.current = '';
       setMessages((m) => {
         const copy = [...m];
         const last = copy[copy.length - 1];
@@ -398,8 +423,9 @@ export default function ChatFAB({ activePart, activeUserId, activeUser }) {
               <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Grounded answers from your documents</div>
             </div>
           )}
-          {messages.map((m, i) => (
-            <div key={i} className={`chat-fab-bubble ${m.role}${m.error ? ' error' : ''}`}>
+          {messages.map((m, i) => {
+            if (m.streaming && !m.content) return null;
+            return (<div key={i} className={`chat-fab-bubble ${m.role}${m.error ? ' error' : ''}`}>
               {m.role === 'assistant' && !m.error ? (
                 <div className={`md${m.streaming ? ' streaming' : ''}`}>
                   <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{m.content || ' '}</ReactMarkdown>
@@ -411,7 +437,8 @@ export default function ChatFAB({ activePart, activeUserId, activeUser }) {
                 <EvalPanel query={m.query} answer={m.content} evalChunks={m.evalChunks} />
               )}
             </div>
-          ))}
+            );
+          })}
           {sending && messages[messages.length - 1]?.content === '' && <ThinkingBubble searchType={thinkingType} />}
         </div>
 
