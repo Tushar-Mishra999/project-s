@@ -20,7 +20,7 @@ if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON && !process.env.GOOGLE_APPLI
 import { supabase, ragReady } from './lib/clients.js';
 import { initConstraints, neo4jReady } from './lib/neo4j.js';
 import { extractEntities, writeDocumentToGraph, deleteDocumentFromGraph, graphSearch, routeQuery } from './lib/graphExtract.js';
-import { generateChat, generateChatGemma, generateChatGLM, generateChatKimi, generateText, generateWithParts, generateTextWithSearch } from './lib/llm.js';
+import { generateChat, generateChatGemma, generateChatGLM, generateChatKimi, generateChatGPTOSS, generateText, generateWithParts, generateTextWithSearch } from './lib/llm.js';
 import { runFeedPipeline } from './lib/feed.js';
 import { extractActionItems } from './lib/actionItems.js';
 import { extractText } from './lib/extract.js';
@@ -1384,6 +1384,8 @@ app.post('/api/chat', async (req, res) => {
       answer = await generateChatGLM({ system: CHAT_SYSTEM, messages, maxTokens: 2048 });
     } else if (chat_model === 'kimi') {
       answer = await generateChatKimi({ system: CHAT_SYSTEM, messages, maxTokens: 2048 });
+    } else if (chat_model === 'gpt') {
+      answer = await generateChatGPTOSS({ system: CHAT_SYSTEM, messages, maxTokens: 2048 });
     } else {
       answer = await generateChat({ model: config.models.chat, system: CHAT_SYSTEM, messages, maxTokens: 4096 });
     }
@@ -1583,6 +1585,7 @@ async function generateReport({ report_model, system, userMsg, maxTokens }) {
   if (report_model === 'gemma') return generateChatGemma({ system, messages: [{ role: 'user', content: userMsg }], maxTokens });
   if (report_model === 'glm')  return generateChatGLM({ system, messages: [{ role: 'user', content: userMsg }], maxTokens });
   if (report_model === 'kimi') return generateChatKimi({ system, messages: [{ role: 'user', content: userMsg }], maxTokens });
+  if (report_model === 'gpt')  return generateChatGPTOSS({ system, messages: [{ role: 'user', content: userMsg }], maxTokens });
   return generateText({ model: config.models.summarisation, system, user: userMsg, maxTokens });
 }
 
