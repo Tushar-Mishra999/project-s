@@ -20,12 +20,6 @@ const MODEL_ICONS = {
       <defs><radialGradient id="rglm" cx="30%" cy="30%"><stop offset="0%" stopColor="#f472b6"/><stop offset="100%" stopColor="#9333ea"/></radialGradient></defs>
     </svg>
   ),
-  kimi: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
-      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 4l2 4h4l-3 3 1 4-4-2.5L8 17l1-4-3-3h4z" fill="url(#rkimi)"/>
-      <defs><radialGradient id="rkimi" cx="30%" cy="30%"><stop offset="0%" stopColor="#fbbf24"/><stop offset="100%" stopColor="#f59e0b"/></radialGradient></defs>
-    </svg>
-  ),
   gpt: (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
       <circle cx="12" cy="12" r="10" fill="url(#rg_gpt)"/>
@@ -39,7 +33,6 @@ const MODEL_OPTIONS = [
   { id: 'gemini', label: 'Gemini 2.5 Flash' },
   { id: 'gemma', label: 'Gemma 4 26B A4B IT' },
   { id: 'glm', label: 'GLM 5' },
-  { id: 'kimi', label: 'Kimi K2 Thinking' },
   { id: 'gpt', label: 'GPT OSS 20B' },
 ];
 
