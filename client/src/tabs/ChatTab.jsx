@@ -60,6 +60,13 @@ const MODEL_ICONS = {
       <defs><radialGradient id="kimi" cx="30%" cy="30%"><stop offset="0%" stopColor="#fbbf24"/><stop offset="100%" stopColor="#f59e0b"/></radialGradient></defs>
     </svg>
   ),
+  gpt: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+      <circle cx="12" cy="12" r="10" fill="url(#ct_gpt)"/>
+      <path d="M8 12h8M12 8v8" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"/>
+      <defs><radialGradient id="ct_gpt" cx="30%" cy="30%"><stop offset="0%" stopColor="#4ade80"/><stop offset="100%" stopColor="#16a34a"/></radialGradient></defs>
+    </svg>
+  ),
 };
 
 function ModelDropdown({ value, onChange }) {
@@ -265,6 +272,7 @@ const MODEL_OPTIONS = [
   { id: 'gemma', label: 'Gemma 4 26B A4B IT' },
   { id: 'glm', label: 'GLM 5' },
   { id: 'kimi', label: 'Kimi K2 Thinking' },
+  { id: 'gpt', label: 'GPT OSS 20B' },
 ];
 
 export default function ChatTab({ activePart, activeUserId, activeUser }) {
