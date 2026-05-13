@@ -2,6 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
+const MD_COMPONENTS = {
+  table: ({ node, ...props }) => (
+    <div className="md-table-wrap"><table {...props} /></div>
+  ),
+};
+
 function ThinkingRow({ searchType }) {
   return (
     <div className="bubble-row assistant">
@@ -366,7 +372,7 @@ export default function ChatTab({ activePart, activeUserId, activeUser }) {
           <div key={i} className={`bubble-row ${m.role}`}>
             <div className={`bubble ${m.role}${m.error ? ' error' : ''}`}>
               {m.role === 'assistant' && !m.error ? (
-                <div className="md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown></div>
+                <div className="md"><ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{m.content}</ReactMarkdown></div>
               ) : (
                 m.content
               )}

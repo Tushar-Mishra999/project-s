@@ -639,18 +639,24 @@ select {
   margin: 6px 0; padding: 4px 12px; border-left: 3px solid var(--blue);
   color: var(--text-mid); background: var(--blue-soft);
 }
+.bubble .md .md-table-wrap {
+  overflow-x: auto; margin: 10px 0;
+  border-radius: 8px; border: 1px solid var(--border);
+}
 .bubble .md table {
-  border-collapse: collapse; width: 100%; margin: 10px 0;
-  font-size: 13px; overflow-x: auto; display: block;
+  border-collapse: collapse; width: 100%; font-size: 13px; margin: 0;
 }
 .bubble .md th, .bubble .md td {
-  border: 1px solid var(--border); padding: 6px 12px;
-  text-align: left; white-space: nowrap;
+  border-bottom: 1px solid var(--border); border-right: 1px solid var(--border);
+  padding: 7px 14px; text-align: left; white-space: nowrap;
 }
+.bubble .md th:last-child, .bubble .md td:last-child { border-right: none; }
+.bubble .md tr:last-child td { border-bottom: none; }
 .bubble .md th {
-  background: var(--bg); font-weight: 600; color: var(--text);
+  background: rgba(59,130,246,.12); font-weight: 600; color: var(--text);
+  border-bottom: 1px solid var(--border);
 }
-.bubble .md tr:nth-child(even) td { background: rgba(255,255,255,.03); }
+.bubble .md tr:nth-child(even) td { background: rgba(255,255,255,.025); }
 
 .sources { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
 .sources-toggle {
