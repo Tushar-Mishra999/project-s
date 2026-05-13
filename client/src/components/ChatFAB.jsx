@@ -2,6 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
+const MD_COMPONENTS = {
+  table: ({ node, ...props }) => (
+    <div className="md-table-wrap"><table {...props} /></div>
+  ),
+};
+
 function ThinkingBubble({ searchType }) {
   return (
     <div className="chat-fab-bubble assistant" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -346,7 +352,7 @@ export default function ChatFAB({ activePart, activeUserId, activeUser }) {
           {messages.map((m, i) => (
             <div key={i} className={`chat-fab-bubble ${m.role}${m.error ? ' error' : ''}`}>
               {m.role === 'assistant' && !m.error ? (
-                <div className="md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown></div>
+                <div className="md"><ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{m.content}</ReactMarkdown></div>
               ) : m.content}
               {m.role === 'assistant' && <SearchBadge searchType={m.searchType} />}
               {m.role === 'assistant' && <SourcesList sources={m.sources} />}
