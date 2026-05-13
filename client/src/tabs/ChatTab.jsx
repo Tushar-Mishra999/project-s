@@ -8,6 +8,16 @@ const MD_COMPONENTS = {
   ),
 };
 
+function ThinkingDots() {
+  const FRAMES = ['', ' .', ' . .', ' . . .', ' . . . .'];
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setI((f) => (f + 1) % FRAMES.length), 380);
+    return () => clearInterval(t);
+  }, []);
+  return <span style={{ display: 'inline-block', minWidth: 44, letterSpacing: 1 }}>{FRAMES[i]}</span>;
+}
+
 function ThinkingRow({ searchType }) {
   return (
     <div className="bubble-row assistant">
@@ -15,7 +25,7 @@ function ThinkingRow({ searchType }) {
         <div className="typing"><span /><span /><span /></div>
         {searchType
           ? <SearchBadge searchType={searchType} />
-          : <span style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>Agent thinking…</span>
+          : <span style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>Agent thinking<ThinkingDots /></span>
         }
       </div>
     </div>
@@ -285,6 +295,8 @@ export default function ChatTab({ activePart, activeUserId, activeUser }) {
   const [thinkingType, setThinkingType] = useState(null);
   const [chatModel, setChatModel] = useState('gemini');
   const scrollRef = useRef(null);
+  const streamBuf = useRef('');
+  const rafId = useRef(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -344,17 +356,29 @@ export default function ChatTab({ activePart, activeUserId, activeUser }) {
               meta = data;
               setThinkingType(data.search_type || null);
             } else if (currentEvent === 'chunk') {
-              setMessages((m) => {
-                const copy = [...m];
-                const last = { ...copy[copy.length - 1] };
-                last.content += data.text;
-                copy[copy.length - 1] = last;
-                return copy;
-              });
+              streamBuf.current += data.text;
+              if (!rafId.current) {
+                rafId.current = requestAnimationFrame(() => {
+                  const flush = streamBuf.current;
+                  streamBuf.current = '';
+                  rafId.current = null;
+                  setMessages((m) => {
+                    const copy = [...m];
+                    const last = { ...copy[copy.length - 1] };
+                    last.content += flush;
+                    copy[copy.length - 1] = last;
+                    return copy;
+                  });
+                });
+              }
             } else if (currentEvent === 'done') {
+              // Flush any buffered tokens before finalising
+              if (rafId.current) { cancelAnimationFrame(rafId.current); rafId.current = null; }
+              const remaining = streamBuf.current; streamBuf.current = '';
               setMessages((m) => {
                 const copy = [...m];
                 const last = { ...copy[copy.length - 1] };
+                last.content += remaining;
                 last.streaming = false;
                 last.sources = meta?.sources || [];
                 last.evalChunks = meta?.eval_chunks || [];
@@ -370,6 +394,8 @@ export default function ChatTab({ activePart, activeUserId, activeUser }) {
         }
       }
     } catch (err) {
+      if (rafId.current) { cancelAnimationFrame(rafId.current); rafId.current = null; }
+      streamBuf.current = '';
       setMessages((m) => {
         const copy = [...m];
         const last = copy[copy.length - 1];
@@ -408,8 +434,9 @@ export default function ChatTab({ activePart, activeUserId, activeUser }) {
             </div>
           </div>
         )}
-        {messages.map((m, i) => (
-          <div key={i} className={`bubble-row ${m.role}`}>
+        {messages.map((m, i) => {
+          if (m.streaming && !m.content) return null;
+          return (<div key={i} className={`bubble-row ${m.role}`}>
             <div className={`bubble ${m.role}${m.error ? ' error' : ''}`}>
               {m.role === 'assistant' && !m.error ? (
                 <div className={`md${m.streaming ? ' streaming' : ''}`}>
@@ -425,7 +452,8 @@ export default function ChatTab({ activePart, activeUserId, activeUser }) {
               )}
             </div>
           </div>
-        ))}
+          );
+        })}
         {sending && messages[messages.length - 1]?.content === '' && <ThinkingRow searchType={thinkingType} />}
       </div>
 
