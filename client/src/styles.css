@@ -3013,12 +3013,10 @@ mark.preview-accepted:hover { background: rgba(34,197,94,.32); }
 }
 /* When open: collapse back to square icon button */
 .chat-fab-open {
-  padding: 0; width: 52px;
   background: var(--surface-3);
   box-shadow: 0 4px 14px rgba(0,0,0,.35);
 }
 .chat-fab-open:hover { transform: scale(1.06) translateY(0); box-shadow: 0 6px 20px rgba(0,0,0,.45); }
-.chat-fab-open .chat-fab-label { max-width: 0; opacity: 0; margin-left: 0; }
 
 .chat-fab-inner {
   position: relative; z-index: 2; flex-shrink: 0;
@@ -3043,7 +3041,7 @@ mark.preview-accepted:hover { background: rgba(34,197,94,.32); }
   position: fixed; z-index: 99;
   top: 50%; left: 50%;
   transform: translate(-50%, -50%) scale(.95);
-  width: 700px; max-height: 84vh;
+  width: 860px; max-height: 92vh;
   background: var(--surface);
   border: 1px solid var(--border-strong);
   border-radius: 20px;

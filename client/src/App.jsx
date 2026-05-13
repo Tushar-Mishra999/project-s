@@ -216,7 +216,7 @@ function NotificationBell({ activeUserId, onJump }) {
 }
 
 export default function App() {
-  const [active, setActive] = useState('home');
+  const [active, setActive] = useState('hub');
   const [parts, setParts] = useState([]);
   const [users, setUsers] = useState([]);
   const [activeUserId, setActiveUserId] = useState('u_md');
