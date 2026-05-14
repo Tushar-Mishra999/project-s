@@ -1655,7 +1655,7 @@ app.get('/api/chat/eval-summary', async (req, res) => {
 async function generateReport({ report_model, system, userMsg, maxTokens }) {
   if (report_model === 'gemma') return generateChatGemma({ system, messages: [{ role: 'user', content: userMsg }], maxTokens });
   if (report_model === 'glm')  return generateChatGLM({ system, messages: [{ role: 'user', content: userMsg }], maxTokens });
-if (report_model === 'gpt')  return generateChatGPTOSS({ system, messages: [{ role: 'user', content: userMsg }], maxTokens });
+  if (report_model === 'gpt')  return generateChatGPTOSS({ system, messages: [{ role: 'user', content: userMsg }], maxTokens });
   return generateText({ model: config.models.summarisation, system, user: userMsg, maxTokens });
 }
 
