@@ -2,7 +2,7 @@ import re
 import json
 import math
 from .llm import generate_text, embed_text, OLLAMA_MODEL
-from .clients import get_supabase, config
+from .clients import config, get_chunks_collection
 
 _ENRICH_SYSTEM = (
     'Analyse the document chunk and return ONLY a JSON object:\n'
@@ -72,17 +72,42 @@ async def rerank_chunks(query: str, chunks: list[dict]) -> list[dict]:
 
 
 async def retrieve(query: str, part_filter: str | None) -> list[dict]:
-    sb = get_supabase()
     embedding = await embed_text(query)
-    result = sb.rpc(
-        "match_chunks",
-        {
-            "query_embedding": embedding,
-            "part_filter": part_filter,
-            "match_count": config["rag"]["vector_search_top_k"],
-        },
-    ).execute()
-    chunks = result.data or []
+    col = get_chunks_collection()
+    top_k = config["rag"]["vector_search_top_k"]
+    try:
+        count = col.count()
+        if count == 0:
+            return []
+        n = min(top_k, count)
+        where = {"accessible_to_str": {"$contains": f"|{part_filter}|"}} if part_filter else None
+        results = col.query(
+            query_embeddings=[embedding],
+            n_results=n,
+            where=where,
+            include=["metadatas", "documents", "distances"],
+        )
+    except Exception:
+        return []
+
+    chunks = []
+    for i, doc_id in enumerate(results["ids"][0]):
+        meta = results["metadatas"][0][i]
+        chunks.append({
+            "id": doc_id,
+            "file_id": meta.get("file_id"),
+            "chunk_text": results["documents"][0][i],
+            "chunk_summary": meta.get("chunk_summary", ""),
+            "keywords": json.loads(meta.get("keywords_json", "[]")),
+            "hypothetical_questions": json.loads(meta.get("hypothetical_questions_json", "[]")),
+            "chunk_index": meta.get("chunk_index", 0),
+            "similarity": 1.0 - results["distances"][0][i],
+            "filename": meta.get("filename", ""),
+            "filetype": meta.get("filetype", ""),
+            "file_url": meta.get("file_url", ""),
+            "uploaded_by": meta.get("uploaded_by", ""),
+        })
+
     if not chunks:
         return []
     return await rerank_chunks(query, chunks)

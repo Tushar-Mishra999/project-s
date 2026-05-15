@@ -1,4 +1,4 @@
-"""FastAPI backend — Ollama-based equivalent of server.js."""
+"""FastAPI backend — Ollama LLM + ChromaDB vectors + psycopg2 PostgreSQL."""
 from __future__ import annotations
 import os, json, uuid, re, io, asyncio, tempfile, shutil
 from pathlib import Path
@@ -13,13 +13,13 @@ from fastapi.responses import JSONResponse, StreamingResponse, FileResponse, Red
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from lib.clients import get_supabase, rag_ready, config
-# from lib.clients import neo4j_ready, run_neo4j  # Neo4j disabled — use cloud Neo4j AuraDB or local bolt
+from lib.clients import rag_ready, config, get_chunks_collection, get_chatroom_collection
+from lib.db import fetch_all, fetch_one, execute, execute_returning
+from psycopg2.extras import Json
 from lib.llm import generate_text, generate_chat, generate_chat_stream, embed_text, OLLAMA_MODEL
 from lib.rag import retrieve, rerank_chunks, enrich_chunk, build_embedding_input, strip_json_fences, cosine_similarity
 from lib.extract import extract_text as extract_file_text
 from lib.chunk import chunk_document, add_context_prefix
-# from lib.graph import extract_entities, write_document_to_graph, delete_document_from_graph, route_query, graph_search  # Neo4j disabled
 from lib.render import render_pdf, render_docx, render_xlsx
 from lib.action_items import extract_action_items
 from lib.feed import run_feed_pipeline, live_search
@@ -27,46 +27,23 @@ from lib.feed import run_feed_pipeline, live_search
 app = FastAPI(title="Kernel FastAPI Backend")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# ── Local storage (used when SUPABASE_URL points to localhost / PostgREST) ───
-# When running with native PostgreSQL + PostgREST there is no Supabase Storage
-# API. Files are saved to a local folder and served via a /uploads route instead.
-_SUPABASE_URL = os.getenv("SUPABASE_URL", "")
-_USE_LOCAL_STORAGE = "localhost" in _SUPABASE_URL or "127.0.0.1" in _SUPABASE_URL
+# ── Local file storage ────────────────────────────────────────────────────────
 _LOCAL_UPLOADS_DIR = Path(__file__).parent / "uploads"
 _PORT = int(os.getenv("PORT", 10000))
-
-if _USE_LOCAL_STORAGE:
-    _LOCAL_UPLOADS_DIR.mkdir(exist_ok=True)
+_LOCAL_UPLOADS_DIR.mkdir(exist_ok=True)
 
 def storage_upload(storage_path: str, file_bytes: bytes, content_type: str = "application/octet-stream") -> str:
-    """Upload a file and return its public URL. Uses local disk when running with native PostgreSQL."""
-    if _USE_LOCAL_STORAGE:
-        dest = _LOCAL_UPLOADS_DIR / storage_path.replace("/", "_")
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_bytes(file_bytes)
-        safe_name = storage_path.replace("/", "_")
-        return f"http://localhost:{_PORT}/uploads/{safe_name}"
-    sb = get_supabase()
-    sb.storage.from_("documents").upload(
-        path=storage_path,
-        file=file_bytes,
-        file_options={"content-type": content_type},
-    )
-    pub = sb.storage.from_("documents").get_public_url(storage_path)
-    return pub if isinstance(pub, str) else pub.get("publicUrl", "")
+    safe_name = storage_path.replace("/", "_")
+    dest = _LOCAL_UPLOADS_DIR / safe_name
+    dest.write_bytes(file_bytes)
+    return f"http://localhost:{_PORT}/uploads/{safe_name}"
 
 def storage_delete(file_url: str) -> None:
-    """Delete a stored file by its public URL. No-ops silently on failure."""
     try:
-        if _USE_LOCAL_STORAGE:
-            filename = file_url.split("/uploads/")[-1]
-            path = _LOCAL_UPLOADS_DIR / filename
-            if path.exists():
-                path.unlink()
-        else:
-            path = file_url.split("/documents/")[-1]
-            if path:
-                get_supabase().storage.from_("documents").remove([path])
+        filename = file_url.split("/uploads/")[-1]
+        path = _LOCAL_UPLOADS_DIR / filename
+        if path.exists():
+            path.unlink()
     except Exception:
         pass
 
@@ -74,18 +51,14 @@ def storage_delete(file_url: str) -> None:
 _DIST = Path(__file__).parent.parent / "client" / "dist"
 if _DIST.exists():
     app.mount("/assets", StaticFiles(directory=str(_DIST / "assets")), name="assets")
-
-# Serve locally uploaded files when using native PostgreSQL
-if _USE_LOCAL_STORAGE:
-    _LOCAL_UPLOADS_DIR.mkdir(exist_ok=True)
-    app.mount("/uploads", StaticFiles(directory=str(_LOCAL_UPLOADS_DIR)), name="uploads")
+app.mount("/uploads", StaticFiles(directory=str(_LOCAL_UPLOADS_DIR)), name="uploads")
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _ok() -> dict:
     r = rag_ready()
     if not r["ok"]:
-        raise HTTPException(503, f"RAG not configured: missing {', '.join(r['missing'])}")
+        raise HTTPException(503, f"RAG not configured: {', '.join(r['missing'])}")
     return r
 
 def user_scope(user: dict) -> tuple[str | None, bool]:
@@ -98,8 +71,7 @@ def user_scope(user: dict) -> tuple[str | None, bool]:
 async def load_user(user_id: str | None) -> dict | None:
     if not user_id:
         return None
-    result = get_supabase().table("users").select("*").eq("id", user_id).maybe_single().execute()
-    return result.data
+    return fetch_one("SELECT * FROM users WHERE id = %s", (user_id,))
 
 async def resolve_part_filter(user_id: str | None, part: str | None = None) -> str | None:
     if user_id:
@@ -122,9 +94,6 @@ def conv_id(a: str, b: str) -> str:
 
 _memory_feed_cache: dict = {}
 _pipeline_running: set = set()
-_memory_action_items: dict = {}
-
-# ── SSE helper ───────────────────────────────────────────────────────────────
 
 def _sse(event: str, data: Any) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
@@ -135,14 +104,13 @@ def _sse(event: str, data: Any) -> str:
 
 @app.get("/api/feed")
 async def get_feed(part: str | None = None):
-    sb = get_supabase()
     key = f"part:{part}" if part else "latest"
     if key in _memory_feed_cache:
         return _memory_feed_cache[key]
     try:
-        r = sb.table("feed_cache").select("data,generated_at").eq("id", key).maybe_single().execute()
-        if r.data:
-            return {**r.data["data"], "generatedAt": r.data["generated_at"]}
+        r = fetch_one("SELECT data, generated_at FROM feed_cache WHERE id = %s", (key,))
+        if r:
+            return {**r["data"], "generatedAt": r["generated_at"]}
     except Exception:
         pass
     payload = await run_feed_pipeline(part)
@@ -174,11 +142,14 @@ async def refresh_feed(req: Request):
                 payload = await run_feed_pipeline(part)
                 _memory_feed_cache[key] = payload
                 try:
-                    get_supabase().table("feed_cache").upsert({
-                        "id": key, "data": payload,
-                        "generated_at": payload.get("generatedAt"),
-                        "updated_at": datetime.utcnow().isoformat(),
-                    }).execute()
+                    execute("""
+                        INSERT INTO feed_cache (id, data, generated_at, updated_at)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (id) DO UPDATE SET
+                            data = EXCLUDED.data,
+                            generated_at = EXCLUDED.generated_at,
+                            updated_at = EXCLUDED.updated_at
+                    """, (key, Json(payload), payload.get("generatedAt"), datetime.utcnow().isoformat()))
                 except Exception:
                     pass
             finally:
@@ -193,11 +164,9 @@ async def get_leaderboard():
 @app.post("/api/worklet")
 async def generate_worklet(req: Request):
     body = await req.json()
-    title = body.get("title", "")
-    url = body.get("url", "")
     result = await generate_text(
         system="You are a technical analyst. Write a 130-160 word digest of the article suitable for a briefing note. Be factual and precise.",
-        user=f"Title: {title}\nURL: {url}",
+        user=f"Title: {body.get('title','')}\nURL: {body.get('url','')}",
         max_tokens=512,
     )
     return {"worklet": result}
@@ -205,8 +174,7 @@ async def generate_worklet(req: Request):
 @app.post("/api/feed/live-search")
 async def feed_live_search(req: Request):
     body = await req.json()
-    query = body.get("query", "")
-    results = await live_search(query)
+    results = await live_search(body.get("query", ""))
     return {"results": results}
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -216,61 +184,64 @@ async def feed_live_search(req: Request):
 @app.post("/api/action-items/extract/{file_id}")
 async def extract_action_items_preview(file_id: str, req: Request):
     _ok()
-    body = await req.json()
-    sb = get_supabase()
-    r = sb.table("files").select("id,filename,accessible_to").eq("id", file_id).maybe_single().execute()
-    if not r.data:
+    f = fetch_one("SELECT id, filename, accessible_to FROM files WHERE id = %s", (file_id,))
+    if not f:
         raise HTTPException(404, "file not found")
-    chunks_r = sb.table("chunks").select("chunk_text").eq("file_id", file_id).order("chunk_index").execute()
-    text = "\n\n".join(c["chunk_text"] for c in (chunks_r.data or []))
+    chunks_rows = fetch_all("SELECT chunk_text FROM chunks WHERE file_id = %s ORDER BY chunk_index", (file_id,))
+    text = "\n\n".join(c["chunk_text"] for c in chunks_rows)
     items = await extract_action_items(text)
-    return {"source_type": "file", "source_id": file_id, "filename": r.data["filename"],
-            "accessible_to": r.data.get("accessible_to", []), "items": items}
+    return {"source_type": "file", "source_id": file_id, "filename": f["filename"],
+            "accessible_to": f.get("accessible_to") or [], "items": items}
 
 @app.post("/api/action-items")
 async def save_action_items(req: Request):
     _ok()
     body = await req.json()
-    sb = get_supabase()
-    r = sb.table("action_items").insert({
-        "file_id": body.get("file_id"),
-        "filename": body.get("filename"),
-        "accessible_to": body.get("accessible_to", []),
-        "items": body.get("items", []),
-        "assigned_by": body.get("assigned_by"),
-        "source_type": body.get("source_type", "file"),
-        "source_id": body.get("source_id"),
-    }).select().single().execute()
-    return {"action_item": r.data}
+    row = execute_returning("""
+        INSERT INTO action_items (file_id, filename, accessible_to, items, assigned_by, source_type, source_id)
+        VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING *
+    """, (body.get("file_id"), body.get("filename"), body.get("accessible_to", []),
+          Json(body.get("items", [])), body.get("assigned_by"),
+          body.get("source_type", "file"), body.get("source_id")))
+    return {"action_item": row}
 
 @app.get("/api/action-items")
 async def list_action_items(user_id: str | None = None, part: str | None = None):
-    sb = get_supabase()
-    q = sb.table("action_items").select("*").order("created_at", desc=True)
     if user_id:
         user = await load_user(user_id)
         if not user:
             raise HTTPException(400, "unknown user")
         scope, is_all = user_scope(user)
-        if not is_all and scope:
-            q = q.contains("accessible_to", [scope])
-        elif not is_all:
+        if is_all:
+            rows = fetch_all("SELECT * FROM action_items ORDER BY created_at DESC")
+        elif scope:
+            rows = fetch_all(
+                "SELECT * FROM action_items WHERE accessible_to @> ARRAY[%s] ORDER BY created_at DESC", (scope,))
+        else:
             return {"action_items": []}
     elif part:
-        q = q.contains("accessible_to", [part])
-    r = q.execute()
-    return {"action_items": r.data or []}
+        rows = fetch_all(
+            "SELECT * FROM action_items WHERE accessible_to @> ARRAY[%s] ORDER BY created_at DESC", (part,))
+    else:
+        rows = fetch_all("SELECT * FROM action_items ORDER BY created_at DESC")
+    return {"action_items": rows}
+
+_AI_SAFE_COLS = {"items", "assigned_by", "accessible_to", "filename"}
 
 @app.patch("/api/action-items/{item_id}")
 async def update_action_item(item_id: str, req: Request):
     body = await req.json()
-    sb = get_supabase()
-    r = sb.table("action_items").update(body).eq("id", item_id).select().single().execute()
-    return {"action_item": r.data}
+    updates = {k: v for k, v in body.items() if k in _AI_SAFE_COLS}
+    if not updates:
+        raise HTTPException(400, "no valid fields to update")
+    set_parts = ", ".join(f"{k} = %s" for k in updates)
+    vals = [Json(v) if k == "items" else v for k, v in updates.items()]
+    row = execute_returning(f"UPDATE action_items SET {set_parts} WHERE id = %s RETURNING *", vals + [item_id])
+    return {"action_item": row}
 
 @app.delete("/api/action-items/{item_id}")
 async def delete_action_item(item_id: str):
-    get_supabase().table("action_items").delete().eq("id", item_id).execute()
+    execute("DELETE FROM action_items WHERE id = %s", (item_id,))
     return {"ok": True}
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -284,21 +255,24 @@ def get_parts():
 @app.get("/api/files")
 async def list_files(user_id: str | None = None, part: str | None = None):
     _ok()
-    sb = get_supabase()
-    q = sb.table("files").select("*").order("uploaded_at", desc=True)
     if user_id:
         user = await load_user(user_id)
         if not user:
             raise HTTPException(400, "unknown user")
         scope, is_all = user_scope(user)
-        if not is_all:
-            if not scope:
-                return {"files": []}
-            q = q.contains("accessible_to", [scope])
+        if is_all:
+            rows = fetch_all("SELECT * FROM files ORDER BY uploaded_at DESC")
+        elif scope:
+            rows = fetch_all(
+                "SELECT * FROM files WHERE accessible_to @> ARRAY[%s] ORDER BY uploaded_at DESC", (scope,))
+        else:
+            return {"files": []}
     elif part:
-        q = q.contains("accessible_to", [part])
-    r = q.execute()
-    return {"files": r.data or []}
+        rows = fetch_all(
+            "SELECT * FROM files WHERE accessible_to @> ARRAY[%s] ORDER BY uploaded_at DESC", (part,))
+    else:
+        rows = fetch_all("SELECT * FROM files ORDER BY uploaded_at DESC")
+    return {"files": rows}
 
 @app.post("/api/files/{file_id}/lock")
 async def lock_file(file_id: str, req: Request):
@@ -310,18 +284,16 @@ async def lock_file(file_id: str, req: Request):
     user = await load_user(user_id)
     if not user:
         raise HTTPException(400, "unknown user")
-    sb = get_supabase()
-    r = sb.table("files").select("id,locked_by_id,locked_by_name,locked_at").eq("id", file_id).maybe_single().execute()
-    if not r.data:
+    f = fetch_one("SELECT id, locked_by_id, locked_by_name, locked_at FROM files WHERE id = %s", (file_id,))
+    if not f:
         raise HTTPException(404, "file not found")
-    f = r.data
     if f.get("locked_by_id") and f["locked_by_id"] != user_id:
         raise HTTPException(409, f"Locked by {f.get('locked_by_name', 'another user')}")
-    updated = sb.table("files").update({
-        "locked_by_id": user_id, "locked_by_name": user["name"],
-        "locked_at": datetime.utcnow().isoformat(),
-    }).eq("id", file_id).select().single().execute()
-    return {"file": updated.data}
+    updated = execute_returning("""
+        UPDATE files SET locked_by_id = %s, locked_by_name = %s, locked_at = %s
+        WHERE id = %s RETURNING *
+    """, (user_id, user["name"], datetime.utcnow().isoformat(), file_id))
+    return {"file": updated}
 
 @app.post("/api/files/{file_id}/unlock")
 async def unlock_file(file_id: str, req: Request):
@@ -333,36 +305,40 @@ async def unlock_file(file_id: str, req: Request):
     user = await load_user(user_id)
     if not user:
         raise HTTPException(400, "unknown user")
-    sb = get_supabase()
-    r = sb.table("files").select("id,locked_by_id").eq("id", file_id).maybe_single().execute()
-    if not r.data:
+    f = fetch_one("SELECT id, locked_by_id FROM files WHERE id = %s", (file_id,))
+    if not f:
         raise HTTPException(404, "file not found")
-    if r.data.get("locked_by_id") and r.data["locked_by_id"] != user_id and user.get("role") != "MD":
+    if f.get("locked_by_id") and f["locked_by_id"] != user_id and user.get("role") != "MD":
         raise HTTPException(403, "only the lock holder or MD can release this lock")
-    updated = sb.table("files").update({
-        "locked_by_id": None, "locked_by_name": None, "locked_at": None,
-    }).eq("id", file_id).select().single().execute()
-    return {"file": updated.data}
+    updated = execute_returning("""
+        UPDATE files SET locked_by_id = NULL, locked_by_name = NULL, locked_at = NULL
+        WHERE id = %s RETURNING *
+    """, (file_id,))
+    return {"file": updated}
 
 @app.delete("/api/files/{file_id}")
 async def delete_file(file_id: str):
     _ok()
-    sb = get_supabase()
-    r = sb.table("files").select("id,file_url").eq("id", file_id).maybe_single().execute()
-    if not r.data:
+    f = fetch_one("SELECT id, file_url FROM files WHERE id = %s", (file_id,))
+    if not f:
         raise HTTPException(404, "file not found")
-    if r.data.get("file_url"):
-        storage_delete(r.data["file_url"])
-    sb.table("files").delete().eq("id", file_id).execute()
-    # delete_document_from_graph(file_id)  # Neo4j disabled
+    if f.get("file_url"):
+        storage_delete(f["file_url"])
+    col = get_chunks_collection()
+    existing = col.get(where={"file_id": {"$eq": file_id}})
+    if existing["ids"]:
+        col.delete(ids=existing["ids"])
+    execute("DELETE FROM files WHERE id = %s", (file_id,))
     return {"ok": True}
+
+def _chroma_at_str(accessible_to: list[str]) -> str:
+    return "|" + "|".join(accessible_to) + "|" if accessible_to else "|"
 
 async def _ingest_file(
     file_bytes: bytes, filename: str, filetype: str,
     user: dict, accessible_to: list[str],
     extract_items: bool = False,
 ) -> dict:
-    sb = get_supabase()
     extracted = extract_file_text(file_bytes, filetype)
     if not extracted.get("text") or len(extracted["text"].strip()) < 30:
         raise HTTPException(422, "No extractable text found in file")
@@ -370,18 +346,19 @@ async def _ingest_file(
     raw_chunks = chunk_document(extracted, config["rag"])
     chunks = add_context_prefix(raw_chunks)
 
-    storage_path = f"{uuid.uuid4()}-{re.sub(r'[^\\w.\\-]+', '_', filename)}"
+    storage_path = f"{uuid.uuid4()}-{re.sub(r'[^\w.\-]+', '_', filename)}"
     file_url = storage_upload(storage_path, file_bytes)
 
-    file_row = sb.table("files").insert({
-        "filename": filename, "filetype": filetype, "file_url": file_url,
-        "uploaded_by": user["name"], "accessible_to": accessible_to,
-        "version": 1,
-    }).select().single().execute().data
+    file_row = execute_returning("""
+        INSERT INTO files (filename, filetype, file_url, uploaded_by, accessible_to, version)
+        VALUES (%s, %s, %s, %s, %s, 1) RETURNING *
+    """, (filename, filetype, file_url, user["name"], accessible_to))
 
     file_id = file_row["id"]
-
+    at_str = _chroma_at_str(accessible_to)
+    col = get_chunks_collection()
     inserted = 0
+
     for i, chunk in enumerate(chunks):
         enriched = await enrich_chunk(chunk["text"])
         embed_input = build_embedding_input(enriched) or chunk["text"][:2000]
@@ -389,26 +366,33 @@ async def _ingest_file(
             embedding = await embed_text(embed_input)
         except Exception:
             continue
+        chunk_id = str(uuid.uuid4())
         try:
-            sb.table("chunks").insert({
-                "file_id": file_id, "chunk_text": chunk["text"],
-                "chunk_summary": enriched.get("summary", ""),
-                "keywords": enriched.get("keywords", []),
-                "hypothetical_questions": enriched.get("hypothetical_questions", []),
-                "embedding": embedding, "chunk_index": i,
-            }).execute()
+            execute("""
+                INSERT INTO chunks (id, file_id, chunk_text, chunk_summary, keywords, hypothetical_questions, chunk_index)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (chunk_id, file_id, chunk["text"], enriched.get("summary", ""),
+                  enriched.get("keywords", []), enriched.get("hypothetical_questions", []), i))
+            col.add(
+                ids=[chunk_id],
+                embeddings=[embedding],
+                documents=[chunk["text"]],
+                metadatas=[{
+                    "file_id": file_id,
+                    "chunk_index": i,
+                    "chunk_summary": enriched.get("summary", ""),
+                    "keywords_json": json.dumps(enriched.get("keywords", [])),
+                    "hypothetical_questions_json": json.dumps(enriched.get("hypothetical_questions", [])),
+                    "filename": filename,
+                    "filetype": filetype,
+                    "file_url": file_url,
+                    "uploaded_by": user["name"],
+                    "accessible_to_str": at_str,
+                }],
+            )
             inserted += 1
         except Exception:
             pass
-
-    # scope = user.get("part") or user.get("team")
-    # Neo4j disabled — graph indexing skipped
-    # if neo4j_ready():
-    #     full_text = extracted["text"]
-    #     entities = await extract_entities(full_text[:6000])
-    #     await write_document_to_graph(
-    #         file_id, filename, filetype, file_url, user["name"], scope, entities
-    #     )
 
     pending_items = None
     if extract_items and filetype.lower() not in ("xlsx", "pptx"):
@@ -432,10 +416,8 @@ async def upload_file(
     user = await load_user(user_id)
     if not user:
         raise HTTPException(400, "unknown user")
-
     file_bytes = await file.read()
     filetype = f"{file.content_type or ''} {Path(file.filename or '').suffix.lstrip('.').lower()}".strip()
-
     try:
         at = json.loads(accessible_to)
     except Exception:
@@ -443,12 +425,10 @@ async def upload_file(
     if not at:
         scope = user.get("part") or user.get("team")
         at = [scope] if scope else []
-
-    result = await _ingest_file(
+    return await _ingest_file(
         file_bytes, file.filename or "upload", filetype, user, at,
         extract_items=extract_action_items.lower() == "true",
     )
-    return result
 
 @app.post("/api/files/{file_id}/replace")
 async def replace_file(file_id: str, file: UploadFile = File(...), user_id: str = Form(...)):
@@ -456,11 +436,9 @@ async def replace_file(file_id: str, file: UploadFile = File(...), user_id: str 
     user = await load_user(user_id)
     if not user:
         raise HTTPException(400, "unknown user")
-    sb = get_supabase()
-    existing_r = sb.table("files").select("*").eq("id", file_id).maybe_single().execute()
-    if not existing_r.data:
+    existing = fetch_one("SELECT * FROM files WHERE id = %s", (file_id,))
+    if not existing:
         raise HTTPException(404, "file not found")
-    existing = existing_r.data
     if existing.get("locked_by_id") and existing["locked_by_id"] != user_id and user.get("role") != "MD":
         raise HTTPException(403, f"Locked by {existing.get('locked_by_name', 'another user')}")
 
@@ -473,34 +451,57 @@ async def replace_file(file_id: str, file: UploadFile = File(...), user_id: str 
     raw_chunks = chunk_document(extracted, config["rag"])
     chunks = add_context_prefix(raw_chunks)
 
-    storage_path = f"{uuid.uuid4()}-{re.sub(r'[^\\w.\\-]+', '_', file.filename or 'file')}"
+    storage_path = f"{uuid.uuid4()}-{re.sub(r'[^\w.\-]+', '_', file.filename or 'file')}"
     new_url = storage_upload(storage_path, file_bytes)
-
     if existing.get("file_url"):
         storage_delete(existing["file_url"])
 
-    sb.table("chunks").delete().eq("file_id", file_id).execute()
+    col = get_chunks_collection()
+    old = col.get(where={"file_id": {"$eq": file_id}})
+    if old["ids"]:
+        col.delete(ids=old["ids"])
+    execute("DELETE FROM chunks WHERE file_id = %s", (file_id,))
 
-    updated = sb.table("files").update({
-        "filename": file.filename, "filetype": filetype, "file_url": new_url,
-        "version": (existing.get("version") or 1) + 1,
-        "updated_by": user["name"], "updated_at": datetime.utcnow().isoformat(),
-        "locked_by_id": None, "locked_by_name": None, "locked_at": None,
-    }).eq("id", file_id).select().single().execute().data
+    updated = execute_returning("""
+        UPDATE files SET filename = %s, filetype = %s, file_url = %s,
+            version = %s, updated_by = %s, updated_at = %s,
+            locked_by_id = NULL, locked_by_name = NULL, locked_at = NULL
+        WHERE id = %s RETURNING *
+    """, (file.filename, filetype, new_url,
+          (existing.get("version") or 1) + 1, user["name"], datetime.utcnow().isoformat(),
+          file_id))
 
+    accessible_to = existing.get("accessible_to") or []
+    at_str = _chroma_at_str(accessible_to)
     inserted = 0
     for i, chunk in enumerate(chunks):
         enriched = await enrich_chunk(chunk["text"])
         embed_input = build_embedding_input(enriched) or chunk["text"][:2000]
         try:
             embedding = await embed_text(embed_input)
-            sb.table("chunks").insert({
-                "file_id": file_id, "chunk_text": chunk["text"],
-                "chunk_summary": enriched.get("summary", ""),
-                "keywords": enriched.get("keywords", []),
-                "hypothetical_questions": enriched.get("hypothetical_questions", []),
-                "embedding": embedding, "chunk_index": i,
-            }).execute()
+            chunk_id = str(uuid.uuid4())
+            execute("""
+                INSERT INTO chunks (id, file_id, chunk_text, chunk_summary, keywords, hypothetical_questions, chunk_index)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (chunk_id, file_id, chunk["text"], enriched.get("summary", ""),
+                  enriched.get("keywords", []), enriched.get("hypothetical_questions", []), i))
+            col.add(
+                ids=[chunk_id],
+                embeddings=[embedding],
+                documents=[chunk["text"]],
+                metadatas=[{
+                    "file_id": file_id,
+                    "chunk_index": i,
+                    "chunk_summary": enriched.get("summary", ""),
+                    "keywords_json": json.dumps(enriched.get("keywords", [])),
+                    "hypothetical_questions_json": json.dumps(enriched.get("hypothetical_questions", [])),
+                    "filename": file.filename,
+                    "filetype": filetype,
+                    "file_url": new_url,
+                    "uploaded_by": user["name"],
+                    "accessible_to_str": at_str,
+                }],
+            )
             inserted += 1
         except Exception:
             pass
@@ -525,16 +526,7 @@ async def _build_context(
         ctx_text = await _get_chatroom_context(query)
         return ctx_text or "(no chatroom messages found)", [], [], None
 
-    # Neo4j disabled — always use vector search
-    # route = await route_query(query)
-    # search_type = route["search_type"]
     search_type = "vector"
-    chunks: list[dict] = []
-    # if search_type == "graph" and neo4j_ready():
-    #     chunks = await graph_search(route.get("entities", {}), part_filter)
-    #     if not chunks:
-    #         chunks = await retrieve(query, part_filter)
-    # else:
     chunks = await retrieve(query, part_filter)
 
     if chunks:
@@ -565,11 +557,8 @@ async def api_retrieve(req: Request):
 @app.post("/api/chat/route")
 async def api_chat_route(req: Request):
     body = await req.json()
-    query = body.get("query")
-    if not query:
+    if not body.get("query"):
         raise HTTPException(400, "query required")
-    # Neo4j disabled — query router always returns vector
-    # route = await route_query(query)
     return {"search_type": "vector", "reason": "Neo4j disabled — using vector search"}
 
 @app.post("/api/chat")
@@ -698,15 +687,17 @@ async def chat_evaluate(req: Request):
         "faithfulness": round(faithfulness, 3),
         "response_relevance": round(response_relevance, 3),
     }
-    sb = get_supabase()
-    sb.table("rag_evaluations").insert({**metrics, "query": query, "answer": answer}).execute()
-    sb.rpc("update_rag_eval_summary", metrics).execute()
+    execute("""
+        INSERT INTO rag_evaluations (query, answer, context_precision, faithfulness, response_relevance)
+        VALUES (%s, %s, %s, %s, %s)
+    """, (query, answer, metrics["context_precision"], metrics["faithfulness"], metrics["response_relevance"]))
+    execute("SELECT update_rag_eval_summary(%s, %s, %s)",
+            (metrics["context_precision"], metrics["faithfulness"], metrics["response_relevance"]))
     return metrics
 
 @app.get("/api/chat/eval-summary")
 async def chat_eval_summary():
-    r = get_supabase().table("rag_eval_summary").select("*").eq("id", 1).maybe_single().execute()
-    return r.data or {}
+    return fetch_one("SELECT * FROM rag_eval_summary WHERE id = 1") or {}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. REPORT GENERATOR
@@ -806,18 +797,20 @@ async def report_generate_from_files(req: Request):
     file_ids = body.get("file_ids", [])
     if not file_ids:
         raise HTTPException(400, "file_ids required")
-    sb = get_supabase()
-    files_r = sb.table("files").select("id,filename").in_("id", file_ids).execute()
-    files = {f["id"]: f for f in (files_r.data or [])}
-    chunks_r = sb.table("chunks").select("file_id,chunk_index,chunk_text").in_("file_id", file_ids).order("chunk_index").execute()
+    ph = ",".join(["%s"] * len(file_ids))
+    files_list = fetch_all(f"SELECT id, filename FROM files WHERE id::text IN ({ph})", file_ids)
+    files = {f["id"]: f for f in files_list}
+    chunks_list = fetch_all(
+        f"SELECT file_id, chunk_index, chunk_text FROM chunks WHERE file_id::text IN ({ph}) ORDER BY chunk_index",
+        file_ids)
     by_file: dict = {}
-    for c in (chunks_r.data or []):
-        by_file.setdefault(c["file_id"], []).append(c["chunk_text"])
+    for c in chunks_list:
+        by_file.setdefault(str(c["file_id"]), []).append(c["chunk_text"])
     sections = [f"### Source: {files[fid]['filename']}\n" + "\n\n".join(by_file.get(fid, []))[:60000]
                 for fid in file_ids if fid in files and by_file.get(fid)]
     instruction = body.get("instruction", "")
     input_data = "\n\n".join(filter(None, [f"User instruction: {instruction}" if instruction else None,
-                                           "Source documents:", *[s for s in sections]]))
+                                           "Source documents:", *sections]))
     user_msg = f"--- INPUT DATA ---\n{input_data}{_output_format_hint(body.get('output_format', 'pdf'))}"
     used_files = [{"id": fid, "filename": files[fid]["filename"]} for fid in file_ids if fid in files]
     return await _run_report_pipeline(
@@ -829,43 +822,39 @@ async def report_generate_from_files(req: Request):
 
 @app.get("/api/report-templates")
 async def list_report_templates():
-    r = get_supabase().table("report_templates").select("id,filename,filetype,file_url,uploaded_by,uploaded_at").order("uploaded_at", desc=True).execute()
-    return {"templates": r.data or []}
+    rows = fetch_all("SELECT id, filename, filetype, file_url, uploaded_by, uploaded_at FROM report_templates ORDER BY uploaded_at DESC")
+    return {"templates": rows}
 
 
 @app.post("/api/report-templates")
 async def upload_report_template(file: UploadFile = File(...), uploaded_by: str = Form(default="Unknown")):
-    sb = get_supabase()
     data = await file.read()
     filetype = f"{file.content_type or ''} {Path(file.filename or '').suffix.lstrip('.').lower()}".strip()
     extracted = extract_file_text(data, filetype)
     storage_path = f"templates/{uuid.uuid4()}-{file.filename}"
     file_url = storage_upload(storage_path, data, file.content_type or "application/octet-stream")
-    r = sb.table("report_templates").insert({
-        "filename": file.filename, "filetype": filetype, "file_url": file_url,
-        "template_text": extracted.get("text", ""), "uploaded_by": uploaded_by,
-    }).select().single().execute()
-    return {"template": r.data}
+    row = execute_returning("""
+        INSERT INTO report_templates (filename, filetype, file_url, template_text, uploaded_by)
+        VALUES (%s, %s, %s, %s, %s) RETURNING *
+    """, (file.filename, filetype, file_url, extracted.get("text", ""), uploaded_by))
+    return {"template": row}
 
 
 @app.delete("/api/report-templates/{tmpl_id}")
 async def delete_report_template(tmpl_id: str):
-    sb = get_supabase()
-    r = sb.table("report_templates").select("file_url").eq("id", tmpl_id).maybe_single().execute()
-    if r.data and r.data.get("file_url"):
-        storage_delete(r.data["file_url"])
-    sb.table("report_templates").delete().eq("id", tmpl_id).execute()
+    r = fetch_one("SELECT file_url FROM report_templates WHERE id = %s", (tmpl_id,))
+    if r and r.get("file_url"):
+        storage_delete(r["file_url"])
+    execute("DELETE FROM report_templates WHERE id = %s", (tmpl_id,))
     return {"ok": True}
 
 
 @app.post("/api/report-templates/{tmpl_id}/generate")
 async def report_from_template(tmpl_id: str, req: Request):
     body = await req.json()
-    sb = get_supabase()
-    tmpl_r = sb.table("report_templates").select("*").eq("id", tmpl_id).maybe_single().execute()
-    if not tmpl_r.data:
+    tmpl = fetch_one("SELECT * FROM report_templates WHERE id = %s", (tmpl_id,))
+    if not tmpl:
         raise HTTPException(404, "template not found")
-    tmpl = tmpl_r.data
     input_data = body.get("input_data", "")
     user_msg = f"--- TEMPLATE ({tmpl['filename']}) ---\n{tmpl['template_text']}\n\n--- INPUT DATA ---\n{input_data}{_output_format_hint(body.get('output_format', 'pdf'))}"
     return await _run_report_pipeline(
@@ -877,18 +866,21 @@ async def report_from_template(tmpl_id: str, req: Request):
 @app.post("/api/report-templates/{tmpl_id}/generate-from-files")
 async def report_from_template_files(tmpl_id: str, req: Request):
     body = await req.json()
-    sb = get_supabase()
-    tmpl_r = sb.table("report_templates").select("*").eq("id", tmpl_id).maybe_single().execute()
-    if not tmpl_r.data:
+    tmpl = fetch_one("SELECT * FROM report_templates WHERE id = %s", (tmpl_id,))
+    if not tmpl:
         raise HTTPException(404, "template not found")
-    tmpl = tmpl_r.data
     file_ids = body.get("file_ids", [])
-    files_r = sb.table("files").select("id,filename").in_("id", file_ids).execute()
-    files = {f["id"]: f for f in (files_r.data or [])}
-    chunks_r = sb.table("chunks").select("file_id,chunk_index,chunk_text").in_("file_id", file_ids).order("chunk_index").execute()
+    if not file_ids:
+        raise HTTPException(400, "file_ids required")
+    ph = ",".join(["%s"] * len(file_ids))
+    files_list = fetch_all(f"SELECT id, filename FROM files WHERE id::text IN ({ph})", file_ids)
+    files = {f["id"]: f for f in files_list}
+    chunks_list = fetch_all(
+        f"SELECT file_id, chunk_index, chunk_text FROM chunks WHERE file_id::text IN ({ph}) ORDER BY chunk_index",
+        file_ids)
     by_file: dict = {}
-    for c in (chunks_r.data or []):
-        by_file.setdefault(c["file_id"], []).append(c["chunk_text"])
+    for c in chunks_list:
+        by_file.setdefault(str(c["file_id"]), []).append(c["chunk_text"])
     sections = [f"### Source: {files[fid]['filename']}\n" + "\n\n".join(by_file.get(fid, []))[:60000]
                 for fid in file_ids if fid in files]
     instruction = body.get("instruction", "")
@@ -909,26 +901,30 @@ async def files_match(req: Request):
     user_id = body.get("user_id")
     if not instruction.strip():
         raise HTTPException(400, "instruction is required")
-    sb = get_supabase()
-    q = sb.table("files").select("id,filename,uploaded_by,accessible_to,uploaded_at").order("uploaded_at", desc=True)
     if user_id:
         user = await load_user(user_id)
         if not user:
             raise HTTPException(400, "unknown user")
         scope, is_all = user_scope(user)
-        if not is_all and scope:
-            q = q.contains("accessible_to", [scope])
-    r = q.execute()
-    files = r.data or []
+        if is_all:
+            files = fetch_all("SELECT id, filename, uploaded_by, accessible_to, uploaded_at FROM files ORDER BY uploaded_at DESC")
+        elif scope:
+            files = fetch_all(
+                "SELECT id, filename, uploaded_by, accessible_to, uploaded_at FROM files WHERE accessible_to @> ARRAY[%s] ORDER BY uploaded_at DESC",
+                (scope,))
+        else:
+            files = []
+    else:
+        files = fetch_all("SELECT id, filename, uploaded_by, accessible_to, uploaded_at FROM files ORDER BY uploaded_at DESC")
     raw = await generate_text(
         system='Select relevant files. Return ONLY JSON: {"file_ids":["id1"],"rationale":"one sentence"}',
-        user=f"Instruction: {instruction}\n\nFiles:\n{json.dumps(files)}",
+        user=f"Instruction: {instruction}\n\nFiles:\n{json.dumps(files, default=str)}",
         json_mode=True, max_tokens=1024,
     )
     try:
         parsed = json.loads(strip_json_fences(raw))
         matched_ids = set(parsed.get("file_ids", []))
-        matched = [f for f in files if f["id"] in matched_ids]
+        matched = [f for f in files if str(f["id"]) in matched_ids]
         return {"matched": matched, "all": files, "rationale": parsed.get("rationale", "")}
     except Exception:
         return {"matched": [], "all": files, "rationale": ""}
@@ -941,31 +937,25 @@ async def files_match(req: Request):
 @app.post("/api/render-pdf")
 async def api_render_pdf(req: Request):
     body = await req.json()
-    html = body.get("html", "")
-    filename = body.get("filename", "report.pdf")
-    data = render_pdf(html)
+    data = render_pdf(body.get("html", ""))
     return StreamingResponse(io.BytesIO(data), media_type="application/pdf",
-                              headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+                              headers={"Content-Disposition": f'attachment; filename="{body.get("filename","report.pdf")}"'})
 
 @app.post("/api/render-docx")
 async def api_render_docx(req: Request):
     body = await req.json()
-    html = body.get("html", "")
-    filename = body.get("filename", "report.docx")
-    data = render_docx(html)
+    data = render_docx(body.get("html", ""))
     return StreamingResponse(io.BytesIO(data),
                               media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                              headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+                              headers={"Content-Disposition": f'attachment; filename="{body.get("filename","report.docx")}"'})
 
 @app.post("/api/render-xlsx")
 async def api_render_xlsx(req: Request):
     body = await req.json()
-    html = body.get("html", body.get("content", ""))
-    filename = body.get("filename", "report.xlsx")
-    data = render_xlsx(html)
+    data = render_xlsx(body.get("html", body.get("content", "")))
     return StreamingResponse(io.BytesIO(data),
                               media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                              headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+                              headers={"Content-Disposition": f'attachment; filename="{body.get("filename","report.xlsx")}"'})
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 7. MINUTES OF MEETING
@@ -978,20 +968,6 @@ MOM_PARSE_SYSTEM = (
 
 @app.post("/api/minutes/transcribe")
 async def transcribe_audio(audio: UploadFile = File(...)):
-    # Whisper disabled — requires openai-whisper and ffmpeg installed locally
-    # Uncomment below to re-enable:
-    # import whisper, tempfile, os
-    # data = await audio.read()
-    # suffix = Path(audio.filename or "audio.webm").suffix or ".webm"
-    # with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-    #     tmp.write(data)
-    #     tmp_path = tmp.name
-    # try:
-    #     model = whisper.load_model("base")
-    #     result = model.transcribe(tmp_path)
-    #     return {"transcript": result.get("text", "")}
-    # finally:
-    #     os.unlink(tmp_path)
     raise HTTPException(503, "Voice transcription is disabled. Enable by installing openai-whisper and ffmpeg.")
 
 @app.post("/api/minutes/parse")
@@ -1010,19 +986,22 @@ async def parse_transcript(req: Request):
 
 @app.get("/api/minutes")
 async def list_minutes(user_id: str | None = None):
-    sb = get_supabase()
-    q = sb.table("minutes").select("*").order("created_at", desc=True)
     if user_id:
         user = await load_user(user_id)
         if not user:
             raise HTTPException(400, "unknown user")
-        if user.get("role") != "MD":
+        if user.get("role") == "MD":
+            rows = fetch_all("SELECT * FROM minutes ORDER BY created_at DESC")
+        else:
             scope = user.get("part") or user.get("team")
             if not scope:
                 return {"minutes": []}
-            q = q.or_(f"created_by.eq.{user['id']},accessible_to.cs.{{{scope}}}")
-    r = q.execute()
-    return {"minutes": r.data or []}
+            rows = fetch_all(
+                "SELECT * FROM minutes WHERE created_by = %s OR accessible_to @> ARRAY[%s] ORDER BY created_at DESC",
+                (user["id"], scope))
+    else:
+        rows = fetch_all("SELECT * FROM minutes ORDER BY created_at DESC")
+    return {"minutes": rows}
 
 @app.post("/api/minutes")
 async def save_minutes(req: Request):
@@ -1035,39 +1014,37 @@ async def save_minutes(req: Request):
         raise HTTPException(400, "unknown user")
     fallback_scope = user.get("part") or user.get("team")
     access_list = body.get("accessible_to") or ([fallback_scope] if fallback_scope else [])
-    r = get_supabase().table("minutes").insert({
-        "title": body.get("title"), "summary": body.get("summary", ""),
-        "attendees": body.get("attendees", []), "decisions": body.get("decisions", []),
-        "action_items": body.get("action_items", []), "transcript": body.get("transcript", ""),
-        "created_by": user_id, "accessible_to": access_list,
-    }).select().single().execute()
-    return JSONResponse(r.data, status_code=201)
+    row = execute_returning("""
+        INSERT INTO minutes (title, summary, attendees, decisions, action_items, transcript, created_by, accessible_to)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING *
+    """, (body.get("title"), body.get("summary", ""),
+          Json(body.get("attendees", [])), Json(body.get("decisions", [])),
+          Json(body.get("action_items", [])), body.get("transcript", ""),
+          user_id, access_list))
+    return JSONResponse(row, status_code=201)
 
 @app.delete("/api/minutes/{minute_id}")
 async def delete_minutes(minute_id: str, user_id: str | None = None):
-    sb = get_supabase()
     user = await load_user(user_id)
     if not user:
         raise HTTPException(400, "valid user_id required")
-    r = sb.table("minutes").select("*").eq("id", minute_id).maybe_single().execute()
-    if not r.data:
+    minute = fetch_one("SELECT * FROM minutes WHERE id = %s", (minute_id,))
+    if not minute:
         raise HTTPException(404, "not found")
-    if user.get("role") != "MD" and r.data.get("created_by") != user["id"]:
+    if user.get("role") != "MD" and minute.get("created_by") != user["id"]:
         raise HTTPException(403, "only creator or MD can delete")
-    sb.table("minutes").delete().eq("id", minute_id).execute()
+    execute("DELETE FROM minutes WHERE id = %s", (minute_id,))
     return {"ok": True}
 
 @app.post("/api/minutes/{minute_id}/extract-action-items")
 async def minutes_extract_actions(minute_id: str, req: Request):
     body = await req.json()
-    sb = get_supabase()
     user = await load_user(body.get("user_id"))
     if not user:
         raise HTTPException(400, "valid user_id required")
-    r = sb.table("minutes").select("*").eq("id", minute_id).maybe_single().execute()
-    if not r.data:
+    minute = fetch_one("SELECT * FROM minutes WHERE id = %s", (minute_id,))
+    if not minute:
         raise HTTPException(404, "not found")
-    minute = r.data
     items = [{"id": str(uuid.uuid4()), "text": a.get("text", "") + (f" (mentioned: {a['assignee']})" if a.get("assignee") else ""), "completed": False, "assignees": []}
              for a in (minute.get("action_items") or [])]
     return {"source_type": "mom", "source_id": minute_id,
@@ -1077,14 +1054,12 @@ async def minutes_extract_actions(minute_id: str, req: Request):
 async def minutes_save_to_hub(minute_id: str, req: Request):
     _ok()
     body = await req.json()
-    sb = get_supabase()
     user = await load_user(body.get("user_id"))
     if not user:
         raise HTTPException(400, "valid user_id required")
-    r = sb.table("minutes").select("*").eq("id", minute_id).maybe_single().execute()
-    if not r.data:
+    minute = fetch_one("SELECT * FROM minutes WHERE id = %s", (minute_id,))
+    if not minute:
         raise HTTPException(404, "not found")
-    minute = r.data
     lines = [f"# {minute.get('title', 'Meeting Minutes')}"]
     if minute.get("summary"):
         lines += ["", "## Summary", minute["summary"]]
@@ -1097,9 +1072,8 @@ async def minutes_save_to_hub(minute_id: str, req: Request):
     if minute.get("transcript"):
         lines += ["", "## Transcript", minute["transcript"]]
     md_text = "\n".join(lines)
-    file_bytes = md_text.encode("utf-8")
-    filename = f"MoM - {minute.get('title', minute_id)}.md"
-    result = await _ingest_file(file_bytes, filename, "text/markdown md", user, minute.get("accessible_to", []))
+    result = await _ingest_file(md_text.encode("utf-8"), f"MoM - {minute.get('title', minute_id)}.md",
+                                "text/markdown md", user, minute.get("accessible_to", []))
     return result
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1116,13 +1090,11 @@ def _can_see_tf(user: dict, tf: dict) -> bool:
 
 @app.get("/api/task-forces")
 async def list_task_forces(user_id: str | None = None):
-    sb = get_supabase()
     user = await load_user(user_id)
     if not user:
         raise HTTPException(400, "valid user_id required")
-    r = sb.table("task_forces").select("*").execute()
-    tfs = [tf for tf in (r.data or []) if _can_see_tf(user, tf)]
-    return {"task_forces": tfs}
+    all_tfs = fetch_all("SELECT * FROM task_forces")
+    return {"task_forces": [tf for tf in all_tfs if _can_see_tf(user, tf)]}
 
 @app.post("/api/task-forces")
 async def create_task_force(req: Request):
@@ -1130,60 +1102,74 @@ async def create_task_force(req: Request):
     user = await load_user(body.get("user_id"))
     if not user or user.get("role") not in ("MD", "PartHead", "TeamHead"):
         raise HTTPException(403, "insufficient permissions")
-    sb = get_supabase()
     parts = body.get("parts", [])
     teams = body.get("teams", [])
     owner_ids = set(body.get("owners", []))
     owner_ids.add(user["id"])
     if parts:
-        heads = sb.table("users").select("id").eq("role", "PartHead").in_("part", parts).execute()
-        for h in (heads.data or []):
+        ph = ",".join(["%s"] * len(parts))
+        heads = fetch_all(f"SELECT id FROM users WHERE role = 'PartHead' AND part IN ({ph})", parts)
+        for h in heads:
             owner_ids.add(h["id"])
     if teams:
-        heads = sb.table("users").select("id").eq("role", "TeamHead").in_("team", teams).execute()
-        for h in (heads.data or []):
+        ph = ",".join(["%s"] * len(teams))
+        heads = fetch_all(f"SELECT id FROM users WHERE role = 'TeamHead' AND team IN ({ph})", teams)
+        for h in heads:
             owner_ids.add(h["id"])
-    r = sb.table("task_forces").insert({
-        "name": body.get("name"), "status": body.get("status", "Active"),
-        "parts": parts, "teams": teams,
-        "owners": list(owner_ids), "members": body.get("members", []),
-        "created_by": user["id"],
-    }).select().single().execute()
-    return JSONResponse({"task_force": r.data}, status_code=201)
+    row = execute_returning("""
+        INSERT INTO task_forces (name, status, parts, teams, owners, members, created_by)
+        VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING *
+    """, (body.get("name"), body.get("status", "Active"),
+          parts, teams, list(owner_ids), body.get("members", []), user["id"]))
+    return JSONResponse({"task_force": row}, status_code=201)
+
+_TF_SAFE_COLS = {"name", "status", "parts", "teams", "owners", "members"}
 
 @app.patch("/api/task-forces/{tf_id}")
 async def update_task_force(tf_id: str, req: Request):
     body = await req.json()
-    r = get_supabase().table("task_forces").update(body).eq("id", tf_id).select().single().execute()
-    return {"task_force": r.data}
+    updates = {k: v for k, v in body.items() if k in _TF_SAFE_COLS}
+    if not updates:
+        raise HTTPException(400, "no valid fields to update")
+    updates["updated_at"] = datetime.utcnow().isoformat()
+    set_parts = ", ".join(f"{k} = %s" for k in updates)
+    row = execute_returning(f"UPDATE task_forces SET {set_parts} WHERE id = %s RETURNING *",
+                            list(updates.values()) + [tf_id])
+    return {"task_force": row}
 
 @app.delete("/api/task-forces/{tf_id}")
 async def delete_task_force(tf_id: str):
-    get_supabase().table("task_forces").delete().eq("id", tf_id).execute()
+    execute("DELETE FROM task_forces WHERE id = %s", (tf_id,))
     return {"ok": True}
 
 @app.post("/api/task-forces/{tf_id}/updates")
 async def add_tf_update(tf_id: str, req: Request):
     body = await req.json()
-    r = get_supabase().table("tf_updates").insert({
-        "tf_id": tf_id, "type": body.get("type"), "author": body.get("author"), "content": body.get("content"),
-    }).select().single().execute()
-    return JSONResponse({"update": r.data}, status_code=201)
+    row = execute_returning("""
+        INSERT INTO tf_updates (tf_id, type, author, content) VALUES (%s, %s, %s, %s) RETURNING *
+    """, (tf_id, body.get("type"), body.get("author"), body.get("content")))
+    return JSONResponse({"update": row}, status_code=201)
 
 @app.post("/api/task-forces/{tf_id}/action-items")
 async def add_tf_action_item(tf_id: str, req: Request):
     body = await req.json()
-    r = get_supabase().table("tf_action_items").insert({
-        "tf_id": tf_id, "text": body.get("text"), "assignee": body.get("assignee"),
-        "due": body.get("due"), "done": False,
-    }).select().single().execute()
-    return JSONResponse({"action_item": r.data}, status_code=201)
+    row = execute_returning("""
+        INSERT INTO tf_action_items (tf_id, text, assignee, due, done) VALUES (%s, %s, %s, %s, false) RETURNING *
+    """, (tf_id, body.get("text"), body.get("assignee"), body.get("due")))
+    return JSONResponse({"action_item": row}, status_code=201)
+
+_TF_AI_SAFE_COLS = {"text", "assignee", "due", "done"}
 
 @app.patch("/api/task-forces/{tf_id}/action-items/{aid}")
 async def update_tf_action_item(tf_id: str, aid: str, req: Request):
     body = await req.json()
-    r = get_supabase().table("tf_action_items").update(body).eq("id", aid).select().single().execute()
-    return {"action_item": r.data}
+    updates = {k: v for k, v in body.items() if k in _TF_AI_SAFE_COLS}
+    if not updates:
+        raise HTTPException(400, "no valid fields to update")
+    set_parts = ", ".join(f"{k} = %s" for k in updates)
+    row = execute_returning(f"UPDATE tf_action_items SET {set_parts} WHERE id = %s RETURNING *",
+                            list(updates.values()) + [aid])
+    return {"action_item": row}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 9. QUIZ
@@ -1191,19 +1177,21 @@ async def update_tf_action_item(tf_id: str, aid: str, req: Request):
 
 @app.get("/api/quiz/leaderboard")
 async def quiz_leaderboard():
-    r = get_supabase().table("quiz_scores").select("*").order("score", desc=True).order("attempted_at", desc=True).execute()
-    return {"leaderboard": r.data or []}
+    return {"leaderboard": fetch_all("SELECT * FROM quiz_scores ORDER BY score DESC, attempted_at DESC")}
 
 @app.post("/api/quiz/score")
 async def save_quiz_score(req: Request):
     body = await req.json()
-    r = get_supabase().table("quiz_scores").upsert({
-        "user_id": body.get("user_id"), "user_name": body.get("user_name"),
-        "quiz_id": body.get("quiz_id", "rag-basics"),
-        "score": body.get("score"), "total": body.get("total", 5),
-        "attempted_at": datetime.utcnow().isoformat(),
-    }).select().single().execute()
-    return {"score": r.data}
+    row = execute_returning("""
+        INSERT INTO quiz_scores (user_id, user_name, quiz_id, score, total, attempted_at)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        ON CONFLICT (user_id) DO UPDATE SET
+            user_name = EXCLUDED.user_name, quiz_id = EXCLUDED.quiz_id,
+            score = EXCLUDED.score, total = EXCLUDED.total, attempted_at = EXCLUDED.attempted_at
+        RETURNING *
+    """, (body.get("user_id"), body.get("user_name"), body.get("quiz_id", "rag-basics"),
+          body.get("score"), body.get("total", 5), datetime.utcnow().isoformat()))
+    return {"score": row}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 10. EMAIL (Gmail OAuth)
@@ -1224,8 +1212,8 @@ def _make_oauth_client():
     )
 
 async def _get_gmail_tokens() -> dict | None:
-    r = get_supabase().table("email_tokens").select("tokens").eq("key", "gmail").maybe_single().execute()
-    return r.data["tokens"] if r.data else None
+    row = fetch_one("SELECT tokens FROM email_tokens WHERE key = 'gmail'")
+    return row["tokens"] if row else None
 
 async def _get_authed_gmail():
     from google.oauth2.credentials import Credentials
@@ -1264,7 +1252,10 @@ async def email_callback(code: str):
         "refresh_token": flow.credentials.refresh_token,
         "expiry": flow.credentials.expiry.isoformat() if flow.credentials.expiry else None,
     }
-    get_supabase().table("email_tokens").upsert({"key": "gmail", "tokens": tokens, "updated_at": datetime.utcnow().isoformat()}).execute()
+    execute("""
+        INSERT INTO email_tokens (key, tokens, updated_at) VALUES ('gmail', %s, %s)
+        ON CONFLICT (key) DO UPDATE SET tokens = EXCLUDED.tokens, updated_at = EXCLUDED.updated_at
+    """, (Json(tokens), datetime.utcnow().isoformat()))
     app_url = os.getenv("APP_URL", "http://localhost:5173")
     return RedirectResponse(f"{app_url}/?gmail=connected")
 
@@ -1352,22 +1343,27 @@ async def email_upload_attachment(req: Request):
     filename = body.get("filename", "attachment")
     filetype = body.get("mimeType", "application/octet-stream")
     scope = user.get("part") or user.get("team")
-    result = await _ingest_file(file_bytes, filename, filetype, user, [scope] if scope else [])
-    return result
+    return await _ingest_file(file_bytes, filename, filetype, user, [scope] if scope else [])
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 11. CHATROOM
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _get_chatroom_context(query: str) -> str | None:
-    sb = get_supabase()
     try:
         embedding = await embed_text(query)
-        r = sb.rpc("match_chatroom_chunks", {"query_embedding": embedding, "match_count": 5}).execute()
-        chunks = r.data or []
-        if not chunks:
+        col = get_chatroom_collection()
+        count = col.count()
+        if count == 0:
             return None
-        return "\n\n".join(c.get("chunk_text", "") for c in chunks)
+        n = min(5, count)
+        results = col.query(
+            query_embeddings=[embedding],
+            n_results=n,
+            include=["documents", "distances"],
+        )
+        docs = results["documents"][0] if results["ids"][0] else []
+        return "\n\n".join(docs) if docs else None
     except Exception:
         return None
 
@@ -1377,8 +1373,8 @@ async def get_chatroom(user_id: str, with_: str = Query(alias="with")):
     if not user or not is_exec_user(user):
         raise HTTPException(403, "Access restricted to MD and Part Heads")
     cid = conv_id(user_id, with_)
-    r = get_supabase().table("chatroom_messages").select("*").eq("conversation_id", cid).order("created_at").execute()
-    return {"messages": r.data or [], "conversation_id": cid}
+    msgs = fetch_all("SELECT * FROM chatroom_messages WHERE conversation_id = %s ORDER BY created_at", (cid,))
+    return {"messages": msgs, "conversation_id": cid}
 
 @app.post("/api/chatroom")
 async def post_chatroom(req: Request):
@@ -1387,11 +1383,11 @@ async def post_chatroom(req: Request):
     if not user or not is_exec_user(user):
         raise HTTPException(403, "Access restricted to MD and Part Heads")
     cid = conv_id(body["user_id"], body["recipient_id"])
-    r = get_supabase().table("chatroom_messages").insert({
-        "conversation_id": cid, "sender_id": body["user_id"],
-        "sender_name": user["name"], "content": body["content"].strip(),
-    }).select().single().execute()
-    return JSONResponse({"message": r.data}, status_code=201)
+    row = execute_returning("""
+        INSERT INTO chatroom_messages (conversation_id, sender_id, sender_name, content)
+        VALUES (%s, %s, %s, %s) RETURNING *
+    """, (cid, body["user_id"], user["name"], body["content"].strip()))
+    return JSONResponse({"message": row}, status_code=201)
 
 @app.delete("/api/chatroom/{msg_id}")
 async def delete_chatroom_message(msg_id: str, req: Request):
@@ -1399,13 +1395,12 @@ async def delete_chatroom_message(msg_id: str, req: Request):
     user = await load_user(body.get("user_id"))
     if not user or not is_exec_user(user):
         raise HTTPException(403, "Access restricted to MD and Part Heads")
-    sb = get_supabase()
-    r = sb.table("chatroom_messages").select("sender_id").eq("id", msg_id).maybe_single().execute()
-    if not r.data:
+    msg = fetch_one("SELECT sender_id FROM chatroom_messages WHERE id = %s", (msg_id,))
+    if not msg:
         raise HTTPException(404, "Message not found")
-    if r.data["sender_id"] != body["user_id"] and user.get("role") != "MD":
+    if msg["sender_id"] != body["user_id"] and user.get("role") != "MD":
         raise HTTPException(403, "You can only delete your own messages")
-    sb.table("chatroom_messages").delete().eq("id", msg_id).execute()
+    execute("DELETE FROM chatroom_messages WHERE id = %s", (msg_id,))
     return {"success": True}
 
 @app.post("/api/admin/chatroom/process-chunks")
@@ -1413,9 +1408,9 @@ async def process_chatroom_chunks(date_str: str = Query(default=None, alias="dat
     if not date_str:
         from datetime import timedelta
         date_str = (datetime.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
-    sb = get_supabase()
-    r = sb.table("chatroom_messages").select("*").gte("created_at", date_str).lt("created_at", date_str + "T23:59:59").execute()
-    msgs = r.data or []
+    msgs = fetch_all(
+        "SELECT * FROM chatroom_messages WHERE created_at >= %s AND created_at < %s",
+        (date_str, date_str + "T23:59:59"))
     if not msgs:
         return {"ok": True, "chunks": 0}
 
@@ -1425,10 +1420,17 @@ async def process_chatroom_chunks(date_str: str = Query(default=None, alias="dat
         user=text[:8000], max_tokens=512,
     )
     embedding = await embed_text(text[:2000])
-    sb.table("chatroom_chunks").insert({
-        "chunk_text": text[:4000], "topic_summary": summary,
-        "embedding": embedding, "processed_date": date_str,
-    }).execute()
+    chunk_id = str(uuid.uuid4())
+    execute("""
+        INSERT INTO chatroom_chunks (id, chunk_text, topic_summary, processed_date)
+        VALUES (%s, %s, %s, %s)
+    """, (chunk_id, text[:4000], summary, date_str))
+    get_chatroom_collection().add(
+        ids=[chunk_id],
+        embeddings=[embedding],
+        documents=[text[:4000]],
+        metadatas=[{"topic_summary": summary, "processed_date": date_str}],
+    )
     return {"ok": True, "date": date_str, "chunks": 1}
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1437,8 +1439,7 @@ async def process_chatroom_chunks(date_str: str = Query(default=None, alias="dat
 
 @app.get("/api/users")
 async def get_users():
-    r = get_supabase().table("users").select("*").order("role").order("name").execute()
-    return {"users": r.data or []}
+    return {"users": fetch_all("SELECT * FROM users ORDER BY role, name")}
 
 @app.get("/api/health")
 def health():
