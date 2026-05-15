@@ -227,30 +227,29 @@ Use this if you want a fully local database without Docker.
 #### Step 2 — Install pgvector
 
 1. Go to [github.com/pgvector/pgvector/releases](https://github.com/pgvector/pgvector/releases)
-2. Download the zip for your PostgreSQL version e.g. `pgvector-v0.7.0-pg16-windows-x86_64.zip`
+2. Download the zip matching your PostgreSQL version — filename must contain **`x86_64`** (not `i386`):
+   ```
+   pgvector-v0.8.0-pg16-windows-x86_64.zip   ← correct for 64-bit PostgreSQL 16
+   ```
 3. Extract and copy files:
    - `lib\vector.dll` → `C:\Program Files\PostgreSQL\16\lib\`
    - `share\extension\vector*` (all files) → `C:\Program Files\PostgreSQL\16\share\extension\`
 
-#### Step 3 — Create the database
+#### Step 3 — Create the database and run the schema
 
 ```bash
 psql -U postgres -c "CREATE DATABASE projectdb;"
-psql -U postgres -d projectdb -c "CREATE EXTENSION vector;"
+psql -U postgres -d projectdb -f "C:\path\to\project-s\postgres-local-setup.sql"
 ```
 
-#### Step 4 — Run the schema
+This single file creates all tables, indexes, functions, roles and seeds users.
 
-```bash
-psql -U postgres -d projectdb -f "C:\path\to\project-s\supabase-setup.sql"
-```
-
-Verify tables were created:
+Verify:
 ```bash
 psql -U postgres -d projectdb -c "\dt"
 ```
 
-#### Step 5 — Install PostgREST (standalone binary, no Docker)
+#### Step 4 — Install PostgREST (standalone binary, no Docker)
 
 PostgREST is the REST API layer the Supabase client talks to.
 
@@ -261,9 +260,8 @@ Create `C:\postgrest\postgrest.conf`:
 ```conf
 db-uri = "postgres://postgres:YOUR_PASSWORD@localhost:5432/projectdb"
 db-schemas = "public"
-db-anon-role = "postgres"
+db-anon-role = "web_anon"
 server-port = 54321
-jwt-secret = "a-secret-key-at-least-32-characters-long"
 ```
 
 Start PostgREST:
@@ -271,14 +269,12 @@ Start PostgREST:
 C:\postgrest\postgrest.exe C:\postgrest\postgrest.conf
 ```
 
-#### Step 6 — Update `.env`
+#### Step 5 — Update `.env`
 
 ```env
 SUPABASE_URL=http://localhost:54321
-SUPABASE_SERVICE_KEY=a-secret-key-at-least-32-characters-long
+SUPABASE_SERVICE_KEY=any-local-dev-string
 ```
-
-> `SUPABASE_SERVICE_KEY` must match the `jwt-secret` in `postgrest.conf`.
 
 #### File storage with local PostgreSQL
 
@@ -318,8 +314,7 @@ sudo systemctl start postgresql
 Then create the database and run the schema:
 ```bash
 psql -U postgres -c "CREATE DATABASE projectdb;"
-psql -U postgres -d projectdb -c "CREATE EXTENSION vector;"
-psql -U postgres -d projectdb -f supabase-setup.sql
+psql -U postgres -d projectdb -f postgres-local-setup.sql
 ```
 
 Download and run PostgREST binary from [github.com/PostgREST/postgrest/releases](https://github.com/PostgREST/postgrest/releases):
@@ -329,9 +324,8 @@ Download and run PostgREST binary from [github.com/PostgREST/postgrest/releases]
 cat > postgrest.conf <<EOF
 db-uri = "postgres://postgres:YOUR_PASSWORD@localhost:5432/projectdb"
 db-schemas = "public"
-db-anon-role = "postgres"
+db-anon-role = "web_anon"
 server-port = 54321
-jwt-secret = "a-secret-key-at-least-32-characters-long"
 EOF
 
 # Run
