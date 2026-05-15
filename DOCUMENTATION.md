@@ -246,11 +246,32 @@ If the user checked "Extract action items" and the document is not XLSX/PPTX:
 
 ---
 
-### 2.2 Search & Retrieval
+### 2.2 Search Bar — User Flow
 
-The Knowledge Hub supports two search paths that are either user-selected or auto-routed.
+The search bar at the top of the Knowledge Hub tab (`POST /api/retrieve`) is a standalone ad-hoc document search — separate from the chatbot.
 
-#### 2.2.1 Vector Search
+**User flow:**
+1. User types a query (e.g. *"action items from last sprint review"*) and clicks **Search**
+2. The query is embedded via `text-embedding-004` (`RETRIEVAL_QUERY` task type)
+3. `match_chunks` RPC runs cosine similarity against all chunks accessible to the user
+4. Top results are returned and displayed as document cards with a relevance snippet — no LLM answer is generated, just matching passages
+
+**UI tabs in the Knowledge Hub:**
+
+| Tab | What it shows |
+|-----|--------------|
+| **Browse** | Search bar + semantic document search results |
+| **All Files** | Full file library with lock/version/delete controls (count badge = total files accessible) |
+| **Reports** | Report generator — template-based or free-form, multi-model, PDF/DOCX/XLSX export |
+| **Refine** | RAG evaluation scores (context precision, faithfulness, response relevance) |
+
+---
+
+### 2.3 Search & Retrieval (Chat Pipeline)
+
+The Knowledge Hub chat uses two search paths that are either user-selected or auto-routed by the Agent.
+
+#### 2.3.1 Vector Search
 
 1. User query is embedded using `text-embedding-004` with `task_type: RETRIEVAL_QUERY`
 2. Supabase RPC `match_chunks(query_embedding, part_filter, 20)` runs HNSW cosine similarity
@@ -258,7 +279,7 @@ The Knowledge Hub supports two search paths that are either user-selected or aut
 4. **Reranking** — Gemini receives the query + top-20 chunk summaries and returns indices of the top-5 most semantically relevant chunks
 5. Final top-5 chunks form the context window for answer generation
 
-#### 2.2.2 Graph Search
+#### 2.3.2 Graph Search
 
 Used when the query asks about relationships across documents ("everything about X", "all documents related to Y").
 
@@ -273,21 +294,21 @@ Used when the query asks about relationships across documents ("everything about
 5. `part_filter` applied: `accessible_to @> array[part_filter]`
 6. If graph returns 0 results → automatically falls back to vector search
 
-#### 2.2.3 Query Router / Agent
+#### 2.3.3 Query Router (Agent)
 
-`POST /api/chat/route` calls `routeQuery(query, model)` in `lib/graphExtract.js`.
+The **Agent** (`routeQuery` in `lib/graphExtract.js`, called via `POST /api/chat/route`) is the intelligence layer that decides which search path to use before any retrieval happens. The Agent is powered by Gemini and acts as an autonomous classifier — it reads the user's query, reasons about its structure, and routes it to the correct backend without any manual configuration.
 
-Gemini classifies the query as `"vector"` or `"graph"` based on this heuristic:
-- **Graph** → relational, cross-document, sweeping questions: "all documents about…", "everything related to…", "across the knowledge base…"
-- **Vector** → specific fact retrieval, single-topic explanation, passage summary
+**How the Agent decides:**
+- **Graph route** → relational, cross-document, sweeping questions: "all documents about…", "everything related to…", "across the knowledge base…"
+- **Vector route** → specific fact retrieval, single-topic explanation, passage summary
 
 Returns `{ search_type: "vector"|"graph", reason: string, entities: {...} }`.
 
-The chat endpoint calls the router and then dispatches to the appropriate search path. If graph returns nothing, it falls back to vector automatically.
+The Agent's decision is shown to the user in the chat UI as a **Vector Search** or **Graph Search** badge on the response. If the Agent routes to graph but Neo4j returns 0 results, it automatically falls back to vector — the Agent handles this gracefully without user intervention.
 
 ---
 
-### 2.3 Chat Interface
+### 2.4 Chat Interface
 
 **User flow:** User types a query in the chat window, selects a model, and receives a streaming response with cited sources.
 
@@ -349,7 +370,7 @@ Scores (0–1) are stored in `rag_evaluations` and running averages updated in `
 
 ---
 
-### 2.4 Report Generator
+### 2.5 Report Generator
 
 Users can generate structured reports in two modes, with output as PDF, DOCX, or XLSX.
 
@@ -378,7 +399,7 @@ All four models (Gemini, Gemma, GLM, GPT OSS) are selectable for report generati
 
 ---
 
-### 2.5 Library (File Management)
+### 2.6 Library (File Management)
 
 **User flow:** Users browse files they have access to, preview content, download, lock for offline editing, upload a new version, or delete.
 
@@ -404,7 +425,7 @@ Deleting a file (`DELETE /api/files/:id`) triggers:
 
 ---
 
-### 2.6 Knowledge Hub API Reference
+### 2.7 Knowledge Hub API Reference
 
 | Method | Route | Description |
 |--------|-------|-------------|
@@ -433,7 +454,7 @@ Deleting a file (`DELETE /api/files/:id`) triggers:
 
 ---
 
-### 2.7 Database Schema (Knowledge Hub Tables)
+### 2.8 Database Schema (Knowledge Hub Tables)
 
 #### `files`
 | Column | Type | Notes |
@@ -510,7 +531,7 @@ Returns top-k chunks ordered by cosine similarity. Applies `accessible_to @> arr
 
 ---
 
-### 2.8 Configuration Reference (`config.json`)
+### 2.9 Configuration Reference (`config.json`)
 
 ```json
 {
@@ -713,7 +734,7 @@ The Minutes feature allows users to record meetings on-device and have them auto
 #### User Flow
 
 1. User records audio in the browser (MediaRecorder API) or uploads an audio file
-2. `POST /api/minutes/transcribe` — audio file → **OpenAI Whisper** (local model) → raw transcript text
+2. `POST /api/minutes/transcribe` — audio file → **OpenAI Whisper** (AI speech recognition model, runs locally via `whisper` npm package) → raw transcript text
 3. `POST /api/minutes/parse` — transcript → **Gemini** JSON parse → structured object:
    ```json
    {
