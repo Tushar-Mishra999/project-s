@@ -1,6 +1,6 @@
 """FastAPI backend — Ollama-based equivalent of server.js."""
 from __future__ import annotations
-import os, json, uuid, re, io, asyncio, tempfile
+import os, json, uuid, re, io, asyncio, tempfile, shutil
 from pathlib import Path
 from datetime import datetime, date
 from typing import Any
@@ -26,10 +26,58 @@ from lib.feed import run_feed_pipeline, live_search
 app = FastAPI(title="Kernel FastAPI Backend")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
+# ── Local storage (used when SUPABASE_URL points to localhost / PostgREST) ───
+# When running with native PostgreSQL + PostgREST there is no Supabase Storage
+# API. Files are saved to a local folder and served via a /uploads route instead.
+_SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+_USE_LOCAL_STORAGE = "localhost" in _SUPABASE_URL or "127.0.0.1" in _SUPABASE_URL
+_LOCAL_UPLOADS_DIR = Path(__file__).parent / "uploads"
+_PORT = int(os.getenv("PORT", 10000))
+
+if _USE_LOCAL_STORAGE:
+    _LOCAL_UPLOADS_DIR.mkdir(exist_ok=True)
+
+def storage_upload(storage_path: str, file_bytes: bytes, content_type: str = "application/octet-stream") -> str:
+    """Upload a file and return its public URL. Uses local disk when running with native PostgreSQL."""
+    if _USE_LOCAL_STORAGE:
+        dest = _LOCAL_UPLOADS_DIR / storage_path.replace("/", "_")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(file_bytes)
+        safe_name = storage_path.replace("/", "_")
+        return f"http://localhost:{_PORT}/uploads/{safe_name}"
+    sb = get_supabase()
+    sb.storage.from_("documents").upload(
+        path=storage_path,
+        file=file_bytes,
+        file_options={"content-type": content_type},
+    )
+    pub = sb.storage.from_("documents").get_public_url(storage_path)
+    return pub if isinstance(pub, str) else pub.get("publicUrl", "")
+
+def storage_delete(file_url: str) -> None:
+    """Delete a stored file by its public URL. No-ops silently on failure."""
+    try:
+        if _USE_LOCAL_STORAGE:
+            filename = file_url.split("/uploads/")[-1]
+            path = _LOCAL_UPLOADS_DIR / filename
+            if path.exists():
+                path.unlink()
+        else:
+            path = file_url.split("/documents/")[-1]
+            if path:
+                get_supabase().storage.from_("documents").remove([path])
+    except Exception:
+        pass
+
 # ── Static frontend ──────────────────────────────────────────────────────────
 _DIST = Path(__file__).parent.parent / "client" / "dist"
 if _DIST.exists():
     app.mount("/assets", StaticFiles(directory=str(_DIST / "assets")), name="assets")
+
+# Serve locally uploaded files when using native PostgreSQL
+if _USE_LOCAL_STORAGE:
+    _LOCAL_UPLOADS_DIR.mkdir(exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=str(_LOCAL_UPLOADS_DIR)), name="uploads")
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -303,12 +351,7 @@ async def delete_file(file_id: str):
     if not r.data:
         raise HTTPException(404, "file not found")
     if r.data.get("file_url"):
-        path = r.data["file_url"].split("/documents/")[-1]
-        if path:
-            try:
-                sb.storage.from_("documents").remove([path])
-            except Exception:
-                pass
+        storage_delete(r.data["file_url"])
     sb.table("files").delete().eq("id", file_id).execute()
     delete_document_from_graph(file_id)
     return {"ok": True}
@@ -327,13 +370,7 @@ async def _ingest_file(
     chunks = add_context_prefix(raw_chunks)
 
     storage_path = f"{uuid.uuid4()}-{re.sub(r'[^\\w.\\-]+', '_', filename)}"
-    sb.storage.from_("documents").upload(
-        path=storage_path,
-        file=file_bytes,
-        file_options={"content-type": "application/octet-stream"},
-    )
-    pub = sb.storage.from_("documents").get_public_url(storage_path)
-    file_url = pub if isinstance(pub, str) else pub.get("publicUrl", "")
+    file_url = storage_upload(storage_path, file_bytes)
 
     file_row = sb.table("files").insert({
         "filename": filename, "filetype": filetype, "file_url": file_url,
@@ -435,18 +472,10 @@ async def replace_file(file_id: str, file: UploadFile = File(...), user_id: str 
     chunks = add_context_prefix(raw_chunks)
 
     storage_path = f"{uuid.uuid4()}-{re.sub(r'[^\\w.\\-]+', '_', file.filename or 'file')}"
-    sb.storage.from_("documents").upload(path=storage_path, file=file_bytes,
-                                          file_options={"content-type": "application/octet-stream"})
-    pub = sb.storage.from_("documents").get_public_url(storage_path)
-    new_url = pub if isinstance(pub, str) else pub.get("publicUrl", "")
+    new_url = storage_upload(storage_path, file_bytes)
 
     if existing.get("file_url"):
-        old_path = existing["file_url"].split("/documents/")[-1]
-        if old_path:
-            try:
-                sb.storage.from_("documents").remove([old_path])
-            except Exception:
-                pass
+        storage_delete(existing["file_url"])
 
     sb.table("chunks").delete().eq("file_id", file_id).execute()
 
@@ -806,10 +835,7 @@ async def upload_report_template(file: UploadFile = File(...), uploaded_by: str 
     filetype = f"{file.content_type or ''} {Path(file.filename or '').suffix.lstrip('.').lower()}".strip()
     extracted = extract_file_text(data, filetype)
     storage_path = f"templates/{uuid.uuid4()}-{file.filename}"
-    sb.storage.from_("documents").upload(path=storage_path, file=data,
-                                          file_options={"content-type": file.content_type or "application/octet-stream"})
-    pub = sb.storage.from_("documents").get_public_url(storage_path)
-    file_url = pub if isinstance(pub, str) else pub.get("publicUrl", "")
+    file_url = storage_upload(storage_path, data, file.content_type or "application/octet-stream")
     r = sb.table("report_templates").insert({
         "filename": file.filename, "filetype": filetype, "file_url": file_url,
         "template_text": extracted.get("text", ""), "uploaded_by": uploaded_by,
@@ -822,11 +848,7 @@ async def delete_report_template(tmpl_id: str):
     sb = get_supabase()
     r = sb.table("report_templates").select("file_url").eq("id", tmpl_id).maybe_single().execute()
     if r.data and r.data.get("file_url"):
-        path = r.data["file_url"].split("/documents/")[-1]
-        try:
-            sb.storage.from_("documents").remove([path])
-        except Exception:
-            pass
+        storage_delete(r.data["file_url"])
     sb.table("report_templates").delete().eq("id", tmpl_id).execute()
     return {"ok": True}
 
