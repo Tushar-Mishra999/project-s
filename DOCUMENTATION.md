@@ -253,8 +253,11 @@ The search bar at the top of the Knowledge Hub tab (`POST /api/retrieve`) is a s
 **User flow:**
 1. User types a query (e.g. *"action items from last sprint review"*) and clicks **Search**
 2. The query is embedded via `text-embedding-004` (`RETRIEVAL_QUERY` task type)
-3. `match_chunks` RPC runs cosine similarity against all chunks accessible to the user
-4. Top results are returned and displayed as document cards with a relevance snippet — no LLM answer is generated, just matching passages
+3. `match_chunks` RPC runs cosine similarity, returns top-20 chunks; Gemini reranks to top-5
+4. `dedupeByFile` collapses results to **one card per file** (best-matching chunk per file)
+5. Each card shows: filename, uploader, chunk position, and the **chunk's AI summary** — this is the `chunk_summary` Gemini generated at upload time during HyDE enrichment, not a new LLM call
+6. A **"Get summary"** button expands the full `chunk_summary` already in memory; no live AI call is made at search time
+7. A **Download** link is provided for the original file
 
 **UI tabs in the Knowledge Hub:**
 
