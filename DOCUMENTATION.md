@@ -375,7 +375,25 @@ Scores (0–1) are stored in `rag_evaluations` and running averages updated in `
 
 ### 2.5 Report Generator
 
-Users can generate structured reports in two modes, with output as PDF, DOCX, or XLSX.
+Users can generate structured reports in two modes, with output as PDF, DOCX, or XLSX. Every generation request passes through a three-phase **Review Agent pipeline** before the report is returned to the user.
+
+#### Report Generation Pipeline (all modes)
+
+Every report goes through these phases automatically. The UI shows the current phase to the user via a status line:
+
+| Phase | What happens | UI text shown |
+|-------|-------------|--------------|
+| **Generating** | LLM writes the full HTML report (up to 16,000 output tokens) | *Generating report…* |
+| **Reviewing** | A second Gemini call (the Agent) reads the original input + generated HTML and checks for completeness, accuracy, empty sections, and format fit. Returns `{approved, issues[]}`. Up to 32,000 chars of source input are passed. | *Agent reviewing report…* |
+| **Revising** *(if needed)* | If the Agent flags issues, a third call revises the HTML with the issue list appended as explicit fix instructions. Falls back to the original if revision fails. | *Agent applying improvements…* |
+
+The response to the client is an SSE stream (`event: phase` → `event: phase` → `event: done`) rather than a single JSON response, so the UI can update the status label in real time.
+
+**Review Agent checks:**
+- **Completeness** — Every fact, metric, and decision from the input must appear in the report
+- **Accuracy** — No invented numbers or names not present in the source
+- **Empty sections** — No "(not provided)" when the input contained that data
+- **Format fit** — XLSX outputs must be table-heavy; PDF outputs must have narrative depth
 
 #### Mode 1 — Template-Based
 
@@ -383,12 +401,12 @@ Users can generate structured reports in two modes, with output as PDF, DOCX, or
 1. Admin uploads a DOCX or PDF template via `POST /api/report-templates` (stored in `report_templates` table, template text extracted)
 2. User selects a template, picks source files, selects output model and format
 3. `POST /api/report-templates/:id/generate` — server reads template text + full text of all selected files
-4. Gemini receives the template as a format guide and the document content as source material
-5. Returns structured HTML → rendered to PDF/DOCX/XLSX
+4. Passes through the generate → review → revise pipeline described above
+5. Final HTML rendered to PDF/DOCX/XLSX
 
 #### Mode 2 — Free-Form (`POST /api/report/generate`)
 
-User writes an instruction/prompt, selects files, and the model generates a report from scratch. Same render pipeline.
+User writes an instruction/prompt, selects files or pastes raw input, and the model generates a report from scratch. Same generate → review → revise pipeline applies.
 
 #### Output Rendering
 
@@ -396,9 +414,17 @@ User writes an instruction/prompt, selects files, and the model generates a repo
 |--------|---------|-------|
 | PDF | Puppeteer (headless Chromium) | HTML → PDF with print media CSS |
 | DOCX | html-to-docx | HTML → Office Open XML |
-| XLSX | SheetJS | LLM generates JSON table schema → multi-sheet workbook |
+| XLSX | SheetJS | LLM produces HTML tables; SheetJS extracts them into spreadsheet sheets |
 
-All four models (Gemini, Gemma, GLM, GPT OSS) are selectable for report generation.
+All four models (Gemini, Gemma, GLM, GPT OSS) are selectable for report generation. The Review Agent always uses Gemini (`config.models.summarisation`) regardless of the user's chosen model.
+
+#### Token Budget
+
+| Step | Output tokens |
+|------|--------------|
+| Generator | 16,000 |
+| Review Agent | 2,048 (JSON issues list) |
+| Reviser | 16,000 |
 
 ---
 
@@ -447,9 +473,9 @@ Deleting a file (`DELETE /api/files/:id`) triggers:
 | `GET` | `/api/report-templates` | List templates |
 | `POST` | `/api/report-templates` | Upload template |
 | `DELETE` | `/api/report-templates/:id` | Delete template |
-| `POST` | `/api/report-templates/:id/generate` | Generate from template |
-| `POST` | `/api/report-templates/:id/generate-from-files` | Batch template fill |
-| `POST` | `/api/report/generate` | Free-form report |
+| `POST` | `/api/report-templates/:id/generate` | Generate from template (SSE: phase→done) |
+| `POST` | `/api/report-templates/:id/generate-from-files` | Batch template fill (SSE: phase→done) |
+| `POST` | `/api/report/generate` | Free-form report (SSE: phase→done) |
 | `POST` | `/api/render-pdf` | HTML → PDF |
 | `POST` | `/api/render-docx` | HTML → DOCX |
 | `POST` | `/api/render-xlsx` | JSON → XLSX |
