@@ -1525,7 +1525,7 @@ async function generateArtificialQuestions(answer, model) {
     system: 'Given an answer, generate exactly 3 different questions that this answer would be a direct and complete response to. Return a JSON array of exactly 3 question strings. Example format: ["Question 1?", "Question 2?", "Question 3?"]',
     user: answer.slice(0, 3000),
     jsonMode: true,
-    maxTokens: 1024,
+    maxTokens: 2000,
   });
   try {
     const parsed = JSON.parse(stripJsonFences(raw));
