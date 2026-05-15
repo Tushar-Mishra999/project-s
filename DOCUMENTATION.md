@@ -40,7 +40,7 @@
 
 ### 1.2 Environment Variables
 
-| Variable | Required | Purpose |
+| Variable | Optional | Purpose |
 |----------|----------|---------|
 | `GOOGLE_APPLICATION_CREDENTIALS_JSON` | Yes | Service account JSON (stringified) — used for Vertex AI auth |
 | `GOOGLE_CLOUD_PROJECT` | Yes | GCP project ID |
@@ -273,7 +273,7 @@ Used when the query asks about relationships across documents ("everything about
 5. `part_filter` applied: `accessible_to @> array[part_filter]`
 6. If graph returns 0 results → automatically falls back to vector search
 
-#### 2.2.3 Query Router
+#### 2.2.3 Query Router / Agent
 
 `POST /api/chat/route` calls `routeQuery(query, model)` in `lib/graphExtract.js`.
 
