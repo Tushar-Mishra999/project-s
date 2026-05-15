@@ -1659,6 +1659,79 @@ async function generateReport({ report_model, system, userMsg, maxTokens }) {
   return generateText({ model: config.models.summarisation, system, user: userMsg, maxTokens });
 }
 
+const REPORT_REVIEW_SYSTEM = `You are a quality reviewer for AI-generated reports. You will be given:
+1. ORIGINAL INPUT DATA — the source facts, notes, and context the report was built from
+2. GENERATED REPORT — the HTML the AI produced
+3. OUTPUT FORMAT — the intended rendering format (PDF or Excel/XLSX)
+
+Review the report and return ONLY a JSON object in this exact shape — no markdown fences, no extra fields:
+{"approved": true, "issues": []}
+OR
+{"approved": false, "issues": ["Missing Q3 revenue figure present in input", "Section 2 is empty despite relevant data"]}
+
+Check for:
+- COMPLETENESS: Is every data point, metric, fact, and decision from the input present in the report? Name any missing items specifically.
+- ACCURACY: Does the report state anything not found in the input (invented numbers, wrong names, hallucinated facts)?
+- EMPTY SECTIONS: Are any sections marked "(not provided)" when the input actually contained that data?
+- FORMAT FIT: For XLSX — all data should be in HTML tables, not prose. For PDF — sections should have narrative depth.
+
+If the report is complete and accurate, return {"approved": true, "issues": []}.
+Be specific and actionable — phrase each issue so the generator can fix it directly.`;
+
+async function reviewReport({ inputSummary, reportHtml, outputFormat }) {
+  const userMsg = `--- ORIGINAL INPUT DATA ---\n${inputSummary}\n\n--- GENERATED REPORT (HTML) ---\n${reportHtml}\n\n--- OUTPUT FORMAT ---\n${outputFormat === 'xlsx' ? 'Excel (XLSX)' : 'PDF'}`;
+  try {
+    const raw = await generateText({
+      model: config.models.summarisation,
+      system: REPORT_REVIEW_SYSTEM,
+      user: userMsg,
+      jsonMode: true,
+      maxTokens: 2048,
+    });
+    const parsed = JSON.parse(stripJsonFences(raw));
+    return { approved: !!parsed.approved, issues: Array.isArray(parsed.issues) ? parsed.issues : [] };
+  } catch {
+    return { approved: true, issues: [] };
+  }
+}
+
+// Runs the full generate → review → (revise) pipeline over SSE.
+// Emits: event:phase {phase:'generating'|'reviewing'|'revising'}, event:done {...}, event:error {...}
+async function runReportPipeline({ res, report_model, output_format, system, userMsg, inputData, extraFields = {} }) {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+
+  try {
+    send('phase', { phase: 'generating' });
+    let report = await generateReport({ report_model, system, userMsg, maxTokens: 16000 });
+
+    send('phase', { phase: 'reviewing' });
+    const inputSummary = (inputData || userMsg).slice(0, 32000);
+    const review = await reviewReport({ inputSummary, reportHtml: report, outputFormat: output_format });
+
+    if (!review.approved && review.issues.length > 0) {
+      send('phase', { phase: 'revising' });
+      const issueBlock = review.issues.map((iss, i) => `${i + 1}. ${iss}`).join('\n');
+      const revisedMsg = `${userMsg}\n\n--- REVIEWER FEEDBACK — fix ALL of the following before responding ---\n${issueBlock}\n\nOutput the complete corrected HTML report.`;
+      try {
+        report = await generateReport({ report_model, system, userMsg: revisedMsg, maxTokens: 16000 });
+      } catch (revErr) {
+        console.warn('[report-pipeline] revision failed, using original:', revErr.message);
+      }
+    }
+
+    send('done', { report, ...extraFields });
+  } catch (err) {
+    send('error', { error: err.message });
+  } finally {
+    res.end();
+  }
+}
+
 function outputFormatHint(output_format) {
   if (output_format === 'xlsx') {
     return '\n\n--- OUTPUT FORMAT ---\nTarget output: Excel (XLSX). Structure the report to maximise tabular data. Use HTML tables for all data, metrics, comparisons, and lists. Keep narrative text concise — prefer structured tables over long prose paragraphs.';
@@ -1776,21 +1849,20 @@ app.post('/api/report/generate', async (req, res) => {
     return res.status(400).json({ error: 'input_data is required' });
   }
   try {
-    let finalInput;
+    let inputData;
     if (include_chatroom) {
       const chatroomText = await getChatroomContext(input_data.slice(0, 500));
-      finalInput = chatroomText
+      inputData = chatroomText
         ? `Report instruction: ${input_data}\n\n--- Executive Chatroom History (Source) ---\n${chatroomText}`
         : '(no chatroom messages found)';
     } else {
-      finalInput = input_data;
+      inputData = input_data;
     }
-    const userMsg = `--- INPUT DATA ---\n${finalInput}${outputFormatHint(output_format)}`;
-    const report = await generateReport({ report_model, system: REPORT_SYSTEM_FREE, userMsg, maxTokens: 16000 });
-    res.json({ report, template_filename: 'report' });
+    const userMsg = `--- INPUT DATA ---\n${inputData}${outputFormatHint(output_format)}`;
+    await runReportPipeline({ res, report_model, output_format, system: REPORT_SYSTEM_FREE, userMsg, inputData, extraFields: { template_filename: 'report' } });
   } catch (err) {
     console.error('[report-generate-free] error:', err);
-    res.status(500).json({ error: err.message });
+    if (!res.headersSent) res.status(500).json({ error: err.message });
   }
 });
 
@@ -1806,7 +1878,6 @@ app.post('/api/report/generate-from-files', async (req, res) => {
     let usedFiles = [];
 
     if (include_chatroom) {
-      // Chatroom mode — skip file fetching, use only chatroom context as source.
       const chatroomText = await getChatroomContext(instruction?.slice(0, 500) || null);
       const parts = [
         instruction ? `User instruction: ${instruction}` : null,
@@ -1860,15 +1931,13 @@ app.post('/api/report/generate-from-files', async (req, res) => {
     }
 
     const userMsg = `--- INPUT DATA ---\n${inputData}${outputFormatHint(output_format)}`;
-    const report = await generateReport({ report_model, system: REPORT_SYSTEM_FREE, userMsg, maxTokens: 16000 });
-    res.json({
-      report,
-      template_filename: 'report',
-      used_files: usedFiles.map((f) => ({ id: f.id, filename: f.filename })),
+    await runReportPipeline({
+      res, report_model, output_format, system: REPORT_SYSTEM_FREE, userMsg, inputData,
+      extraFields: { template_filename: 'report', used_files: usedFiles.map((f) => ({ id: f.id, filename: f.filename })) },
     });
   } catch (err) {
     console.error('[report-generate-free-from-files] error:', err);
-    res.status(500).json({ error: err.message });
+    if (!res.headersSent) res.status(500).json({ error: err.message });
   }
 });
 
@@ -1971,21 +2040,20 @@ app.post('/api/report-templates/:id/generate', async (req, res) => {
     if (fetchErr) throw fetchErr;
     if (!tmpl) return res.status(404).json({ error: 'template not found' });
 
-    let finalInput;
+    let inputData;
     if (include_chatroom) {
       const chatroomText = await getChatroomContext(input_data.slice(0, 500));
-      finalInput = chatroomText
+      inputData = chatroomText
         ? `Report instruction: ${input_data}\n\n--- Executive Chatroom History (Source) ---\n${chatroomText}`
         : '(no chatroom messages found)';
     } else {
-      finalInput = input_data;
+      inputData = input_data;
     }
-    const userMsg = `--- TEMPLATE (${tmpl.filename}) ---\n${tmpl.template_text}\n\n--- INPUT DATA ---\n${finalInput}${outputFormatHint(output_format)}`;
-    const report = await generateReport({ report_model, system: REPORT_SYSTEM, userMsg, maxTokens: 16000 });
-    res.json({ report, template_filename: tmpl.filename });
+    const userMsg = `--- TEMPLATE (${tmpl.filename}) ---\n${tmpl.template_text}\n\n--- INPUT DATA ---\n${inputData}${outputFormatHint(output_format)}`;
+    await runReportPipeline({ res, report_model, output_format, system: REPORT_SYSTEM, userMsg, inputData, extraFields: { template_filename: tmpl.filename } });
   } catch (err) {
     console.error('[report-generate] error:', err);
-    res.status(500).json({ error: err.message });
+    if (!res.headersSent) res.status(500).json({ error: err.message });
   }
 });
 
@@ -2246,7 +2314,6 @@ app.post('/api/report-templates/:id/generate-from-files', async (req, res) => {
     let usedFiles = [];
 
     if (include_chatroom) {
-      // Chatroom mode — skip file fetching, use only chatroom context as source.
       const chatroomText = await getChatroomContext(instruction?.slice(0, 500) || null);
       const parts = [
         instruction ? `User instruction: ${instruction}` : null,
@@ -2300,15 +2367,13 @@ app.post('/api/report-templates/:id/generate-from-files', async (req, res) => {
     }
 
     const userMsg = `--- TEMPLATE (${tmpl.filename}) ---\n${tmpl.template_text}\n\n--- INPUT DATA ---\n${inputData}${outputFormatHint(output_format)}`;
-    const report = await generateReport({ report_model, system: REPORT_SYSTEM, userMsg, maxTokens: 16000 });
-    res.json({
-      report,
-      template_filename: tmpl.filename,
-      used_files: usedFiles.map((f) => ({ id: f.id, filename: f.filename })),
+    await runReportPipeline({
+      res, report_model, output_format, system: REPORT_SYSTEM, userMsg, inputData,
+      extraFields: { template_filename: tmpl.filename, used_files: usedFiles.map((f) => ({ id: f.id, filename: f.filename })) },
     });
   } catch (err) {
     console.error('[report-generate-from-files] error:', err);
-    res.status(500).json({ error: err.message });
+    if (!res.headersSent) res.status(500).json({ error: err.message });
   }
 });
 
