@@ -13,12 +13,13 @@ from fastapi.responses import JSONResponse, StreamingResponse, FileResponse, Red
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from lib.clients import get_supabase, rag_ready, neo4j_ready, config, run_neo4j
+from lib.clients import get_supabase, rag_ready, config
+# from lib.clients import neo4j_ready, run_neo4j  # Neo4j disabled — use cloud Neo4j AuraDB or local bolt
 from lib.llm import generate_text, generate_chat, generate_chat_stream, embed_text, OLLAMA_MODEL
 from lib.rag import retrieve, rerank_chunks, enrich_chunk, build_embedding_input, strip_json_fences, cosine_similarity
 from lib.extract import extract_text as extract_file_text
 from lib.chunk import chunk_document, add_context_prefix
-from lib.graph import extract_entities, write_document_to_graph, delete_document_from_graph, route_query, graph_search
+# from lib.graph import extract_entities, write_document_to_graph, delete_document_from_graph, route_query, graph_search  # Neo4j disabled
 from lib.render import render_pdf, render_docx, render_xlsx
 from lib.action_items import extract_action_items
 from lib.feed import run_feed_pipeline, live_search
@@ -353,7 +354,7 @@ async def delete_file(file_id: str):
     if r.data.get("file_url"):
         storage_delete(r.data["file_url"])
     sb.table("files").delete().eq("id", file_id).execute()
-    delete_document_from_graph(file_id)
+    # delete_document_from_graph(file_id)  # Neo4j disabled
     return {"ok": True}
 
 async def _ingest_file(
@@ -400,13 +401,14 @@ async def _ingest_file(
         except Exception:
             pass
 
-    scope = user.get("part") or user.get("team")
-    if neo4j_ready():
-        full_text = extracted["text"]
-        entities = await extract_entities(full_text[:6000])
-        await write_document_to_graph(
-            file_id, filename, filetype, file_url, user["name"], scope, entities
-        )
+    # scope = user.get("part") or user.get("team")
+    # Neo4j disabled — graph indexing skipped
+    # if neo4j_ready():
+    #     full_text = extracted["text"]
+    #     entities = await extract_entities(full_text[:6000])
+    #     await write_document_to_graph(
+    #         file_id, filename, filetype, file_url, user["name"], scope, entities
+    #     )
 
     pending_items = None
     if extract_items and filetype.lower() not in ("xlsx", "pptx"):
@@ -523,15 +525,17 @@ async def _build_context(
         ctx_text = await _get_chatroom_context(query)
         return ctx_text or "(no chatroom messages found)", [], [], None
 
-    route = await route_query(query)
-    search_type = route["search_type"]
+    # Neo4j disabled — always use vector search
+    # route = await route_query(query)
+    # search_type = route["search_type"]
+    search_type = "vector"
     chunks: list[dict] = []
-    if search_type == "graph" and neo4j_ready():
-        chunks = await graph_search(route.get("entities", {}), part_filter)
-        if not chunks:
-            chunks = await retrieve(query, part_filter)
-    else:
-        chunks = await retrieve(query, part_filter)
+    # if search_type == "graph" and neo4j_ready():
+    #     chunks = await graph_search(route.get("entities", {}), part_filter)
+    #     if not chunks:
+    #         chunks = await retrieve(query, part_filter)
+    # else:
+    chunks = await retrieve(query, part_filter)
 
     if chunks:
         ctx_parts = []
@@ -564,8 +568,9 @@ async def api_chat_route(req: Request):
     query = body.get("query")
     if not query:
         raise HTTPException(400, "query required")
-    route = await route_query(query)
-    return {"search_type": route["search_type"], "reason": route["reason"]}
+    # Neo4j disabled — query router always returns vector
+    # route = await route_query(query)
+    return {"search_type": "vector", "reason": "Neo4j disabled — using vector search"}
 
 @app.post("/api/chat")
 async def api_chat(req: Request):
@@ -973,18 +978,21 @@ MOM_PARSE_SYSTEM = (
 
 @app.post("/api/minutes/transcribe")
 async def transcribe_audio(audio: UploadFile = File(...)):
-    import whisper, tempfile, os
-    data = await audio.read()
-    suffix = Path(audio.filename or "audio.webm").suffix or ".webm"
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        tmp.write(data)
-        tmp_path = tmp.name
-    try:
-        model = whisper.load_model("base")
-        result = model.transcribe(tmp_path)
-        return {"transcript": result.get("text", "")}
-    finally:
-        os.unlink(tmp_path)
+    # Whisper disabled — requires openai-whisper and ffmpeg installed locally
+    # Uncomment below to re-enable:
+    # import whisper, tempfile, os
+    # data = await audio.read()
+    # suffix = Path(audio.filename or "audio.webm").suffix or ".webm"
+    # with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+    #     tmp.write(data)
+    #     tmp_path = tmp.name
+    # try:
+    #     model = whisper.load_model("base")
+    #     result = model.transcribe(tmp_path)
+    #     return {"transcript": result.get("text", "")}
+    # finally:
+    #     os.unlink(tmp_path)
+    raise HTTPException(503, "Voice transcription is disabled. Enable by installing openai-whisper and ffmpeg.")
 
 @app.post("/api/minutes/parse")
 async def parse_transcript(req: Request):
