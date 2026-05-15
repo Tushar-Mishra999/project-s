@@ -892,7 +892,8 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
   const [matchRationale, setMatchRationale] = useState('');
   const [matchActive, setMatchActive] = useState(false);
   const [inputData, setInputData] = useState('');
-  const [generating, setGenerating] = useState(false);
+  const [reportPhase, setReportPhase] = useState(null); // null | 'generating' | 'reviewing' | 'revising'
+  const generating = reportPhase !== null;
   const [report, setReport] = useState(null);
   const [generateErr, setGenerateErr] = useState(null);
   const [outputFormat, setOutputFormat] = useState('pdf');
@@ -1000,38 +1001,62 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
     finally { setMatching(false); }
   };
 
+  const readReportSSE = async (url, body) => {
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || 'Generation failed'); }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let currentEvent = '';
+    let result = null;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop() ?? '';
+      for (const line of lines) {
+        if (line.startsWith('event: ')) { currentEvent = line.slice(7).trim(); }
+        else if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (currentEvent === 'phase') setReportPhase(data.phase);
+            else if (currentEvent === 'done') result = data;
+            else if (currentEvent === 'error') throw new Error(data.error || 'Generation failed');
+          } catch (e) { if (currentEvent === 'error') throw e; }
+        }
+      }
+    }
+    return result;
+  };
+
   const handleConfirmAndGenerate = async () => {
     if (reportMode === 'template' && !selectedTemplateId) return setGenerateErr('Select a template first.');
     if (matchPicked.size === 0) return setGenerateErr('Pick at least one source file.');
-    setGenerating(true); setGenerateErr(null); setReport(null);
+    setReportPhase('generating'); setGenerateErr(null); setReport(null);
     try {
       const url = reportMode === 'template'
         ? `/api/report-templates/${selectedTemplateId}/generate-from-files`
         : '/api/report/generate-from-files';
-      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instruction, file_ids: Array.from(matchPicked), report_model: reportModel, output_format: outputFormat, include_chatroom: includeChatroom && isExec }) });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Generation failed');
-      setReport({ text: json.report, templateName: json.template_filename, usedFiles: json.used_files });
+      const data = await readReportSSE(url, { instruction, file_ids: Array.from(matchPicked), report_model: reportModel, output_format: outputFormat, include_chatroom: includeChatroom && isExec });
+      if (data) setReport({ text: data.report, templateName: data.template_filename, usedFiles: data.used_files });
     } catch (err) { setGenerateErr(err.message); }
-    finally { setGenerating(false); }
+    finally { setReportPhase(null); }
   };
 
   const handleGenerate = async (e) => {
     e?.preventDefault();
     if (reportMode === 'template' && !selectedTemplateId) return setGenerateErr('Select a template first.');
     if (!inputData.trim()) return setGenerateErr('Provide some input data.');
-    setGenerating(true); setGenerateErr(null); setReport(null);
+    setReportPhase('generating'); setGenerateErr(null); setReport(null);
     try {
       const url = reportMode === 'template'
         ? `/api/report-templates/${selectedTemplateId}/generate`
         : '/api/report/generate';
-      const body = { input_data: inputData, report_model: reportModel, output_format: outputFormat, include_chatroom: includeChatroom && isExec };
-      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Generation failed');
-      setReport({ text: json.report, templateName: json.template_filename });
+      const data = await readReportSSE(url, { input_data: inputData, report_model: reportModel, output_format: outputFormat, include_chatroom: includeChatroom && isExec });
+      if (data) setReport({ text: data.report, templateName: data.template_filename });
     } catch (err) { setGenerateErr(err.message); }
-    finally { setGenerating(false); }
+    finally { setReportPhase(null); }
   };
 
   const handleTemplateUpload = async (e) => {
@@ -1374,7 +1399,16 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
               </form>
             </div>
 
-            {generating && <div className="state" style={{ marginTop: 16 }}><div className="spinner" /></div>}
+            {generating && (
+              <div className="state" style={{ marginTop: 16, flexDirection: 'column', gap: 8 }}>
+                <div className="spinner" />
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', letterSpacing: 0.2 }}>
+                  {reportPhase === 'generating' && 'Generating report…'}
+                  {reportPhase === 'reviewing' && 'Agent reviewing report…'}
+                  {reportPhase === 'revising' && 'Agent applying improvements…'}
+                </div>
+              </div>
+            )}
 
             {report && (() => {
               const base = (report.templateName || 'report').replace(/\.[^.]+$/, '');
