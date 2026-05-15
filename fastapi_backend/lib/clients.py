@@ -1,47 +1,36 @@
 import os
 import json
 from pathlib import Path
-from supabase import create_client, Client
-from neo4j import GraphDatabase
+import chromadb
 
-# Load shared config from repo root
 _config_path = Path(__file__).parent.parent.parent / "config.json"
 config: dict = json.loads(_config_path.read_text())
 
+
 def rag_ready() -> dict:
-    missing = [k for k in ("SUPABASE_URL", "SUPABASE_SERVICE_KEY") if not os.getenv(k)]
-    return {"ok": len(missing) == 0, "missing": missing}
+    try:
+        from .db import fetch_one
+        fetch_one("SELECT 1")
+        return {"ok": True, "missing": []}
+    except Exception as e:
+        return {"ok": False, "missing": [f"DB connection failed: {e}"]}
 
-# ---------- Supabase ----------
-_supabase: Client | None = None
 
-def get_supabase() -> Client:
-    global _supabase
-    if _supabase is None:
-        url = os.environ["SUPABASE_URL"]
-        key = os.environ["SUPABASE_SERVICE_KEY"]
-        _supabase = create_client(url, key)
-    return _supabase
+# ---------- ChromaDB ----------
+_chroma_client: chromadb.PersistentClient | None = None
 
-# ---------- Neo4j ----------
-_neo4j_driver = None
 
-def _init_neo4j():
-    global _neo4j_driver
-    uri = os.getenv("NEO4J_URI")
-    user = os.getenv("NEO4J_USER", "neo4j")
-    pwd = os.getenv("NEO4J_PASSWORD")
-    if uri and pwd:
-        _neo4j_driver = GraphDatabase.driver(uri, auth=(user, pwd))
+def get_chroma() -> chromadb.PersistentClient:
+    global _chroma_client
+    if _chroma_client is None:
+        chroma_dir = os.getenv("CHROMA_DIR", str(Path(__file__).parent.parent / "chroma_data"))
+        _chroma_client = chromadb.PersistentClient(path=chroma_dir)
+    return _chroma_client
 
-_init_neo4j()
 
-def neo4j_ready() -> bool:
-    return _neo4j_driver is not None
+def get_chunks_collection():
+    return get_chroma().get_or_create_collection("chunks", metadata={"hnsw:space": "cosine"})
 
-def run_neo4j(query: str, params: dict | None = None) -> list[dict]:
-    if not _neo4j_driver:
-        return []
-    with _neo4j_driver.session() as session:
-        result = session.run(query, params or {})
-        return [dict(r) for r in result]
+
+def get_chatroom_collection():
+    return get_chroma().get_or_create_collection("chatroom_chunks", metadata={"hnsw:space": "cosine"})
