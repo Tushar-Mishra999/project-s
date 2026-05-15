@@ -1,6 +1,6 @@
 # Setup & Run Guide
 
-This project supports two backends. You can switch between them using the `BACKEND` environment variable.
+This project supports two backends. Switch between them using the `BACKEND` environment variable.
 
 | Backend | LLM | Use when |
 |---|---|---|
@@ -9,16 +9,13 @@ This project supports two backends. You can switch between them using the `BACKE
 
 ---
 
-## Prerequisites
+## Database Options
 
-### Common
-- **Node.js** v18+ — [nodejs.org](https://nodejs.org)
-- **Supabase** project (cloud) **or** local Supabase (see [Local Supabase](#local-supabase))
-
-### FastAPI backend only
-- **Python** 3.10+
-- **Docker** (required for local Supabase)
-- **Ollama** — local LLM server
+| Option | Docker needed | Setup effort |
+|---|---|---|
+| **Cloud Supabase** (recommended) | No | 5 min — sign up and paste SQL |
+| **Native PostgreSQL + pgvector** | No | ~30 min — install locally |
+| Local Supabase via CLI | Yes | Medium |
 
 ---
 
@@ -32,15 +29,13 @@ npm run install:all
 
 ### 2. Configure `.env`
 
-Create a `.env` file in the project root:
-
 ```env
 # LLM (Vertex AI / Gemini)
 GOOGLE_APPLICATION_CREDENTIALS_JSON={"type":"service_account",...}
 GOOGLE_CLOUD_PROJECT=your-gcp-project-id
 GOOGLE_CLOUD_LOCATION=us-central1
 
-# Supabase
+# Supabase (cloud or local — see Database Setup below)
 SUPABASE_URL=https://<project>.supabase.co
 SUPABASE_SERVICE_KEY=eyJ...
 
@@ -104,8 +99,6 @@ pip install -r requirements.txt
 
 ### 3. Configure `.env`
 
-Add these to your `.env` in the project root:
-
 ```env
 # Switch to FastAPI
 BACKEND=fastapi
@@ -115,7 +108,7 @@ OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=llama3
 OLLAMA_EMBED_MODEL=nomic-embed-text
 
-# Supabase (same as Node.js or use local — see below)
+# Database (cloud Supabase or local PostgreSQL — see Database Setup below)
 SUPABASE_URL=https://<project>.supabase.co
 SUPABASE_SERVICE_KEY=eyJ...
 
@@ -195,86 +188,160 @@ Both backends run on the **same port** — only one runs at a time.
 
 ---
 
-## One-time Supabase Schema Setup
+## Database Setup
 
-Run `supabase-setup.sql` once to create all tables, indexes, and RPC functions.
+### A — Cloud Supabase (easiest, no local install)
 
-**Cloud Supabase:**
-1. Open your Supabase project → SQL Editor
-2. Paste the contents of `supabase-setup.sql` and run
+1. Go to [supabase.com](https://supabase.com) → create a free account → New Project
+2. Go to **SQL Editor** → paste the contents of `supabase-setup.sql` → Run
+3. Go to **Storage** → New bucket → name it `documents` → enable Public → Create
+4. Go to **Settings → API** → copy **Project URL** and **service_role** key
 
-**Local Supabase:**
-```bash
-cp supabase-setup.sql supabase/migrations/20240101000000_initial_schema.sql
-supabase db reset
+```env
+SUPABASE_URL=https://xxxxxxxxxxxx.supabase.co
+SUPABASE_SERVICE_KEY=eyJ...
 ```
-
-Then create a **public** Storage bucket named `documents`:
-- Cloud: Supabase dashboard → Storage → New bucket → `documents` → Public
-- Local: `supabase storage create documents --public`
 
 ---
 
-## Local Supabase
+### B — Native PostgreSQL + pgvector (no Docker, Windows)
 
-Run a full Supabase stack on your machine (no cloud account needed).
+Use this if you want a fully local database without Docker.
 
-### Install Docker
+#### Step 1 — Install PostgreSQL
+
+1. Download the installer from [postgresql.org/download/windows](https://www.postgresql.org/download/windows/)
+2. Run it — install all components, set a password for the `postgres` user, keep port `5432`
+3. Add PostgreSQL to your PATH:
+   - Search **"Environment Variables"** in Start menu → Edit the system environment variables
+   - Under **System variables** → find `Path` → Edit → New → add:
+     ```
+     C:\Program Files\PostgreSQL\16\bin
+     ```
+   - Click OK on all dialogs, then open a **new** terminal
+4. Verify:
+   ```bash
+   psql --version
+   ```
+
+#### Step 2 — Install pgvector
+
+1. Go to [github.com/pgvector/pgvector/releases](https://github.com/pgvector/pgvector/releases)
+2. Download the zip for your PostgreSQL version e.g. `pgvector-v0.7.0-pg16-windows-x86_64.zip`
+3. Extract and copy files:
+   - `lib\vector.dll` → `C:\Program Files\PostgreSQL\16\lib\`
+   - `share\extension\vector*` (all files) → `C:\Program Files\PostgreSQL\16\share\extension\`
+
+#### Step 3 — Create the database
 
 ```bash
-# Mac
-brew install --cask docker
-open /Applications/Docker.app
-
-# Linux (Ubuntu/Debian)
-sudo apt update && sudo apt install -y ca-certificates curl gnupg lsb-release
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-sudo apt update && sudo apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-sudo usermod -aG docker $USER && sudo systemctl enable --now docker
-
-# Windows — download Docker Desktop from https://docs.docker.com/desktop/install/windows-install/
+psql -U postgres -c "CREATE DATABASE projectdb;"
+psql -U postgres -d projectdb -c "CREATE EXTENSION vector;"
 ```
 
-### Install Supabase CLI and start
+#### Step 4 — Run the schema
 
 ```bash
-npm install -g supabase
-
-# In project root
-supabase init
-supabase start
+psql -U postgres -d projectdb -f "C:\path\to\project-s\supabase-setup.sql"
 ```
 
-After startup it prints your local credentials:
-
-```
-API URL:          http://localhost:54321
-Studio URL:       http://localhost:54323
-service_role key: eyJ...   ← use this as SUPABASE_SERVICE_KEY
+Verify tables were created:
+```bash
+psql -U postgres -d projectdb -c "\dt"
 ```
 
-Update `.env`:
+#### Step 5 — Install PostgREST (standalone binary, no Docker)
+
+PostgREST is the REST API layer the Supabase client talks to.
+
+1. Go to [github.com/PostgREST/postgrest/releases](https://github.com/PostgREST/postgrest/releases)
+2. Download `postgrest-v12.x.x-windows-x64.zip` → extract → place `postgrest.exe` at `C:\postgrest\`
+
+Create `C:\postgrest\postgrest.conf`:
+```conf
+db-uri = "postgres://postgres:YOUR_PASSWORD@localhost:5432/projectdb"
+db-schemas = "public"
+db-anon-role = "postgres"
+server-port = 54321
+jwt-secret = "a-secret-key-at-least-32-characters-long"
+```
+
+Start PostgREST:
+```bash
+C:\postgrest\postgrest.exe C:\postgrest\postgrest.conf
+```
+
+#### Step 6 — Update `.env`
 
 ```env
 SUPABASE_URL=http://localhost:54321
-SUPABASE_SERVICE_KEY=<service_role key from above>
+SUPABASE_SERVICE_KEY=a-secret-key-at-least-32-characters-long
 ```
 
-Apply schema and create bucket:
+> `SUPABASE_SERVICE_KEY` must match the `jwt-secret` in `postgrest.conf`.
 
-```bash
-cp supabase-setup.sql supabase/migrations/20240101000000_initial_schema.sql
-supabase db reset
-supabase storage create documents --public
+#### File storage with local PostgreSQL
+
+When `SUPABASE_URL` points to `localhost`, the FastAPI backend **automatically** saves uploaded files to `fastapi_backend/uploads/` and serves them at `http://localhost:10000/uploads/`. No extra config needed — it detects this automatically.
+
+> Note: This only applies to the **FastAPI** backend. The Node.js backend still requires cloud Supabase Storage for file uploads.
+
+#### Daily startup
+
+PostgreSQL starts automatically as a Windows service.
+PostgREST must be started manually — create a `start-db.bat` in your project root:
+
+```bat
+@echo off
+echo Starting PostgREST...
+C:\postgrest\postgrest.exe C:\postgrest\postgrest.conf
 ```
 
-Daily commands:
+Run `start-db.bat` before starting the project each day.
+
+---
+
+### B — Native PostgreSQL + pgvector (Mac / Linux)
+
+**Mac:**
+```bash
+brew install postgresql@16 pgvector
+brew services start postgresql@16
+```
+
+**Linux (Ubuntu/Debian):**
+```bash
+sudo apt install -y postgresql postgresql-16-pgvector
+sudo systemctl start postgresql
+```
+
+Then create the database and run the schema:
+```bash
+psql -U postgres -c "CREATE DATABASE projectdb;"
+psql -U postgres -d projectdb -c "CREATE EXTENSION vector;"
+psql -U postgres -d projectdb -f supabase-setup.sql
+```
+
+Download and run PostgREST binary from [github.com/PostgREST/postgrest/releases](https://github.com/PostgREST/postgrest/releases):
 
 ```bash
-supabase start    # start local stack
-supabase stop     # stop when done
-supabase status   # view URLs and keys
+# Create config
+cat > postgrest.conf <<EOF
+db-uri = "postgres://postgres:YOUR_PASSWORD@localhost:5432/projectdb"
+db-schemas = "public"
+db-anon-role = "postgres"
+server-port = 54321
+jwt-secret = "a-secret-key-at-least-32-characters-long"
+EOF
+
+# Run
+./postgrest postgrest.conf
+```
+
+Update `.env`:
+```env
+SUPABASE_URL=http://localhost:54321
+SUPABASE_SERVICE_KEY=a-secret-key-at-least-32-characters-long
 ```
 
 ---
@@ -304,6 +371,7 @@ supabase status   # view URLs and keys
 ├── fastapi_backend/              Python FastAPI backend
 │   ├── main.py                   FastAPI app (all routes)
 │   ├── requirements.txt
+│   ├── uploads/                  Local file storage (auto-created, localhost only)
 │   └── lib/
 │       ├── clients.py            Supabase + Neo4j clients
 │       ├── llm.py                Ollama LLM + embeddings
