@@ -1,10 +1,38 @@
 """PDF / DOCX / XLSX rendering — replaces Puppeteer / html-to-docx / SheetJS."""
 import io
+import re
 from bs4 import BeautifulSoup
+
+_FENCE_RE = re.compile(r'^```(?:html)?\s*|\s*```$', re.MULTILINE)
+
+def _strip_fences(html: str) -> str:
+    return _FENCE_RE.sub('', html).strip()
+
+# Injected into every PDF to remove box borders the LLM adds for web display
+_PDF_CSS = """<style>
+div,section,article,aside,header,footer,main,nav,p,li,ul,ol,span,blockquote {
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
+  margin-bottom: 4px !important;
+}
+body { font-family: Helvetica, Arial, sans-serif; font-size: 11px; }
+h1,h2,h3,h4 { margin-top: 14px; margin-bottom: 4px; }
+table { border-collapse: collapse; width: 100%; margin-bottom: 12px; }
+th, td { border: 1px solid #ccc; padding: 4px 6px; font-size: 10px; }
+th { background-color: #1e3a5f; color: white; font-weight: bold; }
+</style>"""
 
 
 def render_pdf(html: str) -> bytes:
     from xhtml2pdf import pisa
+    html = _strip_fences(html)
+    if "</head>" in html:
+        html = html.replace("</head>", _PDF_CSS + "</head>", 1)
+    else:
+        html = _PDF_CSS + html
     buf = io.BytesIO()
     pisa.CreatePDF(html, dest=buf)
     return buf.getvalue()
@@ -13,6 +41,7 @@ def render_pdf(html: str) -> bytes:
 def render_docx(html: str) -> bytes:
     from docx import Document
     from htmldocx import HtmlToDocx
+    html = _strip_fences(html)
     doc = Document()
     HtmlToDocx().add_html_to_document(html, doc)
     buf = io.BytesIO()
