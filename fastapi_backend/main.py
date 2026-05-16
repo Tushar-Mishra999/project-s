@@ -551,13 +551,18 @@ async def _build_context(
     if neo4j_ready():
         try:
             route = await route_query(query)
-            search_type = route.get("search_type", "vector")
-            if search_type == "graph":
+            routed = route.get("search_type", "vector")
+            print(f"[graph] router → {routed} | reason: {route.get('reason', '')}")
+            if routed == "graph":
+                search_type = "graph"
                 chunks = await graph_search(route.get("entities", {}), part_filter)
+                print(f"[graph] graph_search returned {len(chunks)} chunks")
         except Exception as e:
             print(f"[graph] route/search failed: {e}")
 
     if not chunks:
+        if search_type == "graph":
+            print("[graph] graph returned no results, falling back to vector")
         search_type = "vector"
         chunks = await retrieve(query, part_filter)
 
@@ -591,7 +596,9 @@ async def api_chat_route(req: Request):
     body = await req.json()
     if not body.get("query"):
         raise HTTPException(400, "query required")
-    return {"search_type": "vector", "reason": "Neo4j disabled — using vector search"}
+    if not neo4j_ready():
+        return {"search_type": "vector", "reason": "Neo4j not configured"}
+    return await route_query(body["query"])
 
 @app.post("/api/chat")
 async def api_chat(req: Request):
