@@ -58,16 +58,19 @@ async def run_feed_pipeline(part: str | None) -> dict:
         sources = [s for s in sources if "MD" in s.get("parts", [])]
 
     max_items = _MAX_BY_PART.get(part, _MAX_PER_SOURCE) if part else _MAX_PER_SOURCE
+    print(f"[feed] pipeline start — part={part} sources={len(sources)} max_items={max_items}")
     all_sources = []
 
     for source in sources:
         if source.get("geminiSearch"):
-            # No Gemini grounding available — skip or return empty for this source
+            print(f"[feed] skipping geminiSearch source: {source['name']}")
             continue
         rss = source.get("rss")
         if not rss:
             continue
+        print(f"[feed] fetching {source['name']} ...")
         articles = await _fetch_rss(rss)
+        print(f"[feed] {source['name']} → {len(articles)} articles")
         if not articles:
             continue
 
@@ -88,7 +91,9 @@ async def run_feed_pipeline(part: str | None) -> dict:
                 "url": source.get("url", ""),
                 "items": items,
             })
+            print(f"[feed] {source['name']} → {len(items)} items scored")
 
+    print(f"[feed] pipeline done — {len(all_sources)} sources returned")
     return {"sources": all_sources, "generatedAt": __import__("datetime").datetime.utcnow().isoformat()}
 
 
