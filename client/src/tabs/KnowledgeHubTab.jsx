@@ -581,6 +581,42 @@ function GmailInbox({ activeUserId, onExtract, onAttachmentUploaded }) {
   );
 }
 
+// ── Template row with delete ──────────────────────────────
+function TemplateRow({ tmpl, isSelected, onSelect, onDeleted }) {
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/report-templates/${tmpl.id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error((await res.json()).error || 'Delete failed');
+      onDeleted(tmpl.id);
+    } catch (e) { alert(e.message); setDeleting(false); }
+  };
+  return (
+    <div className={`library-row ${isSelected ? 'selected' : ''}`}>
+      <div className="library-row-icon"><FileIcon ext={tmpl.filetype} /></div>
+      <div className="library-row-main">
+        <div className="library-row-title">{tmpl.filename}</div>
+        <div className="library-row-meta"><span>By <strong>{tmpl.uploaded_by}</strong></span><span>·</span><span>{formatDate(tmpl.uploaded_at)}</span></div>
+      </div>
+      <div className="library-row-actions" style={{ display: 'flex', gap: 6 }}>
+        <button className={isSelected ? 'primary-btn' : 'ghost-btn'} onClick={onSelect}>
+          {isSelected ? 'Selected' : 'Use this'}
+        </button>
+        {confirming ? (
+          <>
+            <button className="ghost-btn small danger" onClick={handleDelete} disabled={deleting}>{deleting ? 'Deleting…' : 'Confirm'}</button>
+            <button className="ghost-btn small" onClick={() => setConfirming(false)}>Cancel</button>
+          </>
+        ) : (
+          <button className="ghost-btn small danger" onClick={() => setConfirming(true)}>Delete</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Library row (reused from LibraryTab) ─────────────────
 function LibraryRow({ file, activeUserId, onDeleted, onExtracted, onLockChange, onReplaced }) {
   const [confirming, setConfirming] = useState(false);
@@ -1253,16 +1289,13 @@ export default function KnowledgeHubTab({ parts, activePart, users = [], activeU
               {templates.length > 0 && (
                 <div className="library-list">
                   {templates.map((t) => (
-                    <div key={t.id} className={`library-row ${selectedTemplateId === t.id ? 'selected' : ''}`}>
-                      <div className="library-row-icon"><FileIcon ext={t.filetype} /></div>
-                      <div className="library-row-main">
-                        <div className="library-row-title">{t.filename}</div>
-                        <div className="library-row-meta"><span>By <strong>{t.uploaded_by}</strong></span><span>·</span><span>{formatDate(t.uploaded_at)}</span></div>
-                      </div>
-                      <button className={selectedTemplateId === t.id ? 'primary-btn' : 'ghost-btn'} onClick={() => { setSelectedTemplateId(t.id); setReport(null); setGenerateErr(null); }}>
-                        {selectedTemplateId === t.id ? 'Selected' : 'Use this'}
-                      </button>
-                    </div>
+                    <TemplateRow
+                      key={t.id}
+                      tmpl={t}
+                      isSelected={selectedTemplateId === t.id}
+                      onSelect={() => { setSelectedTemplateId(t.id); setReport(null); setGenerateErr(null); }}
+                      onDeleted={(id) => { setTemplates((c) => c.filter((x) => x.id !== id)); if (selectedTemplateId === id) setSelectedTemplateId(null); }}
+                    />
                   ))}
                 </div>
               )}
