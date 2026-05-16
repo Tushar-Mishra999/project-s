@@ -1009,10 +1009,28 @@ async def api_refine_save(file_id: str, req: Request):
     if existing.get("locked_by_id") and existing["locked_by_id"] != user_id and user.get("role") != "MD":
         raise HTTPException(403, f"Locked by {existing.get('locked_by_name') or 'another user'}")
 
-    # Save edited text as a plain-text file locally
-    new_filename = Path(existing["filename"]).stem + ".txt"
+    # Preserve original file format where possible
+    orig_ext = Path(existing["filename"]).suffix.lstrip(".").lower()
+    if orig_ext == "docx":
+        from docx import Document as DocxDocument
+        doc = DocxDocument()
+        for line in edited_text.split("\n"):
+            doc.add_paragraph(line)
+        buf = io.BytesIO()
+        doc.save(buf)
+        file_bytes = buf.getvalue()
+        save_ext = "docx"
+    elif orig_ext in ("txt", "md"):
+        file_bytes = edited_text.encode("utf-8")
+        save_ext = orig_ext
+    else:
+        # PDF and others can't be reconstructed — save as txt
+        file_bytes = edited_text.encode("utf-8")
+        save_ext = "txt"
+
+    new_filename = Path(existing["filename"]).stem + f".{save_ext}"
     new_path = _LOCAL_UPLOADS_DIR / f"{uuid.uuid4()}-{new_filename}"
-    new_path.write_text(edited_text, encoding="utf-8")
+    new_path.write_bytes(file_bytes)
     new_url = f"/uploads/{new_path.name}"
 
     # Delete old file (best effort)
@@ -1036,7 +1054,7 @@ async def api_refine_save(file_id: str, req: Request):
         version=%s, updated_by=%s, updated_at=now(),
         locked_by_id=NULL, locked_by_name=NULL, locked_at=NULL
         WHERE id=%s
-    """, (new_filename, "txt", new_url, new_version, user["name"], file_id))
+    """, (new_filename, save_ext, new_url, new_version, user["name"], file_id))
 
     # Re-chunk and re-ingest
     from lib.chunk import chunk_document
