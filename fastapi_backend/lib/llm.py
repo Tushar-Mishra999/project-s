@@ -1,14 +1,38 @@
-"""All LLM calls go through Ollama. Model is configured via OLLAMA_MODEL env var."""
+"""Temporary: LLM calls via Gemini 2.5 Flash (no local Ollama needed).
+To switch back to Ollama, replace this file with lib/llm_ollama.py."""
+from __future__ import annotations
 import os
-import json
+import asyncio
 from typing import AsyncGenerator
-from ollama import AsyncClient
+import google.generativeai as genai
 
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
-OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
+GEMINI_API_KEY   = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL     = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_EMBED_MODEL = os.getenv("GEMINI_EMBED_MODEL", "models/text-embedding-004")
 
-_client = AsyncClient(host=OLLAMA_BASE_URL)
+# Alias so existing call sites that import OLLAMA_MODEL still work
+OLLAMA_MODEL = GEMINI_MODEL
+
+genai.configure(api_key=GEMINI_API_KEY)
+
+
+def _model(name: str, system: str) -> genai.GenerativeModel:
+    return genai.GenerativeModel(name, system_instruction=system or None)
+
+
+def _cfg(max_tokens: int, json_mode: bool = False) -> genai.GenerationConfig:
+    kwargs: dict = {"max_output_tokens": max_tokens}
+    if json_mode:
+        kwargs["response_mime_type"] = "application/json"
+    return genai.GenerationConfig(**kwargs)
+
+
+def _contents(messages: list[dict]) -> list[dict]:
+    return [
+        {"role": "model" if m.get("role") == "assistant" else "user",
+         "parts": [{"text": m.get("content", "")}]}
+        for m in messages
+    ]
 
 
 async def generate_text(
@@ -18,22 +42,10 @@ async def generate_text(
     json_mode: bool = False,
     max_tokens: int = 4096,
 ) -> str:
-    model = model or OLLAMA_MODEL
-    messages = []
-    if system:
-        messages.append({"role": "system", "content": system})
-    messages.append({"role": "user", "content": user})
-
-    kwargs: dict = {
-        "model": model,
-        "messages": messages,
-        "options": {"num_predict": max_tokens},
-    }
-    if json_mode:
-        kwargs["format"] = "json"
-
-    response = await _client.chat(**kwargs)
-    return response.message.content or ""
+    response = await _model(model or GEMINI_MODEL, system).generate_content_async(
+        user, generation_config=_cfg(max_tokens, json_mode)
+    )
+    return response.text or ""
 
 
 async def generate_chat(
@@ -42,20 +54,10 @@ async def generate_chat(
     model: str | None = None,
     max_tokens: int = 4096,
 ) -> str:
-    model = model or OLLAMA_MODEL
-    msgs = []
-    if system:
-        msgs.append({"role": "system", "content": system})
-    for m in messages:
-        role = "assistant" if m.get("role") == "assistant" else "user"
-        msgs.append({"role": role, "content": m.get("content", "")})
-
-    response = await _client.chat(
-        model=model,
-        messages=msgs,
-        options={"num_predict": max_tokens},
+    response = await _model(model or GEMINI_MODEL, system).generate_content_async(
+        _contents(messages), generation_config=_cfg(max_tokens)
     )
-    return response.message.content or ""
+    return response.text or ""
 
 
 async def generate_chat_stream(
@@ -64,25 +66,18 @@ async def generate_chat_stream(
     model: str | None = None,
     max_tokens: int = 4096,
 ) -> AsyncGenerator[str, None]:
-    model = model or OLLAMA_MODEL
-    msgs = []
-    if system:
-        msgs.append({"role": "system", "content": system})
-    for m in messages:
-        role = "assistant" if m.get("role") == "assistant" else "user"
-        msgs.append({"role": role, "content": m.get("content", "")})
-
-    async for chunk in await _client.chat(
-        model=model,
-        messages=msgs,
-        stream=True,
-        options={"num_predict": max_tokens},
-    ):
-        content = chunk.message.content
-        if content:
-            yield content
+    response = await _model(model or GEMINI_MODEL, system).generate_content_async(
+        _contents(messages), generation_config=_cfg(max_tokens), stream=True
+    )
+    async for chunk in response:
+        if chunk.text:
+            yield chunk.text
 
 
 async def embed_text(text: str) -> list[float]:
-    response = await _client.embeddings(model=OLLAMA_EMBED_MODEL, prompt=text)
-    return list(response.embedding)
+    result = await asyncio.to_thread(
+        genai.embed_content,
+        model=GEMINI_EMBED_MODEL,
+        content=text,
+    )
+    return list(result["embedding"])
