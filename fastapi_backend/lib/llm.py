@@ -110,11 +110,12 @@ async def generate_chat_stream(
     model: str | None = None,
     max_tokens: int = 4096,
 ) -> AsyncGenerator[str, None]:
-    async for chunk in _client.aio.models.generate_content_stream(
+    stream = await _client.aio.models.generate_content_stream(
         model=model or GEMINI_MODEL,
         contents=_build_contents(messages),
         config=_make_config(system, max_tokens),
-    ):
+    )
+    async for chunk in stream:
         if chunk.text:
             yield chunk.text
 
