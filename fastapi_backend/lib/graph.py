@@ -67,12 +67,12 @@ async def write_document_to_graph(
     for topic in entities.get("topics", []):
         run_neo4j(
             "MATCH (d:Document {id:$id}) MERGE (t:Topic {name:$name}) MERGE (d)-[:COVERS]->(t)",
-            {"id": file_id, "name": topic},
+            {"id": file_id, "name": topic.lower()},
         )
     for tech in entities.get("technologies", []):
         run_neo4j(
             "MATCH (d:Document {id:$id}) MERGE (t:Technology {name:$name}) MERGE (d)-[:MENTIONS_TECH]->(t)",
-            {"id": file_id, "name": tech},
+            {"id": file_id, "name": tech.lower()},
         )
     for person in entities.get("people", []):
         run_neo4j(
@@ -82,14 +82,14 @@ async def write_document_to_graph(
     for project in entities.get("projects", []):
         run_neo4j(
             "MATCH (d:Document {id:$id}) MERGE (p:Project {name:$name}) MERGE (d)-[:PART_OF]->(p)",
-            {"id": file_id, "name": project},
+            {"id": file_id, "name": project.lower()},
         )
     for decision in entities.get("decisions", []):
         run_neo4j(
             "MATCH (d:Document {id:$id}) CREATE (dec:Decision {text:$text,documentId:$id}) MERGE (d)-[:RECORDS]->(dec)",
             {"id": file_id, "text": decision},
         )
-    topics = entities.get("topics", [])
+    topics = [t.lower() for t in entities.get("topics", [])]
     for i, t1 in enumerate(topics):
         for t2 in topics[i + 1:]:
             run_neo4j(
@@ -131,25 +131,30 @@ async def graph_search(entities: dict, part_filter: str | None) -> list[dict]:
         return []
     file_ids: set[str] = set()
 
-    topics = entities.get("topics", [])
+    topics = [t.lower() for t in entities.get("topics", [])]
+    technologies = [t.lower() for t in entities.get("technologies", [])]
+    people = entities.get("people", [])
+    projects = [p.lower() for p in entities.get("projects", [])]
+
+    print(f"[graph] searching — topics={topics} techs={technologies} people={people} projects={projects}")
+
     if topics:
         rows = run_neo4j(
-            "MATCH (d:Document)-[:COVERS]->(t:Topic) WHERE t.name IN $topics RETURN d.id AS id",
+            "MATCH (d:Document)-[:COVERS]->(t:Topic) WHERE toLower(t.name) IN $topics RETURN DISTINCT d.id AS id",
             {"topics": topics},
         )
         file_ids.update(r["id"] for r in rows)
         rows = run_neo4j(
             "MATCH (d:Document)-[:COVERS]->(t1:Topic)-[:RELATED_TO]-(t2:Topic) "
-            "WHERE t1.name IN $topics RETURN d.id AS id",
+            "WHERE toLower(t1.name) IN $topics RETURN DISTINCT d.id AS id",
             {"topics": topics},
         )
         file_ids.update(r["id"] for r in rows)
 
-    for rel, key in [("MENTIONS_TECH", "technologies"), ("MENTIONS_PERSON", "people"), ("PART_OF", "projects")]:
-        vals = entities.get(key, [])
+    for rel, vals in [("MENTIONS_TECH", technologies), ("MENTIONS_PERSON", people), ("PART_OF", projects)]:
         if vals:
             rows = run_neo4j(
-                f"MATCH (d:Document)-[:{rel}]->(n) WHERE n.name IN $vals RETURN d.id AS id",
+                f"MATCH (d:Document)-[:{rel}]->(n) WHERE toLower(n.name) IN $vals RETURN DISTINCT d.id AS id",
                 {"vals": vals},
             )
             file_ids.update(r["id"] for r in rows)
