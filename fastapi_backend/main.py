@@ -1298,11 +1298,22 @@ async def update_tf_action_item(tf_id: str, aid: str, req: Request):
 
 @app.get("/api/quiz/leaderboard")
 async def quiz_leaderboard():
-    return {"leaderboard": fetch_all("SELECT * FROM quiz_scores ORDER BY score DESC, attempted_at DESC")}
+    rows = fetch_all("SELECT * FROM quiz_scores ORDER BY score DESC, attempted_at ASC")
+    for r in rows:
+        if hasattr(r.get("attempted_at"), "isoformat"):
+            r["attempted_at"] = r["attempted_at"].isoformat()
+    return {"scores": rows}
 
 @app.post("/api/quiz/score")
 async def save_quiz_score(req: Request):
     body = await req.json()
+    user_id = body.get("user_id")
+    score_val = body.get("score")
+    if not user_id or not isinstance(score_val, int):
+        raise HTTPException(400, "user_id and numeric score are required")
+    user = fetch_one("SELECT * FROM users WHERE id = %s", (user_id,))
+    if not user:
+        raise HTTPException(400, "unknown user")
     row = execute_returning("""
         INSERT INTO quiz_scores (user_id, user_name, quiz_id, score, total, attempted_at)
         VALUES (%s, %s, %s, %s, %s, %s)
@@ -1310,8 +1321,10 @@ async def save_quiz_score(req: Request):
             user_name = EXCLUDED.user_name, quiz_id = EXCLUDED.quiz_id,
             score = EXCLUDED.score, total = EXCLUDED.total, attempted_at = EXCLUDED.attempted_at
         RETURNING *
-    """, (body.get("user_id"), body.get("user_name"), body.get("quiz_id", "rag-basics"),
-          body.get("score"), body.get("total", 5), datetime.utcnow().isoformat()))
+    """, (user_id, user.get("name"), body.get("quiz_id", "rag-basics"),
+          score_val, body.get("total", 5), datetime.utcnow().isoformat()))
+    if row and hasattr(row.get("attempted_at"), "isoformat"):
+        row["attempted_at"] = row["attempted_at"].isoformat()
     return {"score": row}
 
 # ─────────────────────────────────────────────────────────────────────────────
