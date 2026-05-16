@@ -11,12 +11,32 @@ _ENTITY_SYSTEM = (
     'Keep each list concise (max 10 items each). Return only valid JSON.'
 )
 
-_ROUTE_SYSTEM = (
-    'Classify the user query as "vector" or "graph".\n'
-    '"graph" = relational/cross-document questions: "all documents about", "everything related to", "across the knowledge base".\n'
-    '"vector" = specific fact retrieval, single-topic explanation.\n'
-    'Return ONLY JSON: {"search_type":"vector","reason":"brief explanation","entities":{"topics":[],"technologies":[],"people":[],"projects":[]}}'
-)
+_ROUTE_SYSTEM = """You are a search router for a knowledge management system.
+
+Use "graph" when the query:
+- Asks about everything related to a topic, technology, or person across documents
+- Needs to connect information from multiple sources
+- Uses phrases like "all documents about", "everything related to", "what do we know about", "across our knowledge base"
+- Asks about relationships between entities or who is involved in what
+
+Use "vector" when the query:
+- Asks about specific content likely found in one passage
+- Is a focused factual or summary question about a single topic
+- Asks to explain or describe something specific
+
+Also extract the key named entities from the query.
+
+Return only valid JSON:
+{
+  "search_type": "vector",
+  "reason": "one-line explanation",
+  "entities": {
+    "topics": [],
+    "technologies": [],
+    "people": [],
+    "projects": []
+  }
+}"""
 
 
 async def extract_entities(text: str) -> dict:
@@ -94,7 +114,7 @@ async def route_query(query: str) -> dict:
             system=_ROUTE_SYSTEM,
             user=query,
             json_mode=True,
-            max_tokens=256,
+            max_tokens=512,
         )
         parsed = json.loads(strip_json_fences(raw))
         return {
