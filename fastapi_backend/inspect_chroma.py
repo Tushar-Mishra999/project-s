@@ -19,6 +19,6 @@ for collection_name in ["chunks", "chatroom_chunks"]:
         print(f"  ID:       {doc_id}")
         print(f"  Text:     {results['documents'][i][:200]}")
         print(f"  Metadata: {results['metadatas'][i]}")
-        if results["embeddings"]:
+        if results["embeddings"] is not None:
             emb = results["embeddings"][i]
             print(f"  Embedding dims: {len(emb)}  |  first 5: {emb[:5]}")
