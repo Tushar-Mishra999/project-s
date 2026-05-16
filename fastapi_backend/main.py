@@ -1013,12 +1013,14 @@ async def api_refine_save(file_id: str, req: Request):
     orig_ext = Path(existing["filename"]).suffix.lstrip(".").lower()
     if orig_ext == "docx":
         from docx import Document as DocxDocument
+        import tempfile
         doc = DocxDocument()
         for line in edited_text.split("\n"):
             doc.add_paragraph(line)
-        buf = io.BytesIO()
-        doc.save(buf)
-        file_bytes = buf.getvalue()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
+            doc.save(tmp.name)
+            file_bytes = Path(tmp.name).read_bytes()
+        Path(tmp.name).unlink(missing_ok=True)
         save_ext = "docx"
     elif orig_ext in ("txt", "md"):
         file_bytes = edited_text.encode("utf-8")
