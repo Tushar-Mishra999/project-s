@@ -535,10 +535,15 @@ async def replace_file(file_id: str, file: UploadFile = File(...), user_id: str 
 CHAT_SYSTEM = (
     "You are a knowledge assistant with access to internal documents. "
     "Answer the user's question using only the context provided below. "
-    "When context comes from multiple documents, synthesise and compare across them to answer the question — "
+    "When context comes from multiple documents, synthesise and compare across them — "
     "do not refuse just because no single passage contains the full answer. "
     "Only say 'I could not find this in the uploaded documents' if the context contains absolutely no relevant information. "
-    "Do not use general knowledge. Always cite the source filename(s) at the end of your answer."
+    "Do not use general knowledge.\n\n"
+    "Formatting rules:\n"
+    "- Use markdown: headers (##), bullet points, and bold text to structure your answer.\n"
+    "- Be thorough and elaborative — explain each point with detail from the documents.\n"
+    "- For comparison questions, use a clear structure: shared aspects, then differences.\n"
+    "- Always end with a '## Sources' section listing the filenames cited."
 )
 
 async def _build_context(
