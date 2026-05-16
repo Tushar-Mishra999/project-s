@@ -968,15 +968,17 @@ MOM_PARSE_SYSTEM = (
 
 @app.post("/api/minutes/transcribe")
 async def transcribe_audio(audio: UploadFile = File(...)):
-    import tempfile, whisper
+    import tempfile
+    from faster_whisper import WhisperModel
     suffix = Path(audio.filename).suffix if audio.filename else ".webm"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(await audio.read())
         tmp_path = tmp.name
     try:
-        model = whisper.load_model("base")
-        result = model.transcribe(tmp_path)
-        return {"transcript": result["text"]}
+        model = WhisperModel("base", device="cpu", compute_type="int8")
+        segments, _ = model.transcribe(tmp_path)
+        transcript = " ".join(seg.text.strip() for seg in segments)
+        return {"transcript": transcript}
     finally:
         Path(tmp_path).unlink(missing_ok=True)
 
