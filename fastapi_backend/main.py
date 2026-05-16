@@ -1000,7 +1000,7 @@ async def api_refine_save(file_id: str, req: Request):
     user_id = body.get("user_id", "")
     if not edited_text or not user_id:
         raise HTTPException(400, "edited_text and user_id required")
-    user = load_user(user_id)
+    user = await load_user(user_id)
     if not user:
         raise HTTPException(400, "unknown user")
     existing = fetch_one("SELECT * FROM files WHERE id = %s", (file_id,))
