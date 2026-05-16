@@ -200,7 +200,7 @@ async def graph_search(entities: dict, part_filter: str | None) -> list[dict]:
         JOIN files f ON f.id = c.file_id
         WHERE c.file_id IN ({placeholders})
         ORDER BY c.chunk_index
-        LIMIT 20
+        LIMIT 40
     """, tuple(file_ids))
 
     if part_filter:
