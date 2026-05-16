@@ -417,7 +417,7 @@ async def upload_file(
     if not user:
         raise HTTPException(400, "unknown user")
     file_bytes = await file.read()
-    filetype = f"{file.content_type or ''} {Path(file.filename or '').suffix.lstrip('.').lower()}".strip()
+    filetype = Path(file.filename or '').suffix.lstrip('.').lower() or (file.content_type or '').split('/')[-1]
     try:
         at = json.loads(accessible_to)
     except Exception:
@@ -443,7 +443,7 @@ async def replace_file(file_id: str, file: UploadFile = File(...), user_id: str 
         raise HTTPException(403, f"Locked by {existing.get('locked_by_name', 'another user')}")
 
     file_bytes = await file.read()
-    filetype = f"{file.content_type or ''} {Path(file.filename or '').suffix.lstrip('.').lower()}".strip()
+    filetype = Path(file.filename or '').suffix.lstrip('.').lower() or (file.content_type or '').split('/')[-1]
     extracted = extract_file_text(file_bytes, filetype)
     if not extracted.get("text") or len(extracted["text"].strip()) < 30:
         raise HTTPException(422, "No extractable text found in file")
@@ -829,7 +829,7 @@ async def list_report_templates():
 @app.post("/api/report-templates")
 async def upload_report_template(file: UploadFile = File(...), uploaded_by: str = Form(default="Unknown")):
     data = await file.read()
-    filetype = f"{file.content_type or ''} {Path(file.filename or '').suffix.lstrip('.').lower()}".strip()
+    filetype = Path(file.filename or '').suffix.lstrip('.').lower() or (file.content_type or '').split('/')[-1]
     extracted = extract_file_text(data, filetype)
     storage_path = f"templates/{uuid.uuid4()}-{file.filename}"
     file_url = storage_upload(storage_path, data, file.content_type or "application/octet-stream")
