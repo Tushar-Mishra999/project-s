@@ -419,6 +419,7 @@ async def _ingest_file(
                 part=accessible_to[0] if accessible_to else None,
                 entities=entities,
             )
+            print(f"[graph] indexed {filename}: topics={entities.get('topics',[])} projects={entities.get('projects',[])} people={entities.get('people',[])}")
         except Exception as e:
             print(f"[graph] index failed: {e}")
 

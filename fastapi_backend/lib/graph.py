@@ -143,13 +143,17 @@ async def graph_search(entities: dict, part_filter: str | None) -> list[dict]:
             "MATCH (d:Document)-[:COVERS]->(t:Topic) WHERE toLower(t.name) IN $topics RETURN DISTINCT d.id AS id",
             {"topics": topics},
         )
-        file_ids.update(r["id"] for r in rows)
+        found = [r["id"] for r in rows]
+        print(f"[graph] topics direct match → {found}")
+        file_ids.update(found)
         rows = run_neo4j(
             "MATCH (d:Document)-[:COVERS]->(t1:Topic)-[:RELATED_TO]-(t2:Topic) "
             "WHERE toLower(t1.name) IN $topics RETURN DISTINCT d.id AS id",
             {"topics": topics},
         )
-        file_ids.update(r["id"] for r in rows)
+        found = [r["id"] for r in rows]
+        print(f"[graph] topics related match → {found}")
+        file_ids.update(found)
 
     for rel, vals in [("MENTIONS_TECH", technologies), ("MENTIONS_PERSON", people), ("PART_OF", projects)]:
         if vals:
@@ -157,8 +161,11 @@ async def graph_search(entities: dict, part_filter: str | None) -> list[dict]:
                 f"MATCH (d:Document)-[:{rel}]->(n) WHERE toLower(n.name) IN $vals RETURN DISTINCT d.id AS id",
                 {"vals": vals},
             )
-            file_ids.update(r["id"] for r in rows)
+            found = [r["id"] for r in rows]
+            print(f"[graph] {rel} match → {found}")
+            file_ids.update(found)
 
+    print(f"[graph] total file_ids from Neo4j: {file_ids}")
     if not file_ids:
         return []
 
