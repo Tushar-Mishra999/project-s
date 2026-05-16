@@ -5,11 +5,14 @@ from .clients import neo4j_ready, run_neo4j, config
 from .db import fetch_all
 from .rag import strip_json_fences
 
-_ENTITY_SYSTEM = (
-    'Extract entities from the following document text and return ONLY a JSON object:\n'
-    '{"topics":[],"technologies":[],"people":[],"projects":[],"decisions":[]}\n'
-    'Keep each list concise (max 10 items each). Return only valid JSON.'
-)
+_ENTITY_SYSTEM = """Extract structured entities from this document. Return JSON with exactly these fields:
+- topics: broad concepts or subjects discussed (e.g. "cloud migration", "api design", "q3 planning")
+- technologies: specific tools, platforms, frameworks, or languages mentioned
+- people: full or partial person names mentioned
+- projects: project names explicitly mentioned (empty array if none found)
+- decisions: key decisions, conclusions, or recommendations stated (max 5, short phrases)
+
+Return only valid JSON. Use lowercase for topics and technologies."""
 
 _ROUTE_SYSTEM = """You are a search router for a knowledge management system.
 
@@ -45,9 +48,16 @@ async def extract_entities(text: str) -> dict:
             system=_ENTITY_SYSTEM,
             user=text[:6000],
             json_mode=True,
-            max_tokens=512,
+            max_tokens=3000,
         )
-        return json.loads(strip_json_fences(raw))
+        obj = json.loads(strip_json_fences(raw))
+        return {
+            "topics":       [str(x) for x in obj.get("topics", [])       if x],
+            "technologies": [str(x) for x in obj.get("technologies", []) if x],
+            "people":       [str(x) for x in obj.get("people", [])       if x],
+            "projects":     [str(x) for x in obj.get("projects", [])     if x],
+            "decisions":    [str(x) for x in obj.get("decisions", [])    if x][:5],
+        }
     except Exception:
         return {"topics": [], "technologies": [], "people": [], "projects": [], "decisions": []}
 
@@ -86,16 +96,18 @@ async def write_document_to_graph(
         )
     for decision in entities.get("decisions", []):
         run_neo4j(
-            "MATCH (d:Document {id:$id}) CREATE (dec:Decision {text:$text,documentId:$id}) MERGE (d)-[:RECORDS]->(dec)",
+            "MATCH (d:Document {id:$id}) MERGE (dec:Decision {text:$text,documentId:$id}) MERGE (d)-[:RECORDS]->(dec)",
             {"id": file_id, "text": decision},
         )
     topics = [t.lower() for t in entities.get("topics", [])]
-    for i, t1 in enumerate(topics):
-        for t2 in topics[i + 1:]:
-            run_neo4j(
-                "MERGE (a:Topic {name:$a}) MERGE (b:Topic {name:$b}) MERGE (a)-[:RELATED_TO]-(b)",
-                {"a": t1, "b": t2},
-            )
+    if len(topics) > 1:
+        run_neo4j(
+            "UNWIND $topics AS t1name UNWIND $topics AS t2name "
+            "WITH t1name, t2name WHERE t1name < t2name "
+            "MATCH (t1:Topic {name:t1name}), (t2:Topic {name:t2name}) "
+            "MERGE (t1)-[:RELATED_TO]-(t2)",
+            {"topics": topics},
+        )
 
 
 def delete_document_from_graph(file_id: str) -> None:
@@ -117,10 +129,16 @@ async def route_query(query: str) -> dict:
             max_tokens=512,
         )
         parsed = json.loads(strip_json_fences(raw))
+        ents = parsed.get("entities", {})
         return {
-            "search_type": parsed.get("search_type", "vector"),
-            "reason": parsed.get("reason", ""),
-            "entities": parsed.get("entities", {}),
+            "search_type": "graph" if parsed.get("search_type") == "graph" else "vector",
+            "reason": str(parsed.get("reason", "")),
+            "entities": {
+                "topics":       [str(x) for x in ents.get("topics", [])       if x],
+                "technologies": [str(x) for x in ents.get("technologies", []) if x],
+                "people":       [str(x) for x in ents.get("people", [])       if x],
+                "projects":     [str(x) for x in ents.get("projects", [])     if x],
+            },
         }
     except Exception:
         return {"search_type": "vector", "reason": "fallback", "entities": {}}
@@ -148,7 +166,7 @@ async def graph_search(entities: dict, part_filter: str | None) -> list[dict]:
         file_ids.update(found)
         rows = run_neo4j(
             "MATCH (d:Document)-[:COVERS]->(t1:Topic)-[:RELATED_TO]-(t2:Topic) "
-            "WHERE toLower(t1.name) IN $topics RETURN DISTINCT d.id AS id",
+            "WHERE toLower(t2.name) IN $topics RETURN DISTINCT d.id AS id",
             {"topics": topics},
         )
         found = [r["id"] for r in rows]
