@@ -94,6 +94,8 @@ def conv_id(a: str, b: str) -> str:
 
 _memory_feed_cache: dict = {}
 _pipeline_running: set = set()
+_leaderboard_cache: dict = {"data": None, "fetched_at": None}
+_LEADERBOARD_TTL = 3600  # seconds
 
 def _sse(event: str, data: Any) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
@@ -159,7 +161,126 @@ async def refresh_feed(req: Request):
 
 @app.get("/api/leaderboard")
 async def get_leaderboard():
-    return {"leaderboard": [], "note": "Leaderboard requires Gemini grounding — not available in Ollama mode"}
+    import time, re as _re
+    from lib.llm import _client, GEMINI_MODEL
+    from google.genai import types as _gtypes
+
+    now_ts = time.time()
+
+    # In-memory cache
+    if _leaderboard_cache["data"] and _leaderboard_cache["fetched_at"] and (now_ts - _leaderboard_cache["fetched_at"] < _LEADERBOARD_TTL):
+        print("[leaderboard] returning cached data")
+        return _leaderboard_cache["data"]
+
+    # DB cache
+    try:
+        row = fetch_one("SELECT data, generated_at FROM feed_cache WHERE id = %s", ("leaderboard",))
+        if row and row["data"] and row["generated_at"]:
+            age = now_ts - row["generated_at"].timestamp() if hasattr(row["generated_at"], "timestamp") else _LEADERBOARD_TTL + 1
+            if age < _LEADERBOARD_TTL:
+                print("[leaderboard] returning DB-cached data")
+                _leaderboard_cache["data"] = row["data"]
+                _leaderboard_cache["fetched_at"] = row["generated_at"].timestamp()
+                return row["data"]
+    except Exception as e:
+        print(f"[leaderboard] DB cache check failed: {e}")
+
+    prompt = """Search the current Open LLM Leaderboard tier rankings from onyx.app (https://onyx.app/open-llm-leaderboard).
+
+Extract the tier-based model rankings for only 1 category: Overall.
+
+Return a JSON array with this exact structure:
+[
+  {"tier": "S", "models": [{"name": "", "params": ""}]},
+  {"tier": "A", "models": [{"name": "", "params": ""}]},
+  {"tier": "B", "models": [{"name": "", "params": ""}]},
+  {"tier": "C", "models": [{"name": "", "params": ""}]},
+  {"tier": "D", "models": [{"name": "", "params": ""}]}
+]
+
+Each model object must have:
+- "name": model name string
+- "params": parameter count string like "744B", "1T", "27B" (or null if unknown)
+
+Include all tiers S, A, B, C, D (empty models array if no models in that tier).
+Return ONLY the JSON array, no markdown fences, no explanation, no extra text."""
+
+    print("[leaderboard] calling Gemini with Google Search grounding...")
+    try:
+        cfg = _gtypes.GenerateContentConfig(
+            max_output_tokens=2500,
+            system_instruction="You are a data extraction assistant. Return only valid JSON objects. No markdown, no explanation.",
+            tools=[_gtypes.Tool(google_search=_gtypes.GoogleSearch())],
+        )
+        resp = await _client.aio.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=cfg,
+        )
+
+        raw_text = ""
+        if resp.text:
+            raw_text = resp.text
+        elif resp.candidates:
+            parts = resp.candidates[0].content.parts if resp.candidates[0].content else []
+            raw_text = "".join(p.text or "" for p in parts)
+        raw_text = raw_text.strip()
+
+        print(f"[leaderboard] raw response length: {len(raw_text)}")
+        print(f"[leaderboard] raw response (first 500 chars): {raw_text[:500]}")
+
+        if not raw_text:
+            print("[leaderboard] empty response from Gemini")
+            raise HTTPException(500, "Empty response from AI model")
+
+        cleaned = _re.sub(r'```json\s*', '', raw_text, flags=_re.IGNORECASE)
+        cleaned = _re.sub(r'```\s*', '', cleaned).strip()
+        print(f"[leaderboard] cleaned (first 500 chars): {cleaned[:500]}")
+
+        tiers = None
+        try:
+            tiers = json.loads(cleaned)
+        except Exception as e1:
+            print(f"[leaderboard] direct parse failed: {e1}")
+            arr_match = _re.search(r'\[[\s\S]*\]', cleaned)
+            if arr_match:
+                try:
+                    tiers = json.loads(arr_match.group(0))
+                    print("[leaderboard] extracted array from text, parsed OK")
+                except Exception as e2:
+                    print(f"[leaderboard] array extraction parse failed: {e2}")
+                    raise HTTPException(500, "Failed to parse leaderboard data from AI")
+            else:
+                print("[leaderboard] no JSON array found in response")
+                raise HTTPException(500, "Failed to parse leaderboard data — no JSON array in response")
+
+        if not isinstance(tiers, list):
+            print(f"[leaderboard] parsed result is not an array: {type(tiers)}")
+            raise HTTPException(500, "AI returned unexpected data format")
+
+        print(f"[leaderboard] success — got {len(tiers)} tiers")
+        now_iso = datetime.utcnow().isoformat()
+        payload = {"tiers": tiers, "fetchedAt": now_iso}
+        _leaderboard_cache["data"] = payload
+        _leaderboard_cache["fetched_at"] = now_ts
+        try:
+            execute("""
+                INSERT INTO feed_cache (id, data, generated_at, updated_at)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (id) DO UPDATE SET
+                    data = EXCLUDED.data,
+                    generated_at = EXCLUDED.generated_at,
+                    updated_at = EXCLUDED.updated_at
+            """, ("leaderboard", Json(payload), now_iso, now_iso))
+        except Exception as e:
+            print(f"[leaderboard] cache write error: {e}")
+        return payload
+
+    except HTTPException:
+        raise
+    except Exception as err:
+        print(f"[leaderboard] error: {err}")
+        raise HTTPException(500, str(err) or "Failed to fetch leaderboard")
 
 @app.post("/api/worklet")
 async def generate_worklet(req: Request):
