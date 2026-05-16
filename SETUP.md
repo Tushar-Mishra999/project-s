@@ -68,26 +68,36 @@ Open http://localhost:10000
 ## Running with FastAPI Backend
 
 ### Prerequisites
-- Node.js v18+ (for building the React frontend)
-- Python 3.10+
+- Node.js v18+ (for the React dev server)
+- Python 3.13 (recommended) or 3.10+
+- PostgreSQL 14+ running locally
 - Ollama (local LLM server)
-- A database (cloud Supabase or local PostgreSQL — see [Database Setup](#database-setup))
+
+> **No PostgREST, no pgvector, no Supabase account needed.**
+> The FastAPI backend connects directly to PostgreSQL via psycopg2 and uses ChromaDB (bundled, file-based) for vector search.
 
 ### Step 1 — Install and start Ollama
+
+**Windows:** Download from https://ollama.com/download and run the installer.
 
 **Linux / Mac:**
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
 ```
-**Windows:** Download from https://ollama.com/download and run the installer.
 
-Pull the required models (do this once):
+Pull the required models (do this once — downloads ~4 GB total):
 ```bash
-ollama pull llama3            # main LLM — swap for mistral, gemma2, etc.
+ollama pull llama3            # main LLM
 ollama pull nomic-embed-text  # embeddings — required, do not change
 ```
 
-### Step 2 — Set up Python environment
+Ollama runs as a background service automatically after install. You can verify it is running at http://localhost:11434.
+
+### Step 2 — Set up PostgreSQL
+
+See [Database Setup — Local PostgreSQL](#option-b--local-postgresql-no-docker-no-cloud) below.
+
+### Step 3 — Set up Python environment
 
 ```bash
 cd fastapi_backend
@@ -99,75 +109,57 @@ python -m venv venv
 source venv/bin/activate    # Mac / Linux
 venv\Scripts\activate       # Windows
 
-# Install dependencies
-pip install -r requirements.txt
+# Install dependencies (--prefer-binary avoids compiling C/Rust extensions)
+pip install -r requirements.txt --prefer-binary
 ```
 
-### Step 3 — Build the React frontend
-FastAPI serves the pre-built React app. Run once (and again after any frontend changes):
-```bash
-# From the project root
-npm install
-npm run build
-```
+### Step 4 — Create `.env` inside `fastapi_backend/`
 
-### Step 4 — Create `.env` in the project root
 ```env
-# Switch to FastAPI backend
-BACKEND=fastapi
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=projectdb
+DB_USER=postgres
+DB_PASSWORD=your_postgres_password
 
-# Ollama
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=llama3
-OLLAMA_EMBED_MODEL=nomic-embed-text
-
-# Database
-SUPABASE_URL=http://localhost:54321      # local PostgreSQL via PostgREST
-SUPABASE_SERVICE_KEY=any-local-string   # can be anything for local dev
-
-# OR use cloud Supabase:
-# SUPABASE_URL=https://<project>.supabase.co
-# SUPABASE_SERVICE_KEY=eyJ...
-
-PORT=10000
+# Optional — defaults to fastapi_backend/chroma_data/
+# CHROMA_DIR=C:\path\to\chroma_data
 ```
 
 ### Step 5 — Run
 
-Open **3 terminals**:
+Open **2 terminals**:
 
-**Terminal 1 — Ollama:**
+**Terminal 1 — FastAPI backend:**
 ```bash
-ollama serve
+cd fastapi_backend
+venv\Scripts\activate        # Windows
+# source venv/bin/activate   # Mac / Linux
+uvicorn main:app --host 0.0.0.0 --port 10000
 ```
 
-**Terminal 2 — Database** (if using local PostgreSQL):
+You should see `Application startup complete.` — the backend is ready.
+
+**Terminal 2 — React dev server:**
 ```bash
-C:\postgrest\postgrest.exe C:\postgrest\postgrest.conf   # Windows
-./postgrest postgrest.conf                               # Mac / Linux
+cd client
+npm install
+npm run dev
 ```
 
-**Terminal 3 — FastAPI:**
-```bash
-# From the project root
-BACKEND=fastapi ./start.sh
+Open http://localhost:5173
 
-# OR directly (from fastapi_backend/ with venv activated)
+**Production mode** — serves the pre-built frontend from FastAPI directly:
+```bash
+# Build the frontend once (or after any frontend changes)
+cd client && npm install && npm run build
+
+# Then start FastAPI — it serves the built files at /
+cd fastapi_backend
 uvicorn main:app --host 0.0.0.0 --port 10000
 ```
 
 Open http://localhost:10000
-
-**Development mode** — FastAPI auto-reloads on code changes + React hot reload:
-```bash
-# Terminal 3 — FastAPI with reload
-cd fastapi_backend && source venv/bin/activate
-uvicorn main:app --host 0.0.0.0 --port 10000 --reload
-
-# Terminal 4 — React dev server
-npm run client
-```
-Open http://localhost:5173
 
 ---
 
@@ -204,9 +196,10 @@ SUPABASE_SERVICE_KEY=eyJ...
 
 ---
 
-### Option B — Local PostgreSQL + pgvector (no Docker, no cloud)
+### Option B — Local PostgreSQL (no Docker, no cloud)
 
 Use this when you want everything running on your machine.
+Vector search is handled by ChromaDB — **pgvector is not required**.
 
 #### Install PostgreSQL
 
@@ -228,25 +221,6 @@ sudo apt install -y postgresql
 sudo systemctl start postgresql
 ```
 
-#### Install pgvector
-
-**Windows:**
-1. Go to [github.com/pgvector/pgvector/releases](https://github.com/pgvector/pgvector/releases)
-2. Download the zip matching your PostgreSQL version e.g. `pgvector-v0.8.0-pg16-windows-x86_64.zip`
-3. Copy extracted files:
-   - `lib\vector.dll` → `C:\Program Files\PostgreSQL\16\lib\`
-   - `share\extension\vector*` → `C:\Program Files\PostgreSQL\16\share\extension\`
-
-**Mac:**
-```bash
-brew install pgvector
-```
-
-**Linux:**
-```bash
-sudo apt install -y postgresql-16-pgvector
-```
-
 #### Create database and run schema
 
 ```bash
@@ -259,67 +233,18 @@ psql -U postgres -c "CREATE DATABASE projectdb;"
 psql -U postgres -d projectdb -f postgres-local-setup.sql
 ```
 
-`postgres-local-setup.sql` is a single file that creates all tables, indexes, functions, roles and seeds the default users. No other SQL file needed.
+`postgres-local-setup.sql` creates all tables, indexes, functions, and seeds the default users in one shot. No other SQL file needed.
 
-Verify it worked:
+Verify it worked (should list ~13 tables):
 ```bash
 psql -U postgres -d projectdb -c "\dt"
 ```
 
-#### Install and configure PostgREST
-
-PostgREST is the REST API layer that lets the app talk to PostgreSQL without code changes.
-
-1. Go to [github.com/PostgREST/postgrest/releases](https://github.com/PostgREST/postgrest/releases)
-2. Download the binary for your OS → extract
-
-**Windows:** place `postgrest.exe` at `C:\postgrest\`
-
-Create a config file:
-
-**Windows** — `C:\postgrest\postgrest.conf`:
-```conf
-db-uri = "postgres://postgres:YOUR_PASSWORD@localhost:5432/projectdb"
-db-schemas = "public"
-db-anon-role = "web_anon"
-server-port = 54321
-```
-
-**Mac / Linux** — `postgrest.conf` anywhere convenient:
-```conf
-db-uri = "postgres://postgres:YOUR_PASSWORD@localhost:5432/projectdb"
-db-schemas = "public"
-db-anon-role = "web_anon"
-server-port = 54321
-```
-
-#### Update `.env`
-```env
-SUPABASE_URL=http://localhost:54321
-SUPABASE_SERVICE_KEY=any-local-string
-```
-
-#### File uploads with local PostgreSQL
-When `SUPABASE_URL` points to localhost, the FastAPI backend automatically saves uploaded files to `fastapi_backend/uploads/` and serves them at `http://localhost:10000/uploads/`. Nothing extra to configure.
-
-> The Node.js backend still requires cloud Supabase Storage for file uploads — local PostgreSQL only works fully with the FastAPI backend.
+#### File uploads
+The FastAPI backend saves uploaded files to `fastapi_backend/uploads/` automatically and serves them at `http://localhost:10000/uploads/`. Nothing extra to configure.
 
 #### Daily startup
-PostgreSQL runs as a background service and starts automatically.
-You only need to start PostgREST manually each day:
-
-**Windows** — create `start-db.bat` in the project root:
-```bat
-@echo off
-C:\postgrest\postgrest.exe C:\postgrest\postgrest.conf
-```
-
-**Mac / Linux:**
-```bash
-./postgrest postgrest.conf
-```
-
-Run this before starting the project.
+PostgreSQL runs as a background service and starts automatically on boot. No other database process needs to be started manually.
 
 ---
 
@@ -348,14 +273,15 @@ Run this before starting the project.
 ├── fastapi_backend/              Python FastAPI backend
 │   ├── main.py                   All API routes
 │   ├── requirements.txt          Python dependencies
-│   ├── uploads/                  Local file storage (auto-created when using localhost DB)
+│   ├── uploads/                  Local file storage (auto-created on first upload)
+│   ├── chroma_data/              ChromaDB vector store (auto-created on first ingest)
 │   └── lib/
-│       ├── clients.py            Supabase + Neo4j clients
+│       ├── db.py                 psycopg2 helpers (fetch_all, fetch_one, execute)
+│       ├── clients.py            ChromaDB client + config loader
 │       ├── llm.py                Ollama LLM + embeddings
 │       ├── rag.py                Retrieval, reranking, HyDE enrichment
 │       ├── extract.py            PDF / DOCX / PPTX / XLSX text extraction
 │       ├── chunk.py              Document chunking
-│       ├── graph.py              Neo4j graph operations (currently disabled)
 │       ├── render.py             PDF / DOCX / XLSX export rendering
 │       ├── action_items.py       Action item extraction
 │       └── feed.py               RSS feed pipeline + live search
