@@ -158,7 +158,9 @@ async def graph_search(entities: dict, part_filter: str | None) -> list[dict]:
 
     if topics:
         rows = run_neo4j(
-            "MATCH (d:Document)-[:COVERS]->(t:Topic) WHERE toLower(t.name) IN $topics RETURN DISTINCT d.id AS id",
+            "MATCH (d:Document)-[:COVERS]->(t:Topic) "
+            "WHERE ANY(val IN $topics WHERE toLower(t.name) CONTAINS val OR val CONTAINS toLower(t.name)) "
+            "RETURN DISTINCT d.id AS id",
             {"topics": topics},
         )
         found = [r["id"] for r in rows]
@@ -166,7 +168,8 @@ async def graph_search(entities: dict, part_filter: str | None) -> list[dict]:
         file_ids.update(found)
         rows = run_neo4j(
             "MATCH (d:Document)-[:COVERS]->(t1:Topic)-[:RELATED_TO]-(t2:Topic) "
-            "WHERE toLower(t2.name) IN $topics RETURN DISTINCT d.id AS id",
+            "WHERE ANY(val IN $topics WHERE toLower(t2.name) CONTAINS val OR val CONTAINS toLower(t2.name)) "
+            "RETURN DISTINCT d.id AS id",
             {"topics": topics},
         )
         found = [r["id"] for r in rows]
@@ -176,7 +179,9 @@ async def graph_search(entities: dict, part_filter: str | None) -> list[dict]:
     for rel, vals in [("MENTIONS_TECH", technologies), ("MENTIONS_PERSON", people), ("PART_OF", projects)]:
         if vals:
             rows = run_neo4j(
-                f"MATCH (d:Document)-[:{rel}]->(n) WHERE toLower(n.name) IN $vals RETURN DISTINCT d.id AS id",
+                f"MATCH (d:Document)-[:{rel}]->(n) "
+                f"WHERE ANY(val IN $vals WHERE toLower(n.name) CONTAINS val OR val CONTAINS toLower(n.name)) "
+                f"RETURN DISTINCT d.id AS id",
                 {"vals": vals},
             )
             found = [r["id"] for r in rows]
