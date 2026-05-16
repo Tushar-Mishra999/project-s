@@ -73,9 +73,9 @@
       "parts": ["Data Management"]
     },
     {
-      "name": "Microsoft News",
-      "url": "https://news.microsoft.com",
-      "rss": "https://news.microsoft.com/feed/",
+      "name": "MIT Technology Review",
+      "url": "https://www.technologyreview.com",
+      "rss": "https://www.technologyreview.com/feed/",
       "parts": ["MD"]
     },
     {
@@ -85,13 +85,15 @@
       "parts": ["MD"]
     },
     {
-      "name": "Intel Newsroom",
-      "url": "https://newsroom.intel.com",
-      "rss": "https://newsroom.intel.com/feed",
+      "name": "IEEE Spectrum",
+      "url": "https://spectrum.ieee.org",
+      "rss": "https://spectrum.ieee.org/feeds/feed.rss",
       "parts": ["MD"]
     }
   ],
   "_inactive_sources": [
+    { "name": "Microsoft News", "url": "https://news.microsoft.com", "rss": "https://news.microsoft.com/feed/", "parts": ["MD"], "_note": "returns HTML — Cloudflare bot protection" },
+    { "name": "Intel Newsroom", "url": "https://newsroom.intel.com", "rss": "https://newsroom.intel.com/feed", "parts": ["MD"], "_note": "returns HTML — Cloudflare bot protection" },
     { "name": "Reuters Technology", "url": "https://www.reuters.com/technology/" },
     { "name": "Meta AI Blog", "url": "https://ai.meta.com/blog/" },
     { "name": "Zinnov", "url": "https://zinnov.com/blog/" },

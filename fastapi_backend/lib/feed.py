@@ -41,12 +41,36 @@ _SCORE_SYSTEM = (
 )
 
 
+import re
+
+def _sanitize_xml(raw: str) -> str:
+    # Strip UTF-8 BOM
+    if raw.startswith("﻿"):
+        raw = raw[1:]
+    # Escape bare & not already part of a valid XML entity
+    parts = re.split(r'(<!\[CDATA\[[\s\S]*?\]\]>)', raw)
+    result = []
+    for i, part in enumerate(parts):
+        if i % 2 == 1:
+            result.append(part)  # inside CDATA — leave untouched
+        else:
+            result.append(re.sub(r'&(?!(?:#\d+|#x[\da-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);)', '&amp;', part))
+    return ''.join(result)
+
+
 async def _fetch_rss(url: str) -> list[dict]:
     try:
         async with httpx.AsyncClient(timeout=15, follow_redirects=True, headers=_RSS_HEADERS) as client:
             r = await client.get(url)
             r.raise_for_status()
+            # First attempt: parse raw response text
             feed = feedparser.parse(r.text)
+            if not feed.entries:
+                # Second attempt: sanitize XML then parse
+                sanitized = _sanitize_xml(r.text)
+                feed = feedparser.parse(sanitized)
+            if not feed.entries:
+                print(f"[feed] {url} — feedparser got 0 entries (bozo={feed.get('bozo')}, status={r.status_code})")
             items = []
             for entry in feed.entries[:15]:
                 items.append({
