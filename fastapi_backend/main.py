@@ -968,7 +968,17 @@ MOM_PARSE_SYSTEM = (
 
 @app.post("/api/minutes/transcribe")
 async def transcribe_audio(audio: UploadFile = File(...)):
-    raise HTTPException(503, "Voice transcription is disabled. Enable by installing openai-whisper and ffmpeg.")
+    import tempfile, whisper
+    suffix = Path(audio.filename).suffix if audio.filename else ".webm"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(await audio.read())
+        tmp_path = tmp.name
+    try:
+        model = whisper.load_model("base")
+        result = model.transcribe(tmp_path)
+        return {"transcript": result["text"]}
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
 
 @app.post("/api/minutes/parse")
 async def parse_transcript(req: Request):
