@@ -1,7 +1,8 @@
 """Neo4j graph operations and query routing — mirrors lib/graphExtract.js."""
 import json
 from .llm import generate_text
-from .clients import neo4j_ready, run_neo4j, get_supabase, config
+from .clients import neo4j_ready, run_neo4j, config
+from .db import fetch_all
 from .rag import strip_json_fences
 
 _ENTITY_SYSTEM = (
@@ -136,22 +137,28 @@ async def graph_search(entities: dict, part_filter: str | None) -> list[dict]:
     if not file_ids:
         return []
 
-    sb = get_supabase()
-    q = sb.table("chunks").select(
-        "id,file_id,chunk_text,chunk_summary,chunk_index,files(filename,file_url,filetype,accessible_to)"
-    ).in_("file_id", list(file_ids)).limit(20)
-    result = q.execute()
-    chunks = result.data or []
+    placeholders = ",".join(["%s"] * len(file_ids))
+    rows = fetch_all(f"""
+        SELECT c.id, c.file_id, c.chunk_text, c.chunk_summary, c.chunk_index,
+               f.filename, f.file_url, f.filetype, f.accessible_to
+        FROM chunks c
+        JOIN files f ON f.id = c.file_id
+        WHERE c.file_id IN ({placeholders})
+        ORDER BY c.chunk_index
+        LIMIT 20
+    """, tuple(file_ids))
 
     if part_filter:
-        chunks = [
-            c for c in chunks
-            if part_filter in (c.get("files") or {}).get("accessible_to", [])
-        ]
+        rows = [r for r in rows if part_filter in (r.get("accessible_to") or [])]
 
-    # Flatten files join
-    flat = []
-    for c in chunks:
-        f = c.pop("files", {}) or {}
-        flat.append({**c, "filename": f.get("filename"), "file_url": f.get("file_url"), "filetype": f.get("filetype")})
-    return flat
+    return [
+        {
+            "chunk_text":  r["chunk_text"],
+            "chunk_index": r["chunk_index"],
+            "filename":    r["filename"],
+            "file_url":    r["file_url"],
+            "filetype":    r["filetype"],
+            "file_id":     r["file_id"],
+        }
+        for r in rows
+    ]

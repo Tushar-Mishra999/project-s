@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse, StreamingResponse, FileResponse, Red
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from lib.clients import rag_ready, config, get_chunks_collection, get_chatroom_collection
+from lib.clients import rag_ready, config, get_chunks_collection, get_chatroom_collection, neo4j_ready, init_neo4j_constraints
 from lib.db import fetch_all, fetch_one, execute, execute_returning
 from psycopg2.extras import Json
 from lib.llm import generate_text, generate_chat, generate_chat_stream, embed_text, OLLAMA_MODEL
@@ -23,9 +23,14 @@ from lib.chunk import chunk_document, add_context_prefix
 from lib.render import render_pdf, render_docx, render_xlsx
 from lib.action_items import extract_action_items
 from lib.feed import run_feed_pipeline, live_search
+from lib.graph import extract_entities, write_document_to_graph, delete_document_from_graph, route_query, graph_search
 
 app = FastAPI(title="Kernel FastAPI Backend")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+@app.on_event("startup")
+async def _startup():
+    init_neo4j_constraints()
 
 # ── Local file storage ────────────────────────────────────────────────────────
 _LOCAL_UPLOADS_DIR = Path(__file__).parent / "uploads"
@@ -328,7 +333,9 @@ async def delete_file(file_id: str):
     existing = col.get(where={"file_id": {"$eq": file_id}})
     if existing["ids"]:
         col.delete(ids=existing["ids"])
+    execute("DELETE FROM chunks WHERE file_id = %s", (file_id,))
     execute("DELETE FROM files WHERE id = %s", (file_id,))
+    delete_document_from_graph(file_id)
     return {"ok": True}
 
 def _chroma_at_str(accessible_to: list[str]) -> str:
@@ -402,6 +409,18 @@ async def _ingest_file(
                 "source_type": "file", "source_id": file_id, "filename": filename,
                 "accessible_to": accessible_to, "items": items,
             }
+
+    if neo4j_ready():
+        try:
+            entities = await extract_entities(extracted["text"])
+            await write_document_to_graph(
+                file_id=file_id, filename=filename, filetype=filetype,
+                file_url=file_url, uploaded_by=user["name"],
+                part=accessible_to[0] if accessible_to else None,
+                entities=entities,
+            )
+        except Exception as e:
+            print(f"[graph] index failed: {e}")
 
     return {"file": file_row, "chunk_count": inserted, "pending_action_items": pending_items}
 
@@ -527,7 +546,20 @@ async def _build_context(
         return ctx_text or "(no chatroom messages found)", [], [], None
 
     search_type = "vector"
-    chunks = await retrieve(query, part_filter)
+    chunks = []
+
+    if neo4j_ready():
+        try:
+            route = await route_query(query)
+            search_type = route.get("search_type", "vector")
+            if search_type == "graph":
+                chunks = await graph_search(route.get("entities", {}), part_filter)
+        except Exception as e:
+            print(f"[graph] route/search failed: {e}")
+
+    if not chunks:
+        search_type = "vector"
+        chunks = await retrieve(query, part_filter)
 
     if chunks:
         ctx_parts = []
