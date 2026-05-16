@@ -4,8 +4,10 @@ from bs4 import BeautifulSoup
 
 
 def render_pdf(html: str) -> bytes:
-    from weasyprint import HTML
-    return HTML(string=html).write_pdf()
+    from xhtml2pdf import pisa
+    buf = io.BytesIO()
+    pisa.CreatePDF(html, dest=buf)
+    return buf.getvalue()
 
 
 def render_docx(html: str) -> bytes:
