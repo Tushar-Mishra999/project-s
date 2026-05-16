@@ -1017,10 +1017,11 @@ async def api_refine_save(file_id: str, req: Request):
         doc = DocxDocument()
         for line in edited_text.split("\n"):
             doc.add_paragraph(line)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
-            doc.save(tmp.name)
-            file_bytes = Path(tmp.name).read_bytes()
-        Path(tmp.name).unlink(missing_ok=True)
+        tmp_fd, tmp_name = tempfile.mkstemp(suffix=".docx")
+        os.close(tmp_fd)  # release the fd so python-docx can open the file (Windows requirement)
+        doc.save(tmp_name)
+        file_bytes = Path(tmp_name).read_bytes()
+        Path(tmp_name).unlink(missing_ok=True)
         save_ext = "docx"
     elif orig_ext in ("txt", "md"):
         file_bytes = edited_text.encode("utf-8")
