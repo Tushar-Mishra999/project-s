@@ -110,17 +110,42 @@ def _sse(event: str, data: Any) -> str:
 @app.get("/api/feed")
 async def get_feed(part: str | None = None):
     key = f"part:{part}" if part else "latest"
+
+    # Return cached data immediately if available
     if key in _memory_feed_cache:
         return _memory_feed_cache[key]
     try:
         r = fetch_one("SELECT data, generated_at FROM feed_cache WHERE id = %s", (key,))
         if r:
-            return {**r["data"], "generatedAt": r["generated_at"]}
+            cached = {**r["data"], "generatedAt": str(r["generated_at"])}
+            _memory_feed_cache[key] = cached
+            return cached
     except Exception:
         pass
-    payload = await run_feed_pipeline(part)
-    _memory_feed_cache[key] = payload
-    return payload
+
+    # No cache — trigger background pipeline and tell frontend to poll
+    if key not in _pipeline_running:
+        _pipeline_running.add(key)
+        async def _run():
+            try:
+                payload = await run_feed_pipeline(part)
+                _memory_feed_cache[key] = payload
+                try:
+                    execute("""
+                        INSERT INTO feed_cache (id, data, generated_at, updated_at)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (id) DO UPDATE SET
+                            data = EXCLUDED.data,
+                            generated_at = EXCLUDED.generated_at,
+                            updated_at = EXCLUDED.updated_at
+                    """, (key, Json(payload), payload.get("generatedAt"), datetime.utcnow().isoformat()))
+                except Exception:
+                    pass
+            finally:
+                _pipeline_running.discard(key)
+        asyncio.create_task(_run())
+
+    return {"sources": [], "generatedAt": None, "pipelineRunning": True}
 
 @app.get("/api/feed/sources")
 def get_feed_sources(part: str | None = None):
@@ -160,7 +185,7 @@ async def refresh_feed(req: Request):
             finally:
                 _pipeline_running.discard(key)
         asyncio.create_task(_run())
-    return {"ok": True, "message": "Feed refresh started"}
+    return {"ok": True, "message": "Feed refresh started", "pipelineRunning": key in _pipeline_running}
 
 @app.get("/api/leaderboard")
 async def get_leaderboard():
