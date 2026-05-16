@@ -1032,9 +1032,8 @@ async def api_refine_save(file_id: str, req: Request):
         save_ext = "txt"
 
     new_filename = Path(existing["filename"]).stem + f".{save_ext}"
-    new_path = _LOCAL_UPLOADS_DIR / f"{uuid.uuid4()}-{new_filename}"
-    new_path.write_bytes(file_bytes)
-    new_url = f"/uploads/{new_path.name}"
+    storage_path = f"{uuid.uuid4()}-{new_filename}"
+    new_url = storage_upload(storage_path, file_bytes)
 
     # Delete old file (best effort)
     if existing.get("file_url"):
