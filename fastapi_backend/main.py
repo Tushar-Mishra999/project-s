@@ -931,6 +931,152 @@ async def files_match(req: Request):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 5b. REFINE ENDPOINTS
+# ─────────────────────────────────────────────────────────────────────────────
+
+_REFINE_SYSTEM = (
+    'You are a writing quality reviewer for professional documents.\n\n'
+    'Analyse the document text and identify genuine improvements in these categories:\n'
+    '- "spelling": a word that is clearly misspelled\n'
+    '- "grammar": a grammatically incorrect phrase or sentence\n'
+    '- "paraphrase": a sentence or short paragraph that could be written more clearly, concisely, or professionally\n\n'
+    'Return a JSON array (no wrapping object) of suggestions:\n'
+    '[{"type":"spelling"|"grammar"|"paraphrase","original":"exact original segment (max 220 chars)","suggestion":"corrected or improved version","explanation":"one short sentence"}]\n\n'
+    'Rules:\n'
+    '- Only flag real issues — do not nitpick style preferences\n'
+    '- For spelling/grammar the "original" must appear verbatim in the source text\n'
+    '- Return at most 10 suggestions; if the text is clean return []\n'
+    '- Return ONLY the JSON array, nothing else'
+)
+
+_VALID_REFINE_TYPES = {"spelling", "grammar", "paraphrase"}
+
+
+@app.post("/api/refine")
+async def api_refine(req: Request):
+    body = await req.json()
+    file_id = body.get("file_id")
+    if not file_id:
+        raise HTTPException(400, "file_id required")
+    chunks = fetch_all(
+        "SELECT chunk_text, chunk_index FROM chunks WHERE file_id = %s ORDER BY chunk_index",
+        (file_id,)
+    )
+    if not chunks:
+        return {"suggestions": [], "text": ""}
+    text = "\n\n".join(c["chunk_text"] for c in chunks)[:7000]
+    raw = await generate_text(
+        system=_REFINE_SYSTEM,
+        user=f"Analyse this document:\n\n{text}",
+        json_mode=True,
+        max_tokens=3000,
+    )
+    from lib.rag import strip_json_fences
+    cleaned = strip_json_fences(raw)
+    suggestions = []
+    try:
+        parsed = json.loads(cleaned)
+        suggestions = parsed if isinstance(parsed, list) else parsed.get("suggestions", [])
+    except Exception:
+        import re as _re
+        m = _re.search(r'\[[\s\S]*\]', cleaned)
+        if m:
+            try:
+                suggestions = json.loads(m.group())
+            except Exception:
+                pass
+    suggestions = [
+        s for s in suggestions
+        if isinstance(s, dict) and s.get("type") in _VALID_REFINE_TYPES
+        and s.get("original") and s.get("suggestion")
+    ][:10]
+    return {"suggestions": suggestions, "text": text}
+
+
+@app.post("/api/refine/{file_id}/save")
+async def api_refine_save(file_id: str, req: Request):
+    body = await req.json()
+    edited_text = body.get("edited_text", "")
+    user_id = body.get("user_id", "")
+    if not edited_text or not user_id:
+        raise HTTPException(400, "edited_text and user_id required")
+    user = load_user(user_id)
+    if not user:
+        raise HTTPException(400, "unknown user")
+    existing = fetch_one("SELECT * FROM files WHERE id = %s", (file_id,))
+    if not existing:
+        raise HTTPException(404, "file not found")
+    if existing.get("locked_by_id") and existing["locked_by_id"] != user_id and user.get("role") != "MD":
+        raise HTTPException(403, f"Locked by {existing.get('locked_by_name') or 'another user'}")
+
+    # Save edited text as a plain-text file locally
+    new_filename = Path(existing["filename"]).stem + ".txt"
+    new_path = _LOCAL_UPLOADS_DIR / f"{uuid.uuid4()}-{new_filename}"
+    new_path.write_text(edited_text, encoding="utf-8")
+    new_url = f"/uploads/{new_path.name}"
+
+    # Delete old file (best effort)
+    if existing.get("file_url"):
+        old_name = existing["file_url"].split("/uploads/")[-1]
+        old_path = _LOCAL_UPLOADS_DIR / old_name
+        if old_path.exists():
+            old_path.unlink(missing_ok=True)
+
+    # Clear old chunks from PostgreSQL and ChromaDB
+    col = get_chunks_collection()
+    existing_ids = col.get(where={"file_id": {"$eq": file_id}})
+    if existing_ids["ids"]:
+        col.delete(ids=existing_ids["ids"])
+    execute("DELETE FROM chunks WHERE file_id = %s", (file_id,))
+
+    # Update files row
+    new_version = (existing.get("version") or 1) + 1
+    execute("""
+        UPDATE files SET filename=%s, filetype=%s, file_url=%s,
+        version=%s, updated_by=%s, updated_at=now(),
+        locked_by_id=NULL, locked_by_name=NULL, locked_at=NULL
+        WHERE id=%s
+    """, (new_filename, "txt", new_url, new_version, user["name"], file_id))
+
+    # Re-chunk and re-ingest
+    from lib.chunk import chunk_document
+    raw_chunks = chunk_document({"text": edited_text, "kind": "txt"}, config["rag"])
+    inserted = 0
+    for i, c in enumerate(raw_chunks):
+        try:
+            enriched = await enrich_chunk(c["text"])
+        except Exception:
+            enriched = {"summary": "", "keywords": [], "hypothetical_questions": []}
+        embed_input = build_embedding_input(enriched) or c["text"][:2000]
+        try:
+            embedding = await embed_text(embed_input)
+        except Exception:
+            continue
+        chunk_id = str(uuid.uuid4())
+        execute("""
+            INSERT INTO chunks (id, file_id, chunk_text, chunk_summary, keywords, hypothetical_questions, chunk_index)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)
+        """, (chunk_id, file_id, c["text"], enriched.get("summary",""),
+              enriched.get("keywords",[]), enriched.get("hypothetical_questions",[]), i))
+        col.add(
+            ids=[chunk_id], embeddings=[embedding], documents=[c["text"]],
+            metadatas=[{
+                "file_id": file_id, "chunk_index": i,
+                "chunk_summary": enriched.get("summary",""),
+                "keywords_json": json.dumps(enriched.get("keywords",[])),
+                "hypothetical_questions_json": json.dumps(enriched.get("hypothetical_questions",[])),
+                "filename": new_filename, "filetype": "txt",
+                "file_url": new_url, "uploaded_by": user["name"],
+                "accessible_to_str": "|" + "|".join(existing.get("accessible_to") or []) + "|",
+            }],
+        )
+        inserted += 1
+
+    updated = fetch_one("SELECT * FROM files WHERE id = %s", (file_id,))
+    return {"success": True, "file": updated, "chunk_count": inserted}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 6. RENDER ENDPOINTS
 # ─────────────────────────────────────────────────────────────────────────────
 
