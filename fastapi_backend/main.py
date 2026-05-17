@@ -901,30 +901,120 @@ REPORT_SYSTEM = """You are a report-writing assistant that produces polished, pr
 2. INPUT DATA — facts, notes, or context the user wants written up
 
 Your job:
-- Produce a complete, comprehensive report that follows the template's STRUCTURE, TONE, and FORMATTING.
-- Cover ALL input data thoroughly. Do not summarise or truncate.
-- Do NOT include <html>, <head>, <body>, or <style> tags — output only inner HTML.
-- Do not invent facts not present in the input data.
-- Do NOT add borders, box-shadows, or background boxes around headings, titles, or any section. Headings must be plain text with no surrounding box or border styling.
+- Produce a complete, comprehensive report that follows the template's STRUCTURE, TONE, and FORMATTING (headings, sections, bullet points, table styles).
+- Cover ALL input data thoroughly — do not summarise or truncate. Every data point, metric, finding, and detail in the input should appear in the report. Aim for depth and completeness, not brevity.
+- Replace the template's example/placeholder content with the user's actual input data.
+- Keep the same section ordering and formatting conventions as the template. Add sub-sections or additional rows/items as needed to accommodate all input data.
+- Do NOT include <html>, <head>, <body>, or <style> tags — output only the inner content HTML.
+- Do not invent facts not present in the input data — if a section can't be filled, write "<p><em>(not provided)</em></p>".
 
-Use inline styles only for typography (font size, weight, colour). Return ONLY the report HTML."""
+FORMATTING RULES — use inline styles for a polished, Word-ready look:
+
+Headings:
+- <h1> for report title: style="font-size:22pt; color:#1a1a2e; border-bottom:2px solid #3b82f6; padding-bottom:6pt; margin-top:20pt; margin-bottom:10pt; text-align:center;"
+- <h2> for all sections: style="font-size:16pt; color:#1e293b; border-bottom:1px solid #e2e8f0; padding-bottom:4pt; margin-top:16pt; margin-bottom:8pt;"
+- <h3> for subsections: style="font-size:13pt; color:#334155; margin-top:12pt; margin-bottom:6pt;"
+
+Table of Contents — if the report has a ToC, render it as a styled list (no colored backgrounds):
+<nav style="border:1px solid #e2e8f0; border-radius:6px; padding:14pt 20pt; margin:16pt 0; background-color:#f8fafc;">
+  <p style="font-size:13pt; font-weight:bold; color:#1e293b; margin:0 0 10pt 0; border-bottom:1px solid #e2e8f0; padding-bottom:6pt;">Table of Contents</p>
+  <ol style="margin:0; padding-left:18pt; color:#334155; font-size:10pt; line-height:2;">
+    <li style="margin-bottom:2pt;">Section title</li>
+  </ol>
+</nav>
+
+Tables — always use full styling:
+- <table>: style="width:100%; border-collapse:collapse; margin:10pt 0;"
+- <th>: style="background-color:#1e293b; color:#ffffff; padding:8pt 10pt; text-align:left; font-size:10pt; border:1px solid #cbd5e1;"
+- <td>: style="padding:7pt 10pt; font-size:10pt; border:1px solid #e2e8f0;"
+- Alternate row shading: add style="background-color:#f8fafc;" on even <tr> rows in <tbody>.
+
+Callout boxes — use for executive summaries, key takeaways, or important notes:
+- <div style="background-color:#eff6ff; border-left:4px solid #3b82f6; padding:10pt 14pt; margin:10pt 0; border-radius:4px;">
+
+IMPORTANT — No colored highlights on numbers or text:
+- Do NOT use colored or highlighted spans for numbers, KPIs, or metrics. Write numbers inline as plain bold text: <strong>42</strong> items delivered.
+- Do NOT use colored badge spans for statuses (no green/yellow/red/amber labels). Write statuses as plain text instead, e.g. "On Track", "At Risk", "Delayed".
+
+Lists:
+- <ul> and <ol>: style="margin:6pt 0; padding-left:20pt;"
+- <li>: style="margin-bottom:4pt; line-height:1.5;"
+
+Paragraphs: style="margin:6pt 0; line-height:1.6;"
+
+Blockquotes: <blockquote style="border-left:3pt solid #94a3b8; padding:6pt 12pt; margin:8pt 0; color:#475569; background-color:#f8fafc;">
+
+Return ONLY the report HTML. No preamble, no commentary, no markdown fences."""
 
 REPORT_SYSTEM_FREE = """You are a report-writing assistant that produces polished, professional HTML reports.
-Given INPUT DATA, design and write a well-structured report. Cover ALL data thoroughly.
-Do NOT include <html>, <head>, <body>, or <style> tags. Do not invent facts.
-Do NOT add borders, box-shadows, or background boxes around headings, titles, or any section. Headings must be plain text with no surrounding box or border styling.
-Return ONLY the report HTML."""
+You will be given INPUT DATA — facts, notes, or context the user wants written up.
 
-REPORT_REVIEW_SYSTEM = """You are a quality reviewer for AI-generated reports.
-Check for: COMPLETENESS (every fact in input appears in report), ACCURACY (no invented content),
-EMPTY SECTIONS, FORMAT FIT (XLSX=tables, PDF=narrative).
-Return ONLY JSON: {"approved":true,"issues":[]} or {"approved":false,"issues":["issue1"]}."""
+Your job:
+- Design a well-structured, comprehensive report based solely on the input data.
+- Choose an appropriate report structure (title, introduction, sections, conclusion) that best presents the information.
+- Cover ALL input data thoroughly — do not summarise or truncate. Every data point, metric, finding, and detail should appear in the report.
+- Do NOT include <html>, <head>, <body>, or <style> tags — output only the inner content HTML.
+- Do not invent facts not present in the input data.
+
+FORMATTING RULES — use inline styles for a polished, print-ready look:
+
+Headings:
+- <h1> for report title: style="font-size:22pt; color:#1a1a2e; border-bottom:2px solid #3b82f6; padding-bottom:6pt; margin-top:20pt; margin-bottom:10pt; text-align:center;"
+- <h2> for all sections: style="font-size:16pt; color:#1e293b; border-bottom:1px solid #e2e8f0; padding-bottom:4pt; margin-top:16pt; margin-bottom:8pt;"
+- <h3> for subsections: style="font-size:13pt; color:#334155; margin-top:12pt; margin-bottom:6pt;"
+
+Table of Contents — if the report has a ToC, render it as a styled list:
+<nav style="border:1px solid #e2e8f0; border-radius:6px; padding:14pt 20pt; margin:16pt 0; background-color:#f8fafc;">
+  <p style="font-size:13pt; font-weight:bold; color:#1e293b; margin:0 0 10pt 0; border-bottom:1px solid #e2e8f0; padding-bottom:6pt;">Table of Contents</p>
+  <ol style="margin:0; padding-left:18pt; color:#334155; font-size:10pt; line-height:2;">
+    <li style="margin-bottom:2pt;">Section title</li>
+  </ol>
+</nav>
+
+Tables — always use full styling:
+- <table>: style="width:100%; border-collapse:collapse; margin:10pt 0;"
+- <th>: style="background-color:#1e293b; color:#ffffff; padding:8pt 10pt; text-align:left; font-size:10pt; border:1px solid #cbd5e1;"
+- <td>: style="padding:7pt 10pt; font-size:10pt; border:1px solid #e2e8f0;"
+- Alternate row shading: add style="background-color:#f8fafc;" on even <tr> rows in <tbody>.
+
+Callout boxes — use for executive summaries, key takeaways, or important notes:
+- <div style="background-color:#eff6ff; border-left:4px solid #3b82f6; padding:10pt 14pt; margin:10pt 0; border-radius:4px;">
+
+IMPORTANT — No colored highlights on numbers or text:
+- Do NOT use colored or highlighted spans for numbers, KPIs, or metrics. Write numbers inline as plain bold text: <strong>42</strong> items delivered.
+- Do NOT use colored badge spans for statuses (no green/yellow/red/amber labels). Write statuses as plain text instead, e.g. "On Track", "At Risk", "Delayed".
+
+Lists:
+- <ul> and <ol>: style="margin:6pt 0; padding-left:20pt;"
+- <li>: style="margin-bottom:4pt; line-height:1.5;"
+
+Paragraphs: style="margin:6pt 0; line-height:1.6;"
+
+Blockquotes: <blockquote style="border-left:3pt solid #94a3b8; padding:6pt 12pt; margin:8pt 0; color:#475569; background-color:#f8fafc;">
+
+Return ONLY the report HTML. No preamble, no commentary, no markdown fences."""
+
+REPORT_REVIEW_SYSTEM = """You are a quality reviewer for AI-generated reports. You will be given:
+1. ORIGINAL INPUT DATA — the source facts, notes, and context the report was built from
+2. GENERATED REPORT — the HTML the AI produced
+
+Review the report and return ONLY a JSON object in this exact shape — no markdown fences, no extra fields:
+{"approved": true, "issues": []}
+
+Check for:
+- COMPLETENESS: Is every data point, metric, fact, and decision from the input present in the report? Name any missing items specifically.
+- ACCURACY: Does the report state anything not found in the input (invented numbers, wrong names, hallucinated facts)?
+- EMPTY SECTIONS: Are any sections present but unfilled or near-empty?
+- FORMAT FIT: For XLSX target, are tables used for all data? For PDF, is narrative text used appropriately?
+
+If the report is complete and accurate, return {"approved": true, "issues": []}.
+If not, return {"approved": false, "issues": ["specific issue 1", "specific issue 2"]}."""
 
 
 def _output_format_hint(fmt: str) -> str:
     if fmt == "xlsx":
-        return "\n\n--- OUTPUT FORMAT ---\nTarget: Excel (XLSX). Use HTML tables for all data. Keep prose minimal."
-    return "\n\n--- OUTPUT FORMAT ---\nTarget: PDF. Use rich narrative text and headings. Do NOT use bordered boxes, callout boxes, or any border/box-shadow styling on headings, titles, or sections."
+        return "\n\n--- OUTPUT FORMAT ---\nTarget output: Excel (XLSX). Structure the report to maximise tabular data. Use HTML tables for all data, metrics, comparisons, and lists. Keep narrative text concise — prefer structured tables over long prose paragraphs."
+    return "\n\n--- OUTPUT FORMAT ---\nTarget output: PDF. Use rich narrative text, headings, and callout boxes where appropriate."
 
 
 async def _review_report(input_summary: str, report_html: str, output_format: str) -> dict:
