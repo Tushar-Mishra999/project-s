@@ -8,7 +8,6 @@ _FENCE_RE = re.compile(r'^```(?:html)?\s*|\s*```$', re.MULTILINE)
 def _strip_fences(html: str) -> str:
     return _FENCE_RE.sub('', html).strip()
 
-# Injected into every PDF to remove box borders the LLM adds for web display
 _PDF_CSS = """<style>
 div,section,article,aside,header,footer,main,nav,p,li,ul,ol,span,blockquote {
   border: none !important;
@@ -28,15 +27,44 @@ h1,h2,h3,h4,h5,h6 {
   margin-bottom: 4px !important;
 }
 body { font-family: Helvetica, Arial, sans-serif; font-size: 11px; }
-table { border-collapse: collapse; width: 100%; margin-bottom: 12px; }
+table { width: 100%; margin-bottom: 12px; }
 th, td { border: 1px solid #ccc; padding: 4px 6px; font-size: 10px; }
 th { background-color: #1e3a5f; color: white; font-weight: bold; }
 </style>"""
+
+# CSS properties that cause xhtml2pdf table row-height crashes
+_TABLE_STYLE_STRIP = re.compile(
+    r'border-collapse\s*:[^;]+;?\s*|'
+    r'border-radius\s*:[^;]+;?\s*|'
+    r'box-shadow\s*:[^;]+;?\s*',
+    re.IGNORECASE,
+)
+
+def _sanitize_tables(html: str) -> str:
+    """Remove inline styles on tables/rows that crash xhtml2pdf, and drop colgroup/col."""
+    soup = BeautifulSoup(html, "lxml")
+    for tag in soup.find_all(["colgroup", "col"]):
+        tag.decompose()
+    for table in soup.find_all("table"):
+        if table.get("style"):
+            table["style"] = _TABLE_STYLE_STRIP.sub("", table["style"]).strip().rstrip(";")
+    for tr in soup.find_all("tr"):
+        style = tr.get("style", "")
+        # Remove height from tr — causes row-height count mismatch in xhtml2pdf
+        style = re.sub(r'height\s*:[^;]+;?\s*', '', style, flags=re.IGNORECASE)
+        if style.strip():
+            tr["style"] = style
+        elif "style" in tr.attrs:
+            del tr["style"]
+    # Return just the body content (lxml wraps in html/body)
+    body = soup.find("body")
+    return "".join(str(c) for c in body.children) if body else html
 
 
 def render_pdf(html: str) -> bytes:
     from xhtml2pdf import pisa
     html = _strip_fences(html)
+    html = _sanitize_tables(html)
     if "</head>" in html:
         html = html.replace("</head>", _PDF_CSS + "</head>", 1)
     else:
