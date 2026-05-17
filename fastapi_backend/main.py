@@ -905,12 +905,14 @@ Your job:
 - Cover ALL input data thoroughly. Do not summarise or truncate.
 - Do NOT include <html>, <head>, <body>, or <style> tags — output only inner HTML.
 - Do not invent facts not present in the input data.
+- Do NOT add borders, box-shadows, or background boxes around headings, titles, or any section. Headings must be plain text with no surrounding box or border styling.
 
-Use inline styles for polished output. Return ONLY the report HTML."""
+Use inline styles only for typography (font size, weight, colour). Return ONLY the report HTML."""
 
 REPORT_SYSTEM_FREE = """You are a report-writing assistant that produces polished, professional HTML reports.
 Given INPUT DATA, design and write a well-structured report. Cover ALL data thoroughly.
 Do NOT include <html>, <head>, <body>, or <style> tags. Do not invent facts.
+Do NOT add borders, box-shadows, or background boxes around headings, titles, or any section. Headings must be plain text with no surrounding box or border styling.
 Return ONLY the report HTML."""
 
 REPORT_REVIEW_SYSTEM = """You are a quality reviewer for AI-generated reports.
@@ -922,7 +924,7 @@ Return ONLY JSON: {"approved":true,"issues":[]} or {"approved":false,"issues":["
 def _output_format_hint(fmt: str) -> str:
     if fmt == "xlsx":
         return "\n\n--- OUTPUT FORMAT ---\nTarget: Excel (XLSX). Use HTML tables for all data. Keep prose minimal."
-    return "\n\n--- OUTPUT FORMAT ---\nTarget: PDF. Use rich narrative text, headings, and callout boxes."
+    return "\n\n--- OUTPUT FORMAT ---\nTarget: PDF. Use rich narrative text and headings. Do NOT use bordered boxes, callout boxes, or any border/box-shadow styling on headings, titles, or sections."
 
 
 async def _review_report(input_summary: str, report_html: str, output_format: str) -> dict:
