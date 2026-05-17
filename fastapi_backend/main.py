@@ -1388,7 +1388,7 @@ async def api_refine_save(file_id: str, req: Request):
 @app.post("/api/render-pdf")
 async def api_render_pdf(req: Request):
     body = await req.json()
-    data = render_pdf(body.get("html", ""))
+    data = await render_pdf(body.get("html", ""))
     return StreamingResponse(io.BytesIO(data), media_type="application/pdf",
                               headers={"Content-Disposition": f'attachment; filename="{body.get("filename","report.pdf")}"'})
 

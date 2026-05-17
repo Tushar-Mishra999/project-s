@@ -24,3 +24,4 @@ google-genai==1.16.0
 google-api-python-client==2.133.0
 faster-whisper==1.1.1
 neo4j==5.27.0
+playwright==1.49.0
