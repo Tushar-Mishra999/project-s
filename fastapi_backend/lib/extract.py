@@ -70,6 +70,17 @@ def _extract_docx(data: bytes) -> dict:
         lines = text.splitlines()
         return {"text": text, "headings": _detect_headings(lines)}
     except Exception as e:
+        # Try raw XML extraction as fallback for malformed docx
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as z:
+                if "word/document.xml" in z.namelist():
+                    xml = z.read("word/document.xml")
+                    root = ET.fromstring(xml)
+                    texts = [t.text or "" for t in root.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t")]
+                    text = " ".join(texts).strip()
+                    return {"text": text, "headings": _detect_headings(text.splitlines())}
+        except Exception:
+            pass
         return {"text": "", "headings": [], "error": str(e)}
 
 
