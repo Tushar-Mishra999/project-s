@@ -66,6 +66,18 @@ def _ok() -> dict:
         raise HTTPException(503, f"RAG not configured: {', '.join(r['missing'])}")
     return r
 
+def _serial(obj):
+    """Recursively convert datetime/date/UUID to JSON-serializable types."""
+    if isinstance(obj, dict):
+        return {k: _serial(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_serial(v) for v in obj]
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if hasattr(obj, "__str__") and type(obj).__name__ == "UUID":
+        return str(obj)
+    return obj
+
 def user_scope(user: dict) -> tuple[str | None, bool]:
     if not user:
         return None, False
@@ -1557,7 +1569,7 @@ async def list_task_forces(user_id: str | None = None):
     if not user:
         raise HTTPException(400, "valid user_id required")
     all_tfs = fetch_all("SELECT * FROM task_forces")
-    return {"task_forces": [tf for tf in all_tfs if _can_see_tf(user, tf)]}
+    return {"task_forces": _serial([tf for tf in all_tfs if _can_see_tf(user, tf)])}
 
 @app.post("/api/task-forces")
 async def create_task_force(req: Request):
@@ -1584,7 +1596,7 @@ async def create_task_force(req: Request):
         VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING *
     """, (body.get("name"), body.get("status", "Active"),
           parts, teams, list(owner_ids), body.get("members", []), user["id"]))
-    return JSONResponse({"task_force": row}, status_code=201)
+    return JSONResponse({"task_force": _serial(row)}, status_code=201)
 
 _TF_SAFE_COLS = {"name", "status", "parts", "teams", "owners", "members"}
 
@@ -1598,7 +1610,7 @@ async def update_task_force(tf_id: str, req: Request):
     set_parts = ", ".join(f"{k} = %s" for k in updates)
     row = execute_returning(f"UPDATE task_forces SET {set_parts} WHERE id = %s RETURNING *",
                             list(updates.values()) + [tf_id])
-    return {"task_force": row}
+    return {"task_force": _serial(row)}
 
 @app.delete("/api/task-forces/{tf_id}")
 async def delete_task_force(tf_id: str):
@@ -1611,7 +1623,7 @@ async def add_tf_update(tf_id: str, req: Request):
     row = execute_returning("""
         INSERT INTO tf_updates (tf_id, type, author, content) VALUES (%s, %s, %s, %s) RETURNING *
     """, (tf_id, body.get("type"), body.get("author"), body.get("content")))
-    return JSONResponse({"update": row}, status_code=201)
+    return JSONResponse({"update": _serial(row)}, status_code=201)
 
 @app.post("/api/task-forces/{tf_id}/action-items")
 async def add_tf_action_item(tf_id: str, req: Request):
@@ -1619,7 +1631,7 @@ async def add_tf_action_item(tf_id: str, req: Request):
     row = execute_returning("""
         INSERT INTO tf_action_items (tf_id, text, assignee, due, done) VALUES (%s, %s, %s, %s, false) RETURNING *
     """, (tf_id, body.get("text"), body.get("assignee"), body.get("due")))
-    return JSONResponse({"action_item": row}, status_code=201)
+    return JSONResponse({"action_item": _serial(row)}, status_code=201)
 
 _TF_AI_SAFE_COLS = {"text", "assignee", "due", "done"}
 
@@ -1632,7 +1644,7 @@ async def update_tf_action_item(tf_id: str, aid: str, req: Request):
     set_parts = ", ".join(f"{k} = %s" for k in updates)
     row = execute_returning(f"UPDATE tf_action_items SET {set_parts} WHERE id = %s RETURNING *",
                             list(updates.values()) + [aid])
-    return {"action_item": row}
+    return {"action_item": _serial(row)}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 9. QUIZ
@@ -1641,10 +1653,7 @@ async def update_tf_action_item(tf_id: str, aid: str, req: Request):
 @app.get("/api/quiz/leaderboard")
 async def quiz_leaderboard():
     rows = fetch_all("SELECT * FROM quiz_scores ORDER BY score DESC, attempted_at ASC")
-    for r in rows:
-        if hasattr(r.get("attempted_at"), "isoformat"):
-            r["attempted_at"] = r["attempted_at"].isoformat()
-    return {"scores": rows}
+    return {"scores": _serial(rows)}
 
 @app.post("/api/quiz/score")
 async def save_quiz_score(req: Request):
@@ -1665,9 +1674,7 @@ async def save_quiz_score(req: Request):
         RETURNING *
     """, (user_id, user.get("name"), body.get("quiz_id", "rag-basics"),
           score_val, body.get("total", 5), datetime.utcnow().isoformat()))
-    if row and hasattr(row.get("attempted_at"), "isoformat"):
-        row["attempted_at"] = row["attempted_at"].isoformat()
-    return {"score": row}
+    return {"score": _serial(row)}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 10. EMAIL (Gmail OAuth)
