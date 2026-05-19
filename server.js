@@ -3696,19 +3696,22 @@ async function getChatroomContext(query = null) {
         }).join('\n')
       : '';
 
-    // Fetch ALL processed chunks — no date filter, no similarity filter.
+    // Vector search on all processed chunks — top 5 by relevance, no date filter.
     let historicalText = '';
-    try {
-      const { data: chunks } = await supabase
-        .from('chatroom_chunks')
-        .select('chunk_text, topic_summary, processed_date')
-        .order('processed_date', { ascending: true });
-      if (chunks?.length) {
-        historicalText = '--- Past Discussions ---\n' +
-          chunks.map((c) => `[Topic: ${c.topic_summary || 'Chat'} | ${c.processed_date}]\n${c.chunk_text}`).join('\n\n');
+    if (query) {
+      try {
+        const qEmbedding = await embedText(query.slice(0, 2000), config.embeddingModel, 'query');
+        const { data: chunks } = await supabase.rpc('match_chatroom_chunks', {
+          query_embedding: qEmbedding,
+          match_count: 5,
+        });
+        if (chunks?.length) {
+          historicalText = '--- Relevant Past Discussions ---\n' +
+            chunks.map((c) => `[Topic: ${c.topic_summary || 'Chat'} | ${c.processed_date}]\n${c.chunk_text}`).join('\n\n');
+        }
+      } catch (err) {
+        console.warn('[chatroom-context] vector search unavailable:', err.message);
       }
-    } catch (err) {
-      console.warn('[chatroom-context] chunk fetch unavailable:', err.message);
     }
 
     return [historicalText, recentText].filter(Boolean).join('\n\n') || '';
