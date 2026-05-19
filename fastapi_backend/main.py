@@ -1675,14 +1675,10 @@ async def save_quiz_score(req: Request):
 
 def _make_oauth_client():
     from google_auth_oauthlib.flow import Flow
-    client_id = os.getenv("GMAIL_CLIENT_ID")
-    client_secret = os.getenv("GMAIL_CLIENT_SECRET")
-    if not client_id or not client_secret:
-        raise HTTPException(503, "Gmail OAuth credentials not configured")
     return Flow.from_client_config(
         {"web": {
-            "client_id": client_id,
-            "client_secret": client_secret,
+            "client_id": os.environ["GMAIL_CLIENT_ID"],
+            "client_secret": os.environ["GMAIL_CLIENT_SECRET"],
             "redirect_uris": [os.getenv("GMAIL_REDIRECT_URI", "http://localhost:10000/api/email/callback")],
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": "https://oauth2.googleapis.com/token",
@@ -1696,7 +1692,6 @@ async def _get_gmail_tokens() -> dict | None:
     return row["tokens"] if row else None
 
 async def _get_authed_gmail():
-    import asyncio
     from google.oauth2.credentials import Credentials
     from googleapiclient.discovery import build
     tokens = await _get_gmail_tokens()
@@ -1709,22 +1704,7 @@ async def _get_authed_gmail():
         client_id=os.getenv("GMAIL_CLIENT_ID"),
         client_secret=os.getenv("GMAIL_CLIENT_SECRET"),
     )
-    # Refresh if expired
-    if creds.expired and creds.refresh_token:
-        try:
-            import google.auth.transport.requests
-            await asyncio.to_thread(creds.refresh, google.auth.transport.requests.Request())
-            # Save refreshed token back to DB
-            execute("""
-                INSERT INTO email_tokens (key, tokens, updated_at) VALUES ('gmail', %s, %s)
-                ON CONFLICT (key) DO UPDATE SET tokens = EXCLUDED.tokens, updated_at = EXCLUDED.updated_at
-            """, (Json({"access_token": creds.token, "refresh_token": creds.refresh_token,
-                        "expiry": creds.expiry.isoformat() if creds.expiry else None}),
-                  datetime.utcnow().isoformat()))
-        except Exception as e:
-            print(f"[gmail] token refresh failed: {e}")
-            return None
-    return await asyncio.to_thread(build, "gmail", "v1", credentials=creds)
+    return build("gmail", "v1", credentials=creds)
 
 @app.get("/api/email/status")
 async def email_status():
@@ -1761,9 +1741,7 @@ async def email_messages(max: int = 20):
     if not gmail:
         raise HTTPException(401, "Gmail not connected")
     max = min(max, 50)
-    list_r = await asyncio.to_thread(
-        lambda: gmail.users().messages().list(userId="me", labelIds=["INBOX"], maxResults=max).execute()
-    )
+    list_r = gmail.users().messages().list(userId="me", labelIds=["INBOX"], maxResults=max).execute()
     msgs = list_r.get("messages", [])
 
     import base64
@@ -1788,9 +1766,7 @@ async def email_messages(max: int = 20):
     emails = []
     for m in msgs[:max]:
         try:
-            msg = await asyncio.to_thread(
-                lambda mid=m["id"]: gmail.users().messages().get(userId="me", id=mid, format="full").execute()
-            )
+            msg = gmail.users().messages().get(userId="me", id=m["id"], format="full").execute()
             headers = {h["name"].lower(): h["value"] for h in msg.get("payload", {}).get("headers", [])}
             body, attachments = parse_payload(msg.get("payload", {}))
             emails.append({"id": m["id"], "subject": headers.get("subject", "(no subject)"),
@@ -1835,11 +1811,9 @@ async def email_upload_attachment(req: Request):
     user = await load_user(body.get("user_id"))
     if not user:
         raise HTTPException(400, "unknown user")
-    att = await asyncio.to_thread(
-        lambda: gmail.users().messages().attachments().get(
-            userId="me", messageId=body["messageId"], id=body["attachmentId"]
-        ).execute()
-    )
+    att = gmail.users().messages().attachments().get(
+        userId="me", messageId=body["messageId"], id=body["attachmentId"]
+    ).execute()
     import base64
     file_bytes = base64.urlsafe_b64decode(att["data"] + "==")
     filename = body.get("filename", "attachment")
