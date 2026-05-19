@@ -1305,6 +1305,9 @@ app.post('/api/retrieve', async (req, res) => {
 const CHAT_SYSTEM =
   "You are a knowledge assistant with access to internal documents. Answer the user's question using only the context provided below. If the answer is not present in the context, say 'I could not find this in the uploaded documents' — do not use general knowledge. Always cite the source filename at the end of your answer.";
 
+const CHAT_SYSTEM_CHATROOM =
+  "You are an intelligent assistant with access to executive chatroom conversations. Answer the user's question using only the chatroom messages provided in the context below. If the answer is not present in the context, say 'I could not find this in the chatroom history' — do not use general knowledge.";
+
 app.post('/api/chat/route', async (req, res) => {
   const { query, user_id } = req.body || {};
   if (!query) return res.status(400).json({ error: 'query required' });
@@ -1377,15 +1380,16 @@ app.post('/api/chat', async (req, res) => {
       },
     ];
 
+    const activeSystem = include_chatroom ? CHAT_SYSTEM_CHATROOM : CHAT_SYSTEM;
     let answer;
     if (chat_model === 'gemma') {
-      answer = await generateChatGemma({ system: CHAT_SYSTEM, messages, maxTokens: 2048 });
+      answer = await generateChatGemma({ system: activeSystem, messages, maxTokens: 2048 });
     } else if (chat_model === 'glm') {
-      answer = await generateChatGLM({ system: CHAT_SYSTEM, messages, maxTokens: 2048 });
+      answer = await generateChatGLM({ system: activeSystem, messages, maxTokens: 2048 });
     } else if (chat_model === 'gpt') {
-      answer = await generateChatGPTOSS({ system: CHAT_SYSTEM, messages, maxTokens: 2048 });
+      answer = await generateChatGPTOSS({ system: activeSystem, messages, maxTokens: 2048 });
     } else {
-      answer = await generateChat({ model: config.models.chat, system: CHAT_SYSTEM, messages, maxTokens: 4096 });
+      answer = await generateChat({ model: config.models.chat, system: activeSystem, messages, maxTokens: 4096 });
     }
 
     res.json({ answer, sources, eval_chunks: evalChunks, search_type: searchType });
@@ -1446,15 +1450,16 @@ app.post('/api/chat/stream', async (req, res) => {
       { role: 'user', content: `--- Context ---\n${contextBlock}\n\n--- Question ---\n${query}` },
     ];
 
+    const activeSystem = include_chatroom ? CHAT_SYSTEM_CHATROOM : CHAT_SYSTEM;
     let stream;
     if (chat_model === 'gemma') {
-      stream = generateChatGemmaStream({ system: CHAT_SYSTEM, messages, maxTokens: 2048 });
+      stream = generateChatGemmaStream({ system: activeSystem, messages, maxTokens: 2048 });
     } else if (chat_model === 'glm') {
-      stream = generateChatGLMStream({ system: CHAT_SYSTEM, messages, maxTokens: 2048 });
+      stream = generateChatGLMStream({ system: activeSystem, messages, maxTokens: 2048 });
     } else if (chat_model === 'gpt') {
-      stream = generateChatGPTOSSStream({ system: CHAT_SYSTEM, messages, maxTokens: 2048 });
+      stream = generateChatGPTOSSStream({ system: activeSystem, messages, maxTokens: 2048 });
     } else {
-      stream = generateChatStream({ model: config.models.chat, system: CHAT_SYSTEM, messages, maxTokens: 4096 });
+      stream = generateChatStream({ model: config.models.chat, system: activeSystem, messages, maxTokens: 4096 });
     }
 
     for await (const chunk of stream) {
@@ -1849,14 +1854,12 @@ app.post('/api/report/generate', async (req, res) => {
     return res.status(400).json({ error: 'input_data is required' });
   }
   try {
-    let inputData;
+    let inputData = input_data;
     if (include_chatroom) {
       const chatroomText = await getChatroomContext(input_data.slice(0, 500));
-      inputData = chatroomText
-        ? `Report instruction: ${input_data}\n\n--- Executive Chatroom History (Source) ---\n${chatroomText}`
-        : '(no chatroom messages found)';
-    } else {
-      inputData = input_data;
+      if (chatroomText) {
+        inputData = `Report instruction: ${input_data}\n\n--- Executive Chatroom History (Source) ---\n${chatroomText}`;
+      }
     }
     const userMsg = `--- INPUT DATA ---\n${inputData}${outputFormatHint(output_format)}`;
     await runReportPipeline({ res, report_model, output_format, system: REPORT_SYSTEM_FREE, userMsg, inputData, extraFields: { template_filename: 'report' } });
@@ -2040,14 +2043,12 @@ app.post('/api/report-templates/:id/generate', async (req, res) => {
     if (fetchErr) throw fetchErr;
     if (!tmpl) return res.status(404).json({ error: 'template not found' });
 
-    let inputData;
+    let inputData = input_data;
     if (include_chatroom) {
       const chatroomText = await getChatroomContext(input_data.slice(0, 500));
-      inputData = chatroomText
-        ? `Report instruction: ${input_data}\n\n--- Executive Chatroom History (Source) ---\n${chatroomText}`
-        : '(no chatroom messages found)';
-    } else {
-      inputData = input_data;
+      if (chatroomText) {
+        inputData = `Report instruction: ${input_data}\n\n--- Executive Chatroom History (Source) ---\n${chatroomText}`;
+      }
     }
     const userMsg = `--- TEMPLATE (${tmpl.filename}) ---\n${tmpl.template_text}\n\n--- INPUT DATA ---\n${inputData}${outputFormatHint(output_format)}`;
     await runReportPipeline({ res, report_model, output_format, system: REPORT_SYSTEM, userMsg, inputData, extraFields: { template_filename: tmpl.filename } });
@@ -3678,23 +3679,26 @@ async function getChatroomContext(query = null) {
   try {
     if (!supabase) return '';
 
-    // Always include today's messages raw — they haven't been chunked yet.
-    const todayStart = new Date();
-    todayStart.setUTCHours(0, 0, 0, 0);
-    const { data: todayMsgs } = await supabase
+    // Fetch last 7 days of raw messages (capped at 150 rows) so timezone edges and
+    // un-chunked days are never silently missed.  The nightly chunker only processes
+    // completed days, so recent messages would be invisible with a strict "today UTC"
+    // filter for users in IST (UTC+5:30) or whenever the job hasn't run yet.
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const { data: recentMsgs } = await supabase
       .from('chatroom_messages')
       .select('sender_name, content, created_at')
-      .gte('created_at', todayStart.toISOString())
-      .order('created_at', { ascending: true });
+      .gte('created_at', since.toISOString())
+      .order('created_at', { ascending: true })
+      .limit(150);
 
-    const todayText = todayMsgs?.length
-      ? '--- Today ---\n' + todayMsgs.map((m) => {
+    const recentText = recentMsgs?.length
+      ? '--- Recent Messages ---\n' + recentMsgs.map((m) => {
           const ts = new Date(m.created_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' });
           return `[${ts}] ${m.sender_name}: ${m.content}`;
         }).join('\n')
       : '';
 
-    // For historical data, do vector search on embedded chunks if a query is provided.
+    // For older data, do vector search on AI-chunked summaries if a query is provided.
     let historicalText = '';
     if (query) {
       try {
@@ -3707,13 +3711,14 @@ async function getChatroomContext(query = null) {
           historicalText = '--- Relevant Past Discussions ---\n' +
             chunks.map((c) => `[Topic: ${c.topic_summary || 'Chat'}]\n${c.chunk_text}`).join('\n\n');
         }
-      } catch {
-        // Vector search unavailable (table may not exist yet) — silently skip.
+      } catch (err) {
+        console.warn('[chatroom-context] vector search unavailable:', err.message);
       }
     }
 
-    return [historicalText, todayText].filter(Boolean).join('\n\n') || '';
-  } catch {
+    return [historicalText, recentText].filter(Boolean).join('\n\n') || '';
+  } catch (err) {
+    console.error('[chatroom-context] fetch failed:', err.message);
     return '';
   }
 }
