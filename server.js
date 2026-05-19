@@ -3674,15 +3674,13 @@ function convId(a, b) {
   return [a, b].sort().join(':');
 }
 
-// Returns today's raw messages + semantically relevant historical chunks (via vector search).
+// Returns recent raw messages + all historical chunks (no date or similarity filter).
 async function getChatroomContext(query = null) {
   try {
     if (!supabase) return '';
 
     // Fetch last 7 days of raw messages (capped at 150 rows) so timezone edges and
-    // un-chunked days are never silently missed.  The nightly chunker only processes
-    // completed days, so recent messages would be invisible with a strict "today UTC"
-    // filter for users in IST (UTC+5:30) or whenever the job hasn't run yet.
+    // un-chunked days are never silently missed.
     const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const { data: recentMsgs } = await supabase
       .from('chatroom_messages')
@@ -3698,22 +3696,19 @@ async function getChatroomContext(query = null) {
         }).join('\n')
       : '';
 
-    // For older data, do vector search on AI-chunked summaries if a query is provided.
+    // Fetch ALL processed chunks — no date filter, no similarity filter.
     let historicalText = '';
-    if (query) {
-      try {
-        const qEmbedding = await embedText(query.slice(0, 2000), config.embeddingModel, 'query');
-        const { data: chunks } = await supabase.rpc('match_chatroom_chunks', {
-          query_embedding: qEmbedding,
-          match_count: 5,
-        });
-        if (chunks?.length) {
-          historicalText = '--- Relevant Past Discussions ---\n' +
-            chunks.map((c) => `[Topic: ${c.topic_summary || 'Chat'}]\n${c.chunk_text}`).join('\n\n');
-        }
-      } catch (err) {
-        console.warn('[chatroom-context] vector search unavailable:', err.message);
+    try {
+      const { data: chunks } = await supabase
+        .from('chatroom_chunks')
+        .select('chunk_text, topic_summary, processed_date')
+        .order('processed_date', { ascending: true });
+      if (chunks?.length) {
+        historicalText = '--- Past Discussions ---\n' +
+          chunks.map((c) => `[Topic: ${c.topic_summary || 'Chat'} | ${c.processed_date}]\n${c.chunk_text}`).join('\n\n');
       }
+    } catch (err) {
+      console.warn('[chatroom-context] chunk fetch unavailable:', err.message);
     }
 
     return [historicalText, recentText].filter(Boolean).join('\n\n') || '';
