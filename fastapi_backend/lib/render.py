@@ -18,16 +18,8 @@ div,section,article,aside,header,footer,main,nav,p,li,ul,ol,span,blockquote {
   padding: 0 !important;
   margin-bottom: 4px !important;
 }
-h1,h2,h3,h4,h5,h6 {
-  border: none !important;
-  box-shadow: none !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  padding: 2px 0 !important;
-  margin-top: 14px !important;
-  margin-bottom: 4px !important;
-}
 body { font-family: Helvetica, Arial, sans-serif; font-size: 11px; }
+h1,h2,h3,h4 { margin-top: 14px; margin-bottom: 4px; }
 table { border-collapse: collapse; width: 100%; margin-bottom: 12px; }
 th, td { border: 1px solid #ccc; padding: 4px 6px; font-size: 10px; }
 th { background-color: #1e3a5f; color: white; font-weight: bold; }
