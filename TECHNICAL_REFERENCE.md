@@ -1,8 +1,5 @@
 # KERNEL — Technical Reference Document
 
-> **Audience:** Engineers onboarding to this codebase or continuing its development.  
-> **Purpose:** Exhaustive explanation of every major feature — what it does, how it works internally, which libraries are used, and where the data lives.
-
 ---
 
 ## Table of Contents
@@ -26,8 +23,7 @@
 17. [Report Templates](#17-report-templates)
 18. [RAG Evaluation](#18-rag-evaluation)
 19. [API Endpoint Reference](#19-api-endpoint-reference)
-20. [Configuration Reference (config.json)](#20-configuration-reference-configjson)
-21. [Alternative Cloud Stack](#21-alternative-cloud-stack)
+20. [Alternative Cloud Stack](#20-alternative-cloud-stack)
 
 ---
 
@@ -61,7 +57,7 @@ The core capabilities are:
 |---|---|---|
 | Server | FastAPI (Python) | `fastapi`, `uvicorn` |
 | File uploads | FastAPI `UploadFile` | built-in |
-| LLM | Qwen 3.5 27B (Q4_K_M) via Ollama | `ollama` Python client or raw HTTP |
+| LLM | Qwen 3.5 9B (Q4_K_M) via Ollama | `ollama` Python client or raw HTTP (`requests`) |
 | Embeddings | `qwen3-embedding:0.6b` via Ollama | `ollama` Python client or raw HTTP |
 | Vector DB | ChromaDB (local persistent) | `chromadb` |
 | Relational DB | PostgreSQL (self-hosted, direct connection) | `psycopg2` |
@@ -87,12 +83,8 @@ The core capabilities are:
 
 | Role | Model | Served via |
 |---|---|---|
-| LLM — all tasks (chat, routing, enrichment, summarisation, scoring, reranking) | Qwen 3.5 27B (Q4_K_M, 256K context) | Ollama (local) |
+| LLM — all tasks (chat, routing, enrichment, summarisation, scoring, reranking) | Qwen 3.5 9B (Q4_K_M) | Ollama (local) |
 | Embeddings | `qwen3-embedding:0.6b` | Ollama (local) |
-
-All LLM and embedding calls are made to the local Ollama server (`http://localhost:11434`). No external API keys or cloud services are required for inference.
-
-**Important Ollama behaviour:** Ollama processes requests sequentially — concurrent requests are queued, not parallelised. For multi-user deployments, consider vLLM or SGLang as a drop-in replacement for true concurrent serving.
 
 ---
 
@@ -106,7 +98,7 @@ POSTGRES_USER        PostgreSQL user
 POSTGRES_PASSWORD    PostgreSQL password
 
 OLLAMA_BASE_URL      Ollama server URL (default: http://localhost:11434)
-OLLAMA_LLM_MODEL     LLM model name (e.g. qwen3.5:27b-q4_k_m)
+OLLAMA_LLM_MODEL     LLM model name (e.g. qwen3.5:9b-q4_k_m)
 OLLAMA_EMBED_MODEL   Embedding model name (e.g. qwen3-embedding:0.6b)
 
 CHROMA_HOST          ChromaDB host (default: localhost)
@@ -276,7 +268,7 @@ A row is inserted into the `files` PostgreSQL table with metadata: filename, fil
 For each chunk, three sub-steps run sequentially:
 
 **5a. Enrichment (LLM call)**  
-A call to Qwen 3.5 27B via Ollama generates:
+A call to Qwen 3.5 9B via Ollama generates:
 ```json
 {
   "summary": "2-3 sentence summary of this chunk",
@@ -306,7 +298,7 @@ Returns a float array. The dimension depends on the model — verify the exact o
 
 Non-blocking — does not block the upload response. If Neo4j is configured:
 
-1. `extract_entities(text)` sends the first 6,000 characters to Qwen 3.5 27B which returns structured JSON:
+1. `extract_entities(text)` sends the first 6,000 characters to Qwen 3.5 9B which returns structured JSON:
    ```json
    {
      "topics": ["cloud migration", "q3 planning"],
@@ -393,7 +385,7 @@ ChromaDB computes cosine similarity natively. The `distances` returned are cosin
 
 ### Reranker
 
-The reranker is an LLM call (Qwen 3.5 27B) that receives the query and the top 20 chunk summaries + text snippets and returns a JSON list of the top 5 indices in relevance order. This catches cases where cosine similarity ranks a chunk high (similar words) but the LLM judges it low relevance to the actual query intent.
+The reranker is an LLM call (Qwen 3.5 9B) that receives the query and the top 20 chunk summaries + text snippets and returns a JSON list of the top 5 indices in relevance order. This catches cases where cosine similarity ranks a chunk high (similar words) but the LLM judges it low relevance to the actual query intent.
 
 ---
 
@@ -403,7 +395,7 @@ The reranker is an LLM call (Qwen 3.5 27B) that receives the query and the top 2
 
 ### Query Router
 
-Before every chatbot query (document mode), an LLM call (Qwen 3.5 27B) decides whether to use vector or graph search:
+Before every chatbot query (document mode), an LLM call (Qwen 3.5 9B) decides whether to use vector or graph search:
 
 ```
 System prompt: "Use graph when the query asks about everything related to
@@ -511,7 +503,7 @@ Request: { query, user_id, model?, include_chatroom? }
     │     get_chatroom_context(query) → raw messages (last 7 days) + relevant historical chunks
     │
     ├── Build context string from chunks
-    ├── Ollama chat call: POST /api/chat with model=qwen3.5:27b-q4_k_m
+    ├── Ollama chat call: POST /api/chat with model=qwen3.5:9b-q4_k_m
     └── Return { answer, chunks_used, search_type, route_reason }
 ```
 
@@ -549,7 +541,7 @@ The executive chatroom is a private messaging system for MD and Part Heads. Mess
 Fetch all chatroom_messages for the target date from PostgreSQL
     │
     ▼
-LLM call (Qwen 3.5 27B): partition messages into topical groups
+LLM call (Qwen 3.5 9B): partition messages into topical groups
   Returns JSON: [{ topic_summary, messages: [...] }]
     │
     ▼
@@ -614,7 +606,7 @@ Input: { input_data (text), instruction, output_format, user_id, include_chatroo
     │     PDF mode: narrative text, paragraphs, full visual hierarchy
     │     Excel mode: maximize tables, structured data over prose
     │
-    ├── Qwen 3.5 27B call (max_tokens: 16000)
+    ├── Qwen 3.5 9B call (max_tokens: 16000)
     │     Produces HTML report content
     │
     ├── Agent Review (optional second pass):
@@ -657,7 +649,7 @@ Request: { file_id, user_id }
     ├── Load file + all chunks from PostgreSQL (ordered by chunk_index)
     ├── Reconstruct full document text
     │
-    ├── Qwen 3.5 27B call with "smart suggestions" prompt:
+    ├── Qwen 3.5 9B call with "smart suggestions" prompt:
     │     Returns JSON: { suggestions: [{type, original, suggested, reason}] }
     │     Types: "grammar", "clarity", "structure", "paraphrase"
     │
@@ -679,17 +671,37 @@ When the user accepts suggestions and saves:
 ## 12. AI-Transcribed Minutes of Meeting
 
 **Endpoints:**
-- `POST /api/mom/transcribe` — process raw text transcript into structured MoM
+- `POST /api/mom/transcribe` — process audio file or raw text transcript into structured MoM
 - `POST /api/mom/save` — persist to `minutes` table
 - `GET /api/mom` — list saved MoMs (filtered by `accessible_to`)
 - `POST /api/mom/{id}/export-to-hub` — push MoM as a document into the Knowledge Hub
 
+### Input modes
+
+The MoM feature supports two input paths:
+
+**Audio recording (primary):**  
+The user records meeting audio directly in the browser (via the Web Audio API) or uploads an audio file (`.mp3`, `.wav`, `.m4a`). The audio is sent to the backend where **OpenAI Whisper** (running locally via the `whisper` Python library) transcribes it to text. Whisper is run locally — no external API call is made. The `base` or `small` model variant is recommended for speed on CPU; `medium` for higher accuracy on GPU.
+
+```python
+import whisper
+model = whisper.load_model("base")
+result = model.transcribe("meeting_audio.mp3")
+raw_transcript = result["text"]
+```
+
+**Raw text paste (secondary):**  
+The user pastes a pre-existing transcript directly. Skips the Whisper step entirely.
+
 ### Transcription Flow
 
 ```
-Input: { transcript (text), title?, user_id, accessible_to }
+Input: audio file OR raw transcript text
     │
-    ├── Qwen 3.5 27B call (MoM extraction prompt):
+    ├── [Audio path]:
+    │     Whisper (local) → raw_transcript text
+    │
+    ├── Qwen 3.5 9B call (MoM extraction prompt):
     │     Returns JSON:
     │     {
     │       "title": "...",
@@ -726,7 +738,7 @@ When the user exports to the Knowledge Hub:
 ```
 Input: document text (truncated to 16,000 chars)
     │
-    ├── Qwen 3.5 27B call with extraction prompt:
+    ├── Qwen 3.5 9B call with extraction prompt:
     │     Looks for: assigned tasks, action verbs, open items, pending approvals
     │     Returns JSON array: ["Review Q3 budget and share by Friday", ...]
     │
@@ -760,8 +772,6 @@ Each source specifies:
   "parts": ["Tech Management", "PRISM"]
 }
 ```
-Sources with `"geminiSearch": true` use a web-search fallback (via an LLM with web access) for sites without public feeds or behind Cloudflare.
-
 ### Pipeline per source
 
 ```
@@ -780,7 +790,7 @@ For each source filtered by requested part:
     └── Collect into grouped result object
 ```
 
-### Filtering (LLM-based, Qwen 3.5 27B)
+### Filtering (LLM-based, Qwen 3.5 9B)
 
 Each filter/scorer is a separate LLM call with a targeted system prompt:
 
@@ -789,6 +799,10 @@ Each filter/scorer is a separate LLM call with a targeted system prompt:
 - **PRISM worklet tagger:** Assigns `High` / `Medium` / `Low` based on whether an article could inspire a 3-5 day hands-on engineering task.
 
 All three have 3-attempt retry logic with exponential backoff. On persistent failure, articles are kept (fail-open policy).
+
+### Live Search
+
+`POST /api/feed/live-search` accepts a free-text query and performs a real-time search using the **DuckDuckGo Search API** (via the `duckduckgo-search` Python library — no API key required). Results are returned directly without going through the feed cache, surfacing articles beyond the curated RSS sources.
 
 ### Caching
 
@@ -817,6 +831,10 @@ quiz_scores (
 ```
 
 Retaking a quiz does an `INSERT ... ON CONFLICT DO UPDATE` — the new score replaces the old one. The leaderboard is ordered by `score DESC, attempted_at ASC`.
+
+### Current state & roadmap
+
+Quiz questions are currently **hardcoded** — a static set of AI fundamentals questions is served from a fixed list in the backend. The intended next step is to make quiz content **dynamic**: the Intelligence Feed pipeline surfaces trending AI topics and new model/technique releases each week, and the plan is to use this as an input to automatically generate fresh quiz questions aligned with what's currently relevant in the field. This closes the loop between "what the team is reading" and "what the team is being tested on."
 
 ---
 
@@ -859,7 +877,7 @@ Templates define the structure a generated report should follow. Template text i
 - `POST /api/chat/evaluate` — evaluate a single Q&A pair
 - `GET /api/chat/eval-summary` — get rolling averages
 
-After a chatbot response, the frontend can optionally submit the query + answer for quality scoring. Three metrics are computed by a Qwen 3.5 27B judge:
+After a chatbot response, the frontend can optionally submit the query + answer for quality scoring. Three metrics are computed by a Qwen 3.5 9B judge:
 
 | Metric | What it measures |
 |---|---|
@@ -917,7 +935,7 @@ Each metric is a float 0–1. Results are stored in `rag_evaluations`. The Postg
 | `POST` | `/api/feed/refresh` | Re-run pipeline for a part |
 | `GET` | `/api/feed/sources` | List configured sources |
 | `POST` | `/api/feed/sources` | Add/update a source |
-| `POST` | `/api/feed/live-search` | On-demand web search |
+| `POST` | `/api/feed/live-search` | On-demand DuckDuckGo web search |
 | `GET` | `/api/feed/leaderboard` | Live open-source LLM rankings |
 
 ### MoM, Action Items, Task Forces
@@ -955,44 +973,14 @@ Each metric is a float 0–1. Results are stored in `rag_evaluations`. The Postg
 
 ---
 
-## 20. Configuration Reference (`config.json`)
-
-```json
-{
-  "sources": [...],              // RSS/search sources per part
-  "maxItemsPerSource": 5,        // default article limit per source per refresh
-  "maxItemsPerSourceByPart": {   // override limits by part
-    "MD": 3,
-    "PMO": 10
-  },
-  "parts": [...],                // valid part names
-  "models": {
-    "scoring": "qwen3.5:27b-q4_k_m",        // feed filtering + worklet tagging
-    "summarisation": "qwen3.5:27b-q4_k_m",  // report generation
-    "enrichment": "qwen3.5:27b-q4_k_m",     // chunk enrichment on upload
-    "reranker": "qwen3.5:27b-q4_k_m",       // RAG reranking
-    "chat": "qwen3.5:27b-q4_k_m"            // chatbot + routing + entity extraction
-  },
-  "embeddingModel": "qwen3-embedding:0.6b",
-  "rag": {
-    "vector_search_top_k": 20,   // how many chunks to retrieve before reranking
-    "rerank_top_n": 5,           // how many chunks to keep after reranking
-    "chunk_min_words": 300,      // minimum words per chunk
-    "chunk_max_words": 600       // maximum words per chunk
-  }
-}
-```
-
----
-
-## 21. Alternative Cloud Stack
+## 20. Alternative Cloud Stack
 
 A parallel cloud-hosted implementation exists using managed services instead of local infrastructure. It uses the same business logic, API routes, and prompt designs — only the infrastructure layer differs.
 
 | Component | Local stack (this document) | Cloud stack |
 |---|---|---|
 | Backend | FastAPI (Python) | Node.js (ESM) + Express |
-| LLM | Qwen 3.5 27B via Ollama | Gemini 2.5 Flash via Vertex AI |
+| LLM | Qwen 3.5 9B (Q4_K_M) via Ollama | Gemini 2.5 Flash via Vertex AI |
 | Embedding model | `qwen3-embedding:0.6b` via Ollama | `text-embedding-004` (768-dim) via Vertex AI |
 | Vector store | ChromaDB (local persistent) | Supabase PostgreSQL + pgvector (HNSW) |
 | Relational DB | PostgreSQL (psycopg2, direct) | Supabase (PostgreSQL + PostgREST JS client) |
