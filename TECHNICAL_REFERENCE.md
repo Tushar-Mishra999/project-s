@@ -8,27 +8,26 @@
 ## Table of Contents
 
 1. [System Overview](#1-system-overview)
-2. [Repository Structure](#2-repository-structure)
-3. [Tech Stack](#3-tech-stack)
-4. [Environment Variables](#4-environment-variables)
-5. [Database Schema](#5-database-schema)
-6. [Document Upload Pipeline](#6-document-upload-pipeline)
-7. [Knowledge Hub — Vector Search](#7-knowledge-hub--vector-search)
-8. [Knowledge Hub — Graph Search](#8-knowledge-hub--graph-search)
-9. [Insights Chatbot](#9-insights-chatbot)
-10. [Executive Chatroom & Chatroom RAG](#10-executive-chatroom--chatroom-rag)
-11. [AI Document Studio — Report Generator](#11-ai-document-studio--report-generator)
-12. [AI Document Studio — Refiner](#12-ai-document-studio--refiner)
-13. [AI-Transcribed Minutes of Meeting](#13-ai-transcribed-minutes-of-meeting)
-14. [Action Item Tracker](#14-action-item-tracker)
-15. [Intelligence Feed (Tech Sensing)](#15-intelligence-feed-tech-sensing)
-16. [AI Literacy Quizzes](#16-ai-literacy-quizzes)
-17. [Task Forces](#17-task-forces)
-18. [Report Templates](#18-report-templates)
-19. [RAG Evaluation](#19-rag-evaluation)
-20. [API Endpoint Reference](#20-api-endpoint-reference)
-21. [Configuration Reference (config.json)](#21-configuration-reference-configjson)
-22. [Alternative Codebase Stack](#22-alternative-codebase-stack)
+2. [Tech Stack](#2-tech-stack)
+3. [Environment Variables](#3-environment-variables)
+4. [Database Schema](#4-database-schema)
+5. [Document Upload Pipeline](#5-document-upload-pipeline)
+6. [Knowledge Hub — Vector Search](#6-knowledge-hub--vector-search)
+7. [Knowledge Hub — Graph Search](#7-knowledge-hub--graph-search)
+8. [Insights Chatbot](#8-insights-chatbot)
+9. [Executive Chatroom & Chatroom RAG](#9-executive-chatroom--chatroom-rag)
+10. [AI Document Studio — Report Generator](#10-ai-document-studio--report-generator)
+11. [AI Document Studio — Refiner](#11-ai-document-studio--refiner)
+12. [AI-Transcribed Minutes of Meeting](#12-ai-transcribed-minutes-of-meeting)
+13. [Action Item Tracker](#13-action-item-tracker)
+14. [Intelligence Feed (Tech Sensing)](#14-intelligence-feed-tech-sensing)
+15. [AI Literacy Quizzes](#15-ai-literacy-quizzes)
+16. [Task Forces](#16-task-forces)
+17. [Report Templates](#17-report-templates)
+18. [RAG Evaluation](#18-rag-evaluation)
+19. [API Endpoint Reference](#19-api-endpoint-reference)
+20. [Configuration Reference (config.json)](#20-configuration-reference-configjson)
+21. [Alternative Cloud Stack](#21-alternative-cloud-stack)
 
 ---
 
@@ -36,7 +35,7 @@
 
 KERNEL is a unified AI platform built for the R&D Strategy Group (RSG) at Samsung Research. It eliminates fragmented knowledge, manual workflows, and isolated tooling across four internal teams: **Tech Management, PRISM, PMO, and Data Management**.
 
-The platform is a Node.js (ESM) Express backend with a React frontend (Vite). Everything runs as a single server process — the backend serves both the API and (in production) the built React static files.
+The platform is a **FastAPI (Python) backend** with a React frontend (Vite). The backend serves all API routes; in production the built React static files are served separately or via a reverse proxy.
 
 The core capabilities are:
 
@@ -55,52 +54,26 @@ The core capabilities are:
 
 ---
 
-## 2. Repository Structure
-
-```
-project-s/
-├── server.js                  # Main Express server — all API routes
-├── config.json                # Runtime configuration (sources, models, RAG params)
-├── supabase-setup.sql         # Full PostgreSQL/pgvector schema (run once)
-├── package.json
-├── lib/
-│   ├── llm.js                 # LLM client (Gemini via Vertex AI, Gemma, GLM, GPT-OSS)
-│   ├── rag.js                 # Embedding, enrichment, reranking
-│   ├── chunk.js               # Document chunking logic
-│   ├── extract.js             # Text extraction from PDF/DOCX/PPTX/XLSX
-│   ├── graphExtract.js        # Neo4j entity extraction, write, and graph search
-│   ├── clients.js             # Supabase client singleton
-│   ├── neo4j.js               # Neo4j driver singleton + constraint init
-│   ├── feed.js                # RSS/feed pipeline, scoring, filtering
-│   ├── actionItems.js         # Action item extraction via LLM
-│   ├── htmlToPdf.js           # HTML → PDF via Puppeteer
-│   └── htmlToDocx.js          # HTML → DOCX
-└── client/                    # React + Vite frontend
-```
-
----
-
-## 3. Tech Stack
+## 2. Tech Stack
 
 ### Backend
-| Layer | Technology | Library |
+| Layer | Technology | Library / Tool |
 |---|---|---|
-| Server | Node.js (ESM), Express | `express` |
-| File uploads | Multer (memory storage) | `multer` |
-| LLM (primary) | Google Gemini 2.5 Flash via Vertex AI | `@google/genai` |
-| LLM (secondary) | Gemma 4 26B, GLM 5, GPT-OSS-20B via Vertex MaaS | `@google/genai` + raw fetch |
-| Embeddings | Google `text-embedding-004` (768-dim) via Vertex AI REST | `google-auth-library` |
-| Vector DB | Supabase PostgreSQL + pgvector (HNSW index) | `@supabase/supabase-js` |
-| Graph DB | Neo4j (AuraDB or self-hosted) | `neo4j-driver` |
-| File storage | Supabase Storage (S3-compatible) | `@supabase/supabase-js` |
-| PDF parsing | pdf-parse | `pdf-parse` |
-| DOCX parsing | Mammoth | `mammoth` |
-| PPTX parsing | JSZip (custom XML parse) | `jszip` |
-| XLSX parsing | SheetJS | `xlsx` |
-| PDF export | Puppeteer + Chromium | `puppeteer-core`, `@sparticuz/chromium` |
-| DOCX export | html-to-docx | `html-to-docx` |
-| RSS parsing | rss-parser | `rss-parser` |
-| Markdown render | marked | `marked` |
+| Server | FastAPI (Python) | `fastapi`, `uvicorn` |
+| File uploads | FastAPI `UploadFile` | built-in |
+| LLM | Qwen 3.5 27B (Q4_K_M) via Ollama | `ollama` Python client or raw HTTP |
+| Embeddings | `qwen3-embedding:0.6b` via Ollama | `ollama` Python client or raw HTTP |
+| Vector DB | ChromaDB (local persistent) | `chromadb` |
+| Relational DB | PostgreSQL (self-hosted, direct connection) | `psycopg2` |
+| Graph DB | Neo4j (self-hosted or AuraDB) | `neo4j` Python driver |
+| File storage | Local filesystem | Python `pathlib` / `shutil` |
+| PDF parsing | pdfplumber or PyMuPDF | `pdfplumber` / `fitz` |
+| DOCX parsing | python-docx | `python-docx` |
+| PPTX parsing | python-pptx | `python-pptx` |
+| XLSX parsing | openpyxl / pandas | `openpyxl` |
+| PDF export | WeasyPrint or ReportLab | `weasyprint` |
+| DOCX export | python-docx | `python-docx` |
+| RSS parsing | feedparser | `feedparser` |
 
 ### Frontend
 | Layer | Technology |
@@ -110,41 +83,63 @@ project-s/
 | Routing | React Router |
 | HTTP client | Native fetch |
 
-### Models used (configurable in `config.json`)
+### Models
 
-| Role | Model |
-|---|---|
-| Scoring (feed relevance) | `gemini-2.5-flash` |
-| Summarisation (reports, MoM) | `gemini-2.5-flash` |
-| Enrichment (chunk enrichment on upload) | `gemini-2.5-flash` |
-| Reranker | `gemini-2.5-flash` |
-| Chat (chatbot, routing, entities) | `gemini-2.5-flash` |
-| Embeddings | `text-embedding-004` (768 dimensions) |
+| Role | Model | Served via |
+|---|---|---|
+| LLM — all tasks (chat, routing, enrichment, summarisation, scoring, reranking) | Qwen 3.5 27B (Q4_K_M, 256K context) | Ollama (local) |
+| Embeddings | `qwen3-embedding:0.6b` | Ollama (local) |
 
----
+All LLM and embedding calls are made to the local Ollama server (`http://localhost:11434`). No external API keys or cloud services are required for inference.
 
-## 4. Environment Variables
-
-```
-SUPABASE_URL                      Supabase project URL
-SUPABASE_SERVICE_KEY              Supabase service role key (bypasses RLS)
-GOOGLE_APPLICATION_CREDENTIALS    Path to GCP service account JSON (written by server at start)
-GOOGLE_APPLICATION_CREDENTIALS_JSON  The JSON content of the service account key
-GOOGLE_CLOUD_PROJECT              GCP project ID
-GOOGLE_CLOUD_LOCATION             Vertex AI region (default: us-central1)
-NEO4J_URI                         bolt:// or neo4j+s:// URI
-NEO4J_USER                        Neo4j username
-NEO4J_PASSWORD                    Neo4j password
-PORT                              Express port (default: 3000)
-```
-
-Both Gemini and the embedding API use the same GCP service account. Neo4j vars are optional — if absent, all graph operations are silently skipped and vector search is used as fallback.
+**Important Ollama behaviour:** Ollama processes requests sequentially — concurrent requests are queued, not parallelised. For multi-user deployments, consider vLLM or SGLang as a drop-in replacement for true concurrent serving.
 
 ---
 
-## 5. Database Schema
+## 3. Environment Variables
 
-All tables live in Supabase (PostgreSQL). The full DDL is in `supabase-setup.sql`.
+```
+POSTGRES_HOST        PostgreSQL host (default: localhost)
+POSTGRES_PORT        PostgreSQL port (default: 5432)
+POSTGRES_DB          Database name (e.g. projectdb)
+POSTGRES_USER        PostgreSQL user
+POSTGRES_PASSWORD    PostgreSQL password
+
+OLLAMA_BASE_URL      Ollama server URL (default: http://localhost:11434)
+OLLAMA_LLM_MODEL     LLM model name (e.g. qwen3.5:27b-q4_k_m)
+OLLAMA_EMBED_MODEL   Embedding model name (e.g. qwen3-embedding:0.6b)
+
+CHROMA_HOST          ChromaDB host (default: localhost)
+CHROMA_PORT          ChromaDB port (default: 8000)
+CHROMA_COLLECTION    Collection name for document chunks (default: kernel_chunks)
+CHROMA_CHATROOM_COLLECTION  Collection name for chatroom chunks (default: kernel_chatroom_chunks)
+
+NEO4J_URI            bolt:// or neo4j+s:// URI
+NEO4J_USER           Neo4j username
+NEO4J_PASSWORD       Neo4j password
+
+FILE_STORAGE_PATH    Local directory for uploaded file storage (default: ./uploads)
+PORT                 FastAPI port (default: 8000)
+```
+
+Neo4j vars are optional — if absent, all graph operations are silently skipped and vector search is used as fallback.
+
+---
+
+## 4. Database Schema
+
+All relational tables live in **PostgreSQL**. The full DDL is in `postgres-local-setup.sql`. Vector embeddings are stored separately in **ChromaDB** — the `chunks` and `chatroom_chunks` tables contain only text and metadata; there is **no vector column** in PostgreSQL.
+
+### Setup
+
+```bash
+psql -U postgres -c "CREATE DATABASE projectdb;"
+psql -U postgres -d projectdb -f postgres-local-setup.sql
+```
+
+The setup script enables the `pgcrypto` extension for `gen_random_uuid()`.
+
+---
 
 ### Core tables
 
@@ -154,7 +149,7 @@ Stores metadata for every uploaded document.
 id              uuid PK
 filename        text
 filetype        text          (mime + extension, e.g. "application/pdf .pdf")
-file_url        text          (public Supabase Storage URL)
+file_url        text          (local filesystem path or URL)
 uploaded_by     text          (user_id)
 accessible_to   text[]        (array of parts/roles that can see this file)
 version         integer       (increments on each replace)
@@ -167,7 +162,7 @@ uploaded_at     timestamptz
 ```
 
 #### `chunks`
-Stores every text chunk from every uploaded document, plus its vector embedding.
+Stores every text chunk from every uploaded document. **No embedding column** — embeddings live in ChromaDB.
 ```
 id                     uuid PK
 file_id                uuid FK → files(id) ON DELETE CASCADE
@@ -175,14 +170,40 @@ chunk_text             text          ← the actual 300-600 word passage
 chunk_summary          text          ← LLM-generated 2-3 sentence summary
 keywords               text[]        ← 5-8 LLM-extracted keywords
 hypothetical_questions text[]        ← 3-5 questions this chunk would answer
-embedding              vector(768)   ← text-embedding-004 on the enriched text
 chunk_index            integer       ← position within the source document
 created_at             timestamptz
 ```
-**Index:** HNSW (`chunks_embedding_idx`) on `embedding` using cosine distance — enables sub-millisecond approximate nearest-neighbour search.
+
+The `chunk_id` (UUID) is used as the document ID in ChromaDB to link the two stores. When a vector search returns ChromaDB results, the IDs are used to fetch the full `chunk_text` and metadata from PostgreSQL.
 
 #### `files` + `chunks` relationship
-One file → many chunks (cascade delete). When a file is deleted or replaced, all its chunks are automatically removed.
+One file → many chunks (cascade delete). When a file is deleted or replaced, all its chunks are automatically removed from PostgreSQL. ChromaDB entries must be deleted separately using the same chunk UUIDs.
+
+---
+
+### ChromaDB collections
+
+ChromaDB stores the actual vector embeddings. Two collections are maintained:
+
+**`kernel_chunks`** (document chunks)
+```
+document id     = chunk.id (UUID from PostgreSQL chunks table)
+embedding       = qwen3-embedding:0.6b output on enriched text
+metadata        = { file_id, chunk_index, filename, accessible_to, filetype }
+document        = enriched text (summary + keywords + hypothetical_questions)
+```
+
+**`kernel_chatroom_chunks`** (chatroom segments)
+```
+document id     = chatroom_chunk.id (UUID from PostgreSQL chatroom_chunks table)
+embedding       = qwen3-embedding:0.6b output on chunk_text
+metadata        = { processed_date, topic_summary }
+document        = chunk_text
+```
+
+Part-scoped access filtering is applied in Python after ChromaDB returns results by checking `metadata.accessible_to`.
+
+---
 
 ### Other tables
 
@@ -198,70 +219,64 @@ One file → many chunks (cascade delete). When a file is deleted or replaced, a
 | `tf_updates` | Feed of status updates/milestones/decisions per task force |
 | `tf_action_items` | Action items scoped to a task force (assignee, due date, done flag) |
 | `chatroom_messages` | Executive chatroom messages (sender, content, conversation_id) |
-| `chatroom_chunks` | Nightly AI-partitioned topical segments of chatroom messages + embeddings |
-| `email_tokens` | Gmail OAuth refresh tokens |
+| `chatroom_chunks` | Nightly AI-partitioned topical segments of chatroom messages (text + metadata only, no embedding) |
+| `email_tokens` | OAuth refresh tokens |
 | `rag_evaluations` | Per-query RAG quality scores (precision, faithfulness, relevance) |
 | `rag_eval_summary` | Rolling averages of RAG evaluation metrics |
 
-### pgvector RPC functions
+### PostgreSQL functions
 
-Two SQL functions are registered in Supabase as RPCs (callable from the JS client):
-
-**`match_chunks(query_embedding, part_filter, match_count)`**  
-Filters chunks by `accessible_to` (part-scoped access), then returns top-k by cosine similarity.
-
-**`match_chatroom_chunks(query_embedding, match_count)`**  
-No date filter — returns top-k chatroom chunks by cosine similarity across all processed dates.
+**`update_rag_eval_summary(context_precision, faithfulness, response_relevance)`**  
+A `plpgsql` function that maintains a running average of RAG evaluation scores using an incremental formula. Called after every evaluation submission — avoids re-scanning the full `rag_evaluations` table to recompute averages.
 
 ---
 
-## 6. Document Upload Pipeline
+## 5. Document Upload Pipeline
 
-**Entry point:** `POST /api/files/upload`  
-**File:** `server.js` (route handler) + `lib/extract.js` + `lib/chunk.js` + `lib/rag.js` + `lib/graphExtract.js`
+**Entry point:** `POST /api/files/upload`
 
 This is the most complex pipeline in the system. When a user uploads a document, six sequential steps execute:
 
-### Step 1 — Text Extraction (`lib/extract.js`)
+### Step 1 — Text Extraction
 
-The buffer from Multer is passed to `extractText(buffer, filetype)` which dispatches by file type:
+The uploaded file buffer is dispatched by file type:
 
 | Format | Parser | Notes |
 |---|---|---|
-| PDF | `pdf-parse` | Returns raw text + heuristic heading detection |
-| DOCX | `mammoth` (raw text mode) | Avoids HTML conversion which silently drops table content |
-| PPTX | `jszip` — custom XML parse | Reads `ppt/slides/slideN.xml`, extracts `<a:t>` text nodes. Returns one entry per slide |
-| XLSX | `SheetJS` (`xlsx`) | Each sheet converted to CSV, sheet names become headings |
+| PDF | `pdfplumber` / `PyMuPDF` | Returns raw text + heuristic heading detection |
+| DOCX | `python-docx` (raw text mode) | Avoids HTML conversion which silently drops table content |
+| PPTX | `python-pptx` | Iterates slides, extracts all text frame content. Returns one entry per slide |
+| XLSX | `openpyxl` | Each sheet converted to CSV-like text, sheet names become headings |
 | TXT | Raw UTF-8 decode | |
 
-Returns: `{ text: string, headings: [{line, level, text}], slides?: string[] }`
+Returns: `{ text: str, headings: list[{line, level, text}], slides?: list[str] }`
 
 **Heading detection (PDF/DOCX):** Four heuristics checked in order — Markdown `#` style, numbered sections (`1.`, `2.1`), short ALL-CAPS lines, short Title Case lines followed by a blank line.
 
-### Step 2 — Chunking (`lib/chunk.js`)
+### Step 2 — Chunking
 
-`chunkDocument(extracted, { chunk_min_words: 300, chunk_max_words: 600 })` dispatches on document type:
+`chunk_document(extracted, chunk_min_words=300, chunk_max_words=600)` dispatches on document type:
 
-- **PPTX:** One chunk per slide (from `slides[]` array)
-- **PDF/DOCX with ≥2 detected headings:** `chunkByHeadings` — splits on section boundaries, sub-splits oversized sections, merges undersized consecutive sections until each chunk reaches the minimum word count
-- **Everything else:** `chunkByParagraphs` — accumulates paragraphs into a buffer, flushes when adding the next paragraph would exceed the max
+- **PPTX:** One chunk per slide
+- **PDF/DOCX with ≥2 detected headings:** `chunk_by_headings` — splits on section boundaries, sub-splits oversized sections, merges undersized consecutive sections until each chunk reaches the minimum word count
+- **Everything else:** `chunk_by_paragraphs` — accumulates paragraphs into a buffer, flushes when adding the next paragraph would exceed the max
 
-Then `addContextPrefix` prepends the nearest heading (`[Heading]\n\n...`) to every chunk so the LLM has structural context even for isolated passages.
+Then `add_context_prefix` prepends the nearest heading (`[Heading]\n\n...`) to every chunk so the LLM has structural context even for isolated passages.
 
-### Step 3 — Supabase Storage Upload
+### Step 3 — Local File Storage
 
-The original file buffer is uploaded to the `documents` Supabase Storage bucket. A UUID prefix is added to the filename to avoid collisions. A public URL is returned and stored in `files.file_url`.
+The original file buffer is saved to the local filesystem under `FILE_STORAGE_PATH`. A UUID prefix is added to the filename to avoid collisions. The resulting path/URL is stored in `files.file_url`.
 
 ### Step 4 — `files` Row Insert
 
-A row is inserted into the `files` table with metadata: filename, filetype, file_url, uploaded_by, accessible_to (the parts/roles array), version.
+A row is inserted into the `files` PostgreSQL table with metadata: filename, filetype, file_url, uploaded_by, accessible_to (the parts/roles array), version.
 
 ### Step 5 — Per-chunk: Enrich → Embed → Store
 
 For each chunk, three sub-steps run sequentially:
 
-**5a. Enrichment (`lib/rag.js` → `enrichChunk`)**  
-An LLM call (model: `config.models.enrichment`) generates:
+**5a. Enrichment (LLM call)**  
+A call to Qwen 3.5 27B via Ollama generates:
 ```json
 {
   "summary": "2-3 sentence summary of this chunk",
@@ -272,43 +287,44 @@ An LLM call (model: `config.models.enrichment`) generates:
 This is the **Hypothetical Document Embedding (HyDE)** pattern — instead of embedding the raw chunk text directly, we embed a richer representation of what the chunk *means*.
 
 **5b. Build embedding input**  
-`buildEmbeddingInput(enriched)` concatenates: `summary + "\n" + keywords.join(", ") + "\n" + hypothetical_questions.join(" ")`.  
-If enrichment failed, falls back to raw `chunk.text.slice(0, 2000)`.
+Concatenates: `summary + "\n" + keywords joined by ", " + "\n" + hypothetical_questions joined by " "`.  
+If enrichment failed, falls back to raw `chunk_text[:2000]`.
 
-**5c. Embedding (`lib/rag.js` → `embedText`)**  
-Calls the Vertex AI embedding REST endpoint:
+**5c. Embedding (Ollama)**  
+Calls the local Ollama embedding endpoint:
 ```
-POST https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google/models/text-embedding-004:predict
+POST http://localhost:11434/api/embeddings
+Body: { "model": "qwen3-embedding:0.6b", "prompt": "<enriched text>" }
 ```
-With `task_type: "RETRIEVAL_DOCUMENT"` and `outputDimensionality: 768`.  
-Returns a 768-float array.
+Returns a float array. The dimension depends on the model — verify the exact output dimension and configure ChromaDB collection with the matching dimension on first creation.
 
-**5d. Insert chunk row**  
-Stores `chunk_text` (raw passage), `chunk_summary`, `keywords`, `hypothetical_questions`, `embedding` (768-vector), `chunk_index`, `file_id` into `chunks`.
+**5d. Dual store**  
+- **PostgreSQL `chunks`:** Stores `chunk_text`, `chunk_summary`, `keywords`, `hypothetical_questions`, `chunk_index`, `file_id` — everything *except* the embedding
+- **ChromaDB `kernel_chunks`:** Stores the embedding vector, with `chunk_id` as the document ID and `{ file_id, chunk_index, filename, accessible_to }` as metadata
 
-### Step 6 — Graph Indexing (`lib/graphExtract.js`)
+### Step 6 — Graph Indexing (Neo4j)
 
-Non-blocking (`.catch()` only, does not block the upload response). If Neo4j is configured:
+Non-blocking — does not block the upload response. If Neo4j is configured:
 
-1. `extractEntities(text)` sends the first 6,000 characters to an LLM which returns structured JSON:
+1. `extract_entities(text)` sends the first 6,000 characters to Qwen 3.5 27B which returns structured JSON:
    ```json
    {
      "topics": ["cloud migration", "q3 planning"],
      "technologies": ["kubernetes", "react"],
      "people": ["Arjun Mehta"],
      "projects": ["Project X"],
-     "decisions": ["decided to migrate to k8s", ...]
+     "decisions": ["decided to migrate to k8s"]
    }
    ```
 
-2. `writeDocumentToGraph(...)` writes to Neo4j:
+2. `write_document_to_graph(...)` writes to Neo4j:
    - `MERGE (d:Document {id})` — upsert document node
    - Per topic: `MERGE (t:Topic {name})` + `(d)-[:COVERS]->(t)`
    - Per technology: `MERGE (t:Technology {name})` + `(d)-[:MENTIONS_TECH]->(t)`
    - Per person: `MERGE (p:Person {name})` + `(d)-[:MENTIONS_PERSON]->(p)`
    - Per project: `MERGE (p:Project {name})` + `(d)-[:PART_OF]->(p)`
    - Per decision: `MERGE (dec:Decision {text, documentId})` + `(d)-[:RECORDS]->(dec)`
-   - **Topic co-occurrence edges:** `(t1)-[:RELATED_TO]-(t2)` for every pair of topics in the same document — this enables one-hop graph traversal during search
+   - **Topic co-occurrence edges:** `(t1)-[:RELATED_TO]-(t2)` for every pair of topics in the same document — enables one-hop graph traversal during search
 
 **Neo4j constraints (created at server startup):**
 - `Document.id` UNIQUE
@@ -319,10 +335,9 @@ Non-blocking (`.catch()` only, does not block the upload response). If Neo4j is 
 
 ---
 
-## 7. Knowledge Hub — Vector Search
+## 6. Knowledge Hub — Vector Search
 
-**Triggered by:** Insights Chatbot queries routed to vector, or graph fallback.  
-**File:** `lib/rag.js` → `embedText`, `rerankChunks`; `server.js` → `match_chunks` RPC
+**Triggered by:** Insights Chatbot queries routed to vector, or graph fallback.
 
 ### Full flow
 
@@ -330,21 +345,31 @@ Non-blocking (`.catch()` only, does not block the upload response). If Neo4j is 
 User query
     │
     ▼
-embedText(query, 'text-embedding-004', 'query')   ← task_type: RETRIEVAL_QUERY
-    │  768-float vector
+Ollama embedding: POST /api/embeddings
+  model: qwen3-embedding:0.6b
+  prompt: query text
+    │  float array
     ▼
-supabase.rpc('match_chunks', {
-  query_embedding: vector,
-  part_filter: userPart,     ← only chunks from files accessible to this user's part
-  match_count: 20
-})
-    │  Top 20 chunks by cosine similarity (HNSW index)
+ChromaDB collection.query(
+  query_embeddings=[vector],
+  n_results=20,
+  include=["documents", "metadatas", "distances"]
+)
+    │  Top 20 chunks by cosine similarity
     ▼
-rerankChunks(query, chunks, rerankModel)
+Filter results by accessible_to metadata
+  (keep only chunks where metadata["accessible_to"] contains user's part)
     │
-    ├── if chunks.length <= 5: return as-is
+    ▼
+Fetch full chunk_text + chunk_summary from PostgreSQL
+  WHERE id IN [returned ChromaDB IDs]
+    │
+    ▼
+rerank_chunks(query, chunks, llm_model)
+    │
+    ├── if chunks ≤ 5: return as-is
     └── else: LLM call with query + chunk summaries/texts
-              Returns JSON array of indices: [3, 0, 7, 12, 1]
+              Returns list of indices: [3, 0, 7, 12, 1]
               Picks top 5 in relevance order
     │
     ▼
@@ -362,24 +387,23 @@ A chunk about "Q3 revenue targets" might have a hypothetical question: *"What we
 A user query: *"What financial goals were agreed upon?"*  
 These match semantically even though they share no exact words.
 
-### Cosine similarity
+### Cosine similarity in ChromaDB
 
-The `<=>` operator in pgvector computes cosine distance. Similarity = `1 - (embedding <=> query_embedding)`. Higher is better. The HNSW index makes this an approximate search — fast (milliseconds), with near-perfect recall on typical knowledge base sizes.
+ChromaDB computes cosine similarity natively. The `distances` returned are cosine distances — lower is more similar. When surfacing results to the LLM, similarity = `1 - distance`. ChromaDB uses an HNSW index internally for fast approximate nearest-neighbour search.
 
 ### Reranker
 
-The reranker is an LLM (same model as chat) that receives the query and the top 20 chunk summaries+text snippets and returns a JSON array of the top 5 indices in relevance order. This catches cases where cosine similarity ranks a chunk high (similar words) but the LLM judges it low relevance to the actual query intent.
+The reranker is an LLM call (Qwen 3.5 27B) that receives the query and the top 20 chunk summaries + text snippets and returns a JSON list of the top 5 indices in relevance order. This catches cases where cosine similarity ranks a chunk high (similar words) but the LLM judges it low relevance to the actual query intent.
 
 ---
 
-## 8. Knowledge Hub — Graph Search
+## 7. Knowledge Hub — Graph Search
 
-**Triggered by:** Query router deciding `search_type: "graph"`.  
-**File:** `lib/graphExtract.js` → `routeQuery`, `graphSearch`
+**Triggered by:** Query router deciding `search_type: "graph"`.
 
 ### Query Router
 
-Before every chatbot query (document mode), an LLM call decides whether to use vector or graph search:
+Before every chatbot query (document mode), an LLM call (Qwen 3.5 27B) decides whether to use vector or graph search:
 
 ```
 System prompt: "Use graph when the query asks about everything related to
@@ -399,10 +423,10 @@ Returns JSON: {
 ### Graph Search Flow
 
 ```
-routeQuery(query) → { search_type: 'graph', entities: { topics, technologies, people, projects } }
+route_query(query) → { search_type: 'graph', entities: { topics, technologies, people, projects } }
     │
     ▼
-graphSearch({ entities, partFilter })
+graph_search({ entities, part_filter })
     │
     ├── Topics query (direct):
     │     MATCH (d:Document)-[:COVERS]->(t:Topic)
@@ -419,16 +443,14 @@ graphSearch({ entities, partFilter })
     ├── People: MATCH (d)-[:MENTIONS_PERSON]->(p:Person)
     └── Projects: MATCH (d)-[:PART_OF]->(p:Project)
     │
-    │  Union of all matched file IDs (Set)
+    │  Union of all matched file IDs (set)
     ▼
-supabase.from('chunks')
-  .select('chunk_text, chunk_index, file_id, files!inner(filename, file_url, filetype, accessible_to)')
-  .in('file_id', [...fileIds])
-  .order('chunk_index')        ← document reading order, not relevance
-  .limit(20)
-    │
-    ▼
-Apply partFilter on accessible_to
+PostgreSQL: SELECT chunk_text, chunk_index, file_id, filename, filetype, file_url
+FROM chunks JOIN files ON chunks.file_id = files.id
+WHERE file_id IN [matched IDs]
+  AND [part_filter] = ANY(files.accessible_to)
+ORDER BY chunk_index
+LIMIT 20
     │
     ▼
 Return chunks (same shape as vector search output)
@@ -436,8 +458,8 @@ Return chunks (same shape as vector search output)
 
 **Key differences from vector search:**
 - No embedding of the query — Neo4j is searched by entity name matching
-- Chunks returned in document order (chunk_index), not relevance order
-- No reranking step (graph results go directly to the LLM)
+- Chunks returned in document order (`chunk_index`), not relevance order
+- No reranking step — graph results go directly to the LLM
 - If graph returns 0 results → automatic fallback to vector search
 
 ### Neo4j data model
@@ -455,21 +477,20 @@ Neo4j stores *only* document metadata and entity relationships. Actual chunk tex
 
 ---
 
-## 9. Insights Chatbot
+## 8. Insights Chatbot
 
-**Entry points:** `POST /api/chat` (single response), `POST /api/chat/stream` (SSE stream)  
-**File:** `server.js`
+**Entry points:** `POST /api/chat` (single response), `POST /api/chat/stream` (SSE stream)
 
 ### Modes
 
 The chatbot has two modes, determined by the `include_chatroom` flag in the request body:
 
 **Document mode (default):**
-- Runs `routeQuery` → vector or graph search
+- Runs `route_query` → vector or graph search
 - System prompt (`CHAT_SYSTEM`): instructs the LLM to cite source filenames and answer only from context
 
 **Chatroom mode (`include_chatroom: true`):**
-- Calls `getChatroomContext(query)` instead of document search
+- Calls `get_chatroom_context(query)` instead of document search
 - System prompt (`CHAT_SYSTEM_CHATROOM`): instructs LLM to answer only from chatroom messages, not general knowledge
 
 ### Single-turn flow (`POST /api/chat`)
@@ -477,26 +498,26 @@ The chatbot has two modes, determined by the `include_chatroom` flag in the requ
 ```
 Request: { query, user_id, model?, include_chatroom? }
     │
-    ├── Validate user + load user record
-    ├── Determine partFilter from user.part
+    ├── Validate user + load user record from PostgreSQL
+    ├── Determine part_filter from user.part
     │
     ├── [Document mode]
-    │     routeQuery(query) → { search_type, entities }
-    │     if graph: chunks = await graphSearch({ entities, partFilter })
-    │               if chunks.length === 0: fallback to vector
-    │     if vector: embed query → match_chunks RPC → rerankChunks → top 5
+    │     route_query(query) → { search_type, entities }
+    │     if graph: chunks = graph_search({ entities, part_filter })
+    │               if len(chunks) == 0: fallback to vector
+    │     if vector: embed query → ChromaDB query → rerank → top 5
     │
     ├── [Chatroom mode]
-    │     getChatroomContext(query) → raw messages (last 7 days) + relevant historical chunks
+    │     get_chatroom_context(query) → raw messages (last 7 days) + relevant historical chunks
     │
     ├── Build context string from chunks
-    ├── generateChat({ model, system, messages })
+    ├── Ollama chat call: POST /api/chat with model=qwen3.5:27b-q4_k_m
     └── Return { answer, chunks_used, search_type, route_reason }
 ```
 
 ### Streaming flow (`POST /api/chat/stream`)
 
-Same logic but uses SSE (Server-Sent Events). The response is chunked as `data: <token>\n\n` and the frontend assembles them. Uses `generateChatStream` (Gemini native streaming) or `generateChatGemmaStream` / `generateChatGLMStream` (Vertex MaaS OpenAI-compat streaming) depending on selected model.
+Same logic but uses SSE (Server-Sent Events). FastAPI's `StreamingResponse` yields tokens as `data: <token>\n\n`. The Ollama API supports streaming natively via `stream=True` in the chat call — tokens are yielded as they are generated and forwarded to the client.
 
 ### System prompts
 
@@ -506,69 +527,63 @@ Same logic but uses SSE (Server-Sent Events). The response is chunked as `data: 
 **`CHAT_SYSTEM_CHATROOM` (chatroom mode):**
 > "You are an intelligent assistant with access to executive chatroom conversations. Answer using only the chatroom messages provided. If the answer is not in the context, say 'I could not find this in the chatroom history.'"
 
-### Model selection
-
-The `model` field in the request can be:
-- `gemini-2.5-flash` → `generateChat` / `generateChatStream`
-- `gemma` → `generateChatGemma` / `generateChatGemmaStream`
-- `glm` → `generateChatGLM` / `generateChatGLMStream`
-- `gpt-oss` → `generateChatGPTOSS` / `generateChatGPTOSSStream`
-
 ---
 
-## 10. Executive Chatroom & Chatroom RAG
+## 9. Executive Chatroom & Chatroom RAG
 
 ### Chatroom Messages
 
-The executive chatroom is a private 1:1 and group messaging system for MD and Part Heads. Messages are stored in `chatroom_messages` with `sender_id`, `sender_name`, `content`, `conversation_id`, and `created_at`.
+The executive chatroom is a private messaging system for MD and Part Heads. Messages are stored in `chatroom_messages` with `sender_id`, `sender_name`, `content`, `conversation_id`, and `created_at`.
 
 **Endpoints:**
 - `GET /api/chatroom?user_id=X&with=Y` — fetch messages for a conversation between X and Y
 - `POST /api/chatroom` — send a message
 - `DELETE /api/chatroom/:id` — delete a message
 
-### Nightly Chunk Processing (`processDayChatroom`)
+### Nightly Chunk Processing (`process_day_chatroom`)
 
 **Scheduled:** Runs at 07:00 server local time daily, processing the *previous* day's messages.  
 **Manual trigger:** `POST /api/admin/chatroom/process-chunks?date=YYYY-MM-DD`
 
 ```
-Fetch all chatroom_messages for the target date
+Fetch all chatroom_messages for the target date from PostgreSQL
     │
     ▼
-LLM call: partition messages into topical groups
-  (returns JSON: [{ topic_summary, messages: [...] }])
+LLM call (Qwen 3.5 27B): partition messages into topical groups
+  Returns JSON: [{ topic_summary, messages: [...] }]
     │
     ▼
 For each topical group:
     ├── Concatenate messages into chunk_text
-    ├── embedText(chunk_text, embeddingModel, 'document')
-    └── Insert into chatroom_chunks:
-          { chunk_text, topic_summary, embedding, processed_date }
+    ├── Ollama embedding: qwen3-embedding:0.6b on chunk_text
+    ├── Insert into PostgreSQL chatroom_chunks:
+    │     { chunk_text, topic_summary, processed_date }
+    └── Insert into ChromaDB kernel_chatroom_chunks:
+          { id: chunk_id, embedding: vector, metadata: { processed_date, topic_summary } }
 ```
 
-The `chatroom_chunks` table has its own HNSW index and its own RPC (`match_chatroom_chunks`) — no date filter, searches across all processed dates.
+The `chatroom_chunks` PostgreSQL table has no embedding column — embeddings live in ChromaDB `kernel_chatroom_chunks`. The two are linked by UUID.
 
-### `getChatroomContext(query)`
+### `get_chatroom_context(query)`
 
-Called when `include_chatroom: true`. Returns a string combining two sources:
+Called when `include_chatroom: True`. Returns a string combining two sources:
 
 **Part 1 — Recent raw messages (last 7 days):**
-```javascript
-supabase.from('chatroom_messages')
-  .select('sender_name, content, created_at')
-  .gte('created_at', since.toISOString())   // 7 days ago
-  .order('created_at', { ascending: true })
-  .limit(150)
+```python
+SELECT sender_name, content, created_at
+FROM chatroom_messages
+WHERE created_at >= NOW() - INTERVAL '7 days'
+ORDER BY created_at ASC
+LIMIT 150
 ```
 Formatted as: `[DD/MM/YY, HH:MM] SenderName: message content`
 
 **Part 2 — Historical semantic chunks (if query provided):**
-```javascript
-embedText(query.slice(0, 2000), embeddingModel, 'query')
-supabase.rpc('match_chatroom_chunks', { query_embedding, match_count: 5 })
+```python
+embed query → ChromaDB kernel_chatroom_chunks.query(n_results=5)
+# No date filter — searches across all processed dates
 ```
-Returns top 5 most relevant processed chunks from any date. No date filter.
+Returns top 5 most relevant processed chunks from any date.
 
 The two parts are joined and passed as context to the chatbot.
 
@@ -577,13 +592,13 @@ The original implementation used UTC midnight as the filter — messages sent be
 
 ---
 
-## 11. AI Document Studio — Report Generator
+## 10. AI Document Studio — Report Generator
 
 **Endpoints:**
 - `POST /api/report/generate` — generate from pasted text input
 - `POST /api/report/generate-from-files` — generate from Knowledge Hub files (selected by file_ids) or chatroom context
-- `POST /api/report-templates/:id/generate` — generate using a saved template structure
-- `POST /api/report-templates/:id/generate-from-files` — template + file selection
+- `POST /api/report-templates/{id}/generate` — generate using a saved template structure
+- `POST /api/report-templates/{id}/generate-from-files` — template + file selection
 
 ### Core Generation Flow
 
@@ -591,30 +606,30 @@ The original implementation used UTC midnight as the filter — messages sent be
 Input: { input_data (text), instruction, output_format, user_id, include_chatroom? }
     │
     ├── [If include_chatroom]:
-    │     chatroomText = getChatroomContext()
-    │     if chatroomText: prepend to input_data
-    │     if empty:        use original input_data unchanged
+    │     chatroom_text = get_chatroom_context()
+    │     if chatroom_text: prepend to input_data
+    │     if empty:         use original input_data unchanged
     │
     ├── Build system prompt with formatting rules:
     │     PDF mode: narrative text, paragraphs, full visual hierarchy
     │     Excel mode: maximize tables, structured data over prose
     │
-    ├── LLM call (generateText, model: summarisation, maxTokens: 16000)
+    ├── Qwen 3.5 27B call (max_tokens: 16000)
     │     Produces HTML report content
     │
-    ├── Agent Review (optional):
+    ├── Agent Review (optional second pass):
     │     Second LLM call critiques the output for completeness/accuracy
     │     → revises and returns improved HTML
     │
     └── Export:
-          PDF: htmlToPdf (Puppeteer + Chromium)
-          Excel: custom HTML table parser → SheetJS workbook → XLSX buffer
+          PDF: WeasyPrint (HTML → PDF)
+          Excel: parse HTML tables → openpyxl workbook → XLSX bytes
           Response: binary file download
 ```
 
 ### `generate-from-files`
 
-Accepts `file_ids[]` from the Knowledge Hub. For each file, retrieves all chunks from Supabase, concatenates them into a single document string, and passes to the report LLM. This gives the LLM the full content of selected documents as source material.
+Accepts `file_ids[]` from the Knowledge Hub. For each file, retrieves all chunks from PostgreSQL ordered by `chunk_index`, concatenates them, and passes the full content to the report LLM as source material.
 
 ### Agent Review
 
@@ -622,33 +637,29 @@ After the initial generation, a second LLM pass is optionally run with a "critic
 
 ### Export formats
 
-**PDF:** `lib/htmlToPdf.js` — launches headless Chromium via Puppeteer, loads the HTML, and calls `page.pdf()` with A4 dimensions and 15mm margins.
-
-**DOCX:** `lib/htmlToDocx.js` — uses `html-to-docx` to convert HTML to a Word-compatible DOCX buffer.
-
-**Excel:** Custom logic in `server.js` — parses HTML `<table>` elements using regex, converts to SheetJS worksheet format, creates an XLSX workbook.
+**PDF:** WeasyPrint converts the generated HTML to PDF directly in Python — no headless browser required.  
+**DOCX:** python-docx parses the HTML structure and builds a Word document.  
+**Excel:** Custom logic parses HTML `<table>` elements, converts to openpyxl worksheet rows, creates an XLSX workbook.
 
 ---
 
-## 12. AI Document Studio — Refiner
+## 11. AI Document Studio — Refiner
 
 **Endpoints:**
 - `POST /api/refine` — analyse a document and return suggestions
-- `POST /api/refine/:id/save` — save the refined version (replaces file content + re-indexes)
+- `POST /api/refine/{id}/save` — save the refined version (replaces file content + re-indexes)
 
 ### Refiner Flow
 
 ```
 Request: { file_id, user_id }
     │
-    ├── Load file + all chunks from Supabase
-    ├── Reconstruct full document text from chunks (ordered by chunk_index)
+    ├── Load file + all chunks from PostgreSQL (ordered by chunk_index)
+    ├── Reconstruct full document text
     │
-    ├── LLM call with "smart suggestions" system prompt:
-    │     - Identify grammar errors
-    │     - Flag unclear/wordy phrasing
-    │     - Suggest restructuring
+    ├── Qwen 3.5 27B call with "smart suggestions" prompt:
     │     Returns JSON: { suggestions: [{type, original, suggested, reason}] }
+    │     Types: "grammar", "clarity", "structure", "paraphrase"
     │
     └── Return suggestions to frontend for user review
 ```
@@ -656,38 +667,36 @@ Request: { file_id, user_id }
 ### Save Refined Version
 
 When the user accepts suggestions and saves:
-1. The updated document text is used to regenerate chunks
-2. Old chunks for this `file_id` are deleted from `chunks`
-3. New chunks are enriched, embedded, and inserted (same pipeline as upload Step 5)
-4. `files` row is updated: `version++`, `updated_by`, `updated_at`
-5. Neo4j graph is updated: old document node replaced with new entity extraction
-
-This means the Knowledge Hub always reflects the latest version without requiring a separate re-upload.
+1. The updated document text is re-chunked
+2. Old chunks for this `file_id` are deleted from PostgreSQL `chunks`
+3. Old ChromaDB entries for this `file_id` are deleted (using stored chunk UUIDs)
+4. New chunks are enriched, embedded (Ollama), inserted into PostgreSQL and ChromaDB
+5. `files` row updated: `version++`, `updated_by`, `updated_at`
+6. Neo4j graph updated: old document node replaced with fresh entity extraction
 
 ---
 
-## 13. AI-Transcribed Minutes of Meeting
+## 12. AI-Transcribed Minutes of Meeting
 
 **Endpoints:**
-- `POST /api/mom/transcribe` — process audio or raw text into structured MoM
+- `POST /api/mom/transcribe` — process raw text transcript into structured MoM
 - `POST /api/mom/save` — persist to `minutes` table
 - `GET /api/mom` — list saved MoMs (filtered by `accessible_to`)
-- `POST /api/mom/:id/export-to-hub` — push MoM as a document into the Knowledge Hub
+- `POST /api/mom/{id}/export-to-hub` — push MoM as a document into the Knowledge Hub
 
 ### Transcription Flow
 
 ```
 Input: { transcript (text), title?, user_id, accessible_to }
     │
-    ├── LLM call (MoM extraction prompt):
-    │     System: "Extract structured MoM fields from this transcript"
+    ├── Qwen 3.5 27B call (MoM extraction prompt):
     │     Returns JSON:
     │     {
-    │       title: "...",
-    │       summary: "...",
-    │       attendees: ["name1", "name2"],
-    │       decisions: ["decision1", "decision2"],
-    │       action_items: [{ text, owner, due }]
+    │       "title": "...",
+    │       "summary": "...",
+    │       "attendees": ["name1", "name2"],
+    │       "decisions": ["decision1"],
+    │       "action_items": [{ "text": "...", "owner": "...", "due": "..." }]
     │     }
     │
     └── Return structured MoM to frontend for review
@@ -695,34 +704,33 @@ Input: { transcript (text), title?, user_id, accessible_to }
 
 ### Export to Hub
 
-When the user clicks "Export to Knowledge Hub":
-1. The MoM is serialised to formatted text (title + attendees + decisions + action items)
+When the user exports to the Knowledge Hub:
+1. MoM is serialised to formatted text
 2. Passed through the full upload pipeline (chunk → enrich → embed → graph index)
 3. Stored in `files` with the MoM's `accessible_to` scope
-4. The action items from the MoM are also written to `action_items` table with `source_type: 'mom'`
+4. Action items from the MoM are written to `action_items` with `source_type: 'mom'`
 
 ---
 
-## 14. Action Item Tracker
+## 13. Action Item Tracker
 
 **Endpoints:**
 - `GET /api/action-items` — list all (filtered by accessible_to)
 - `POST /api/action-items` — create manually
-- `PATCH /api/action-items/:id` — update items array (complete, assign)
-- `DELETE /api/action-items/:id` — delete
+- `PATCH /api/action-items/{id}` — update items array (complete, assign)
+- `DELETE /api/action-items/{id}` — delete
 - `POST /api/action-items/extract` — extract from a document (LLM call)
 
-### Extraction Logic (`lib/actionItems.js`)
+### Extraction Logic
 
 ```
 Input: document text (truncated to 16,000 chars)
     │
-    ├── LLM call with EXTRACTION_PROMPT:
+    ├── Qwen 3.5 27B call with extraction prompt:
     │     Looks for: assigned tasks, action verbs, open items, pending approvals
-    │     Returns JSON array of strings:
-    │     ["Review Q3 budget and share feedback by Friday", ...]
+    │     Returns JSON array: ["Review Q3 budget and share by Friday", ...]
     │
-    └── Each string wrapped in { id: uuid, text, completed: false }
+    └── Each string wrapped in { id: uuid, text, completed: False }
 ```
 
 ### Storage
@@ -733,20 +741,17 @@ Each record in `action_items` has:
 - `items` — JSONB array of `{ id, text, completed, assignees: [user_id] }`
 - `accessible_to` — inherits from the source document
 
-Individual items within the array can be marked complete, assigned to users, or given sub-tasks without replacing the whole record.
-
 ---
 
-## 15. Intelligence Feed (Tech Sensing)
+## 14. Intelligence Feed (Tech Sensing)
 
-**Entry point:** `POST /api/feed/refresh`  
-**File:** `lib/feed.js`
+**Entry point:** `POST /api/feed/refresh`
 
 This feature automatically fetches, filters, scores, and caches industry news per department.
 
 ### Source configuration (`config.json`)
 
-Each source has:
+Each source specifies:
 ```json
 {
   "name": "TechCrunch AI",
@@ -755,31 +760,27 @@ Each source has:
   "parts": ["Tech Management", "PRISM"]
 }
 ```
-Sources with `"geminiSearch": true` use Gemini grounded search instead of RSS (for sites without public feeds or behind Cloudflare).
+Sources with `"geminiSearch": true` use a web-search fallback (via an LLM with web access) for sites without public feeds or behind Cloudflare.
 
 ### Pipeline per source
 
 ```
-For each source in config.sources (filtered by requested part):
+For each source filtered by requested part:
     │
     ├── [RSS source]:
-    │     rssParser.parseURL(rssUrl)                    ← rss-parser library
-    │     if fails: fetchRssRaw() → sanitizeXml() → rssParser.parseString()
-    │     if fails: scrapeViaGeminiSearch()             ← Gemini + Google Search grounding
+    │     feedparser.parse(rss_url)
+    │     if fails: raw HTTP fetch → sanitize XML → feedparser.parse(string)
+    │     if fails: web search fallback
     │
-    ├── [geminiSearch source]:
-    │     Gemini call with Google Search tool
-    │     Extract article URLs from grounding chunks or JSON response
-    │
-    ├── Apply part-specific filter:
-    │     PMO: filterArticleForPMO(title) → keep only AI-in-PM articles
-    │     Tech Management: filterArticleForTechSensing(title) → keep only technical articles
-    │     PRISM: tagArticleRelevance(title) → assign High/Medium/Low worklet relevance
+    ├── Apply part-specific LLM filter:
+    │     PMO: keep only AI-in-PM articles
+    │     Tech Management: keep only technical/research articles
+    │     PRISM: assign High/Medium/Low worklet relevance tag
     │
     └── Collect into grouped result object
 ```
 
-### Filtering (LLM-based)
+### Filtering (LLM-based, Qwen 3.5 27B)
 
 Each filter/scorer is a separate LLM call with a targeted system prompt:
 
@@ -787,23 +788,15 @@ Each filter/scorer is a separate LLM call with a targeted system prompt:
 - **Tech Sensing filter:** Keeps technical content (new models, tools, research). Discards business/consumer news.
 - **PRISM worklet tagger:** Assigns `High` / `Medium` / `Low` based on whether an article could inspire a 3-5 day hands-on engineering task.
 
-All three have 3-attempt retry logic with exponential backoff (1s, 2s, 3s). On persistent failure, articles are kept (fail-open policy).
+All three have 3-attempt retry logic with exponential backoff. On persistent failure, articles are kept (fail-open policy).
 
 ### Caching
 
-Results are stored as a single JSON blob in `feed_cache` (one row, id='latest'). Subsequent `GET /api/feed?part=X` reads from cache, not the live sources. Cache is invalidated only when `POST /api/feed/refresh` is explicitly called.
-
-### Live Search
-
-`POST /api/feed/live-search` accepts a free-text query and uses `generateTextWithSearch` (Gemini with Google Search grounding) to return real-time web results beyond the curated feed.
-
-### Open Source LLM Leaderboard
-
-`GET /api/feed/leaderboard` fetches live LLM rankings from an external leaderboard API (configurable endpoint). Returns tier rankings of current open-source models.
+Results are stored as a single JSON blob in `feed_cache` (one row, id='latest'). Subsequent `GET /api/feed?part=X` reads from cache. Cache is invalidated only when `POST /api/feed/refresh` is explicitly called.
 
 ---
 
-## 16. AI Literacy Quizzes
+## 15. AI Literacy Quizzes
 
 **Endpoints:**
 - `GET /api/quiz` — fetch quiz questions
@@ -816,18 +809,18 @@ Results are stored as a single JSON blob in `feed_cache` (one row, id='latest').
 quiz_scores (
   user_id TEXT PRIMARY KEY,   -- only one record per user
   user_name TEXT,
-  quiz_id TEXT,               -- allows multiple quiz types
+  quiz_id TEXT,
   score INTEGER,
   total INTEGER,
   attempted_at TIMESTAMPTZ
 )
 ```
 
-Retaking a quiz does an UPSERT — the new score replaces the old one. The leaderboard is ordered by `score DESC, attempted_at ASC` (ties broken by who scored first).
+Retaking a quiz does an `INSERT ... ON CONFLICT DO UPDATE` — the new score replaces the old one. The leaderboard is ordered by `score DESC, attempted_at ASC`.
 
 ---
 
-## 17. Task Forces
+## 16. Task Forces
 
 Cross-departmental working groups with their own feed, action items, and member management.
 
@@ -841,32 +834,32 @@ Cross-departmental working groups with their own feed, action items, and member 
 **Endpoints:**
 - `GET /api/task-forces` — list (filtered by user role)
 - `POST /api/task-forces` — create
-- `PATCH /api/task-forces/:id` — update name/status/members
-- `POST /api/task-forces/:id/updates` — post a status update / milestone / decision
-- `POST /api/task-forces/:id/action-items` — add an action item
-- `PATCH /api/task-forces/:id/action-items/:aid` — mark done / update
+- `PATCH /api/task-forces/{id}` — update name/status/members
+- `POST /api/task-forces/{id}/updates` — post a status/milestone/decision update
+- `POST /api/task-forces/{id}/action-items` — add an action item
+- `PATCH /api/task-forces/{id}/action-items/{aid}` — mark done / update
 
 ---
 
-## 18. Report Templates
+## 17. Report Templates
 
-Templates are uploaded documents that define the structure a generated report should follow. The template text is extracted and stored separately from the Knowledge Hub.
+Templates define the structure a generated report should follow. Template text is extracted and stored separately from the Knowledge Hub.
 
 **Flow:**
 1. Upload template → `POST /api/report-templates` → extract text → store in `report_templates`
-2. Select template + source files → `POST /api/report-templates/:id/generate-from-files`
+2. Select template + source files → `POST /api/report-templates/{id}/generate-from-files`
 3. The LLM receives: template structure + source document content + user instruction
 4. Output conforms to the template format
 
 ---
 
-## 19. RAG Evaluation
+## 18. RAG Evaluation
 
 **Endpoints:**
 - `POST /api/chat/evaluate` — evaluate a single Q&A pair
 - `GET /api/chat/eval-summary` — get rolling averages
 
-After a chatbot response, the frontend can optionally submit the query + answer for quality scoring. Three metrics are computed by an LLM judge:
+After a chatbot response, the frontend can optionally submit the query + answer for quality scoring. Three metrics are computed by a Qwen 3.5 27B judge:
 
 | Metric | What it measures |
 |---|---|
@@ -874,21 +867,21 @@ After a chatbot response, the frontend can optionally submit the query + answer 
 | `faithfulness` | Is the answer supported by the context, or did the LLM hallucinate? |
 | `response_relevance` | Does the answer actually address the question asked? |
 
-Each metric is a float 0–1. Results are stored in `rag_evaluations` and the rolling averages are maintained in `rag_eval_summary` (single-row upsert after each evaluation).
+Each metric is a float 0–1. Results are stored in `rag_evaluations`. The PostgreSQL function `update_rag_eval_summary` is called after each evaluation to maintain rolling averages in `rag_eval_summary` without rescanning the full table.
 
 ---
 
-## 20. API Endpoint Reference
+## 19. API Endpoint Reference
 
 ### Files / Knowledge Hub
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/api/files/upload` | Upload a document |
 | `GET` | `/api/files` | List files (filtered by user's part) |
-| `DELETE` | `/api/files/:id` | Delete file + chunks + graph nodes |
-| `POST` | `/api/files/:id/lock` | Lock file for editing |
-| `POST` | `/api/files/:id/unlock` | Release lock |
-| `POST` | `/api/files/:id/replace` | Upload a new version |
+| `DELETE` | `/api/files/{id}` | Delete file + chunks + graph nodes |
+| `POST` | `/api/files/{id}/lock` | Lock file for editing |
+| `POST` | `/api/files/{id}/unlock` | Release lock |
+| `POST` | `/api/files/{id}/replace` | Upload a new version |
 | `POST` | `/api/files/match` | Full-text search in filenames |
 
 ### Chatbot
@@ -907,15 +900,15 @@ Each metric is a float 0–1. Results are stored in `rag_evaluations` and the ro
 | `POST` | `/api/report/generate-from-files` | Generate from selected Knowledge Hub files |
 | `GET` | `/api/report-templates` | List templates |
 | `POST` | `/api/report-templates` | Upload a template |
-| `DELETE` | `/api/report-templates/:id` | Delete template |
-| `POST` | `/api/report-templates/:id/generate` | Generate from template + text |
-| `POST` | `/api/report-templates/:id/generate-from-files` | Generate from template + files |
+| `DELETE` | `/api/report-templates/{id}` | Delete template |
+| `POST` | `/api/report-templates/{id}/generate` | Generate from template + text |
+| `POST` | `/api/report-templates/{id}/generate-from-files` | Generate from template + files |
 
 ### Refiner
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/api/refine` | Analyse document + return suggestions |
-| `POST` | `/api/refine/:id/save` | Save refined version + re-index |
+| `POST` | `/api/refine/{id}/save` | Save refined version + re-index |
 
 ### Feed
 | Method | Path | Description |
@@ -924,7 +917,7 @@ Each metric is a float 0–1. Results are stored in `rag_evaluations` and the ro
 | `POST` | `/api/feed/refresh` | Re-run pipeline for a part |
 | `GET` | `/api/feed/sources` | List configured sources |
 | `POST` | `/api/feed/sources` | Add/update a source |
-| `POST` | `/api/feed/live-search` | On-demand Gemini web search |
+| `POST` | `/api/feed/live-search` | On-demand web search |
 | `GET` | `/api/feed/leaderboard` | Live open-source LLM rankings |
 
 ### MoM, Action Items, Task Forces
@@ -933,22 +926,22 @@ Each metric is a float 0–1. Results are stored in `rag_evaluations` and the ro
 | `POST` | `/api/mom/transcribe` | Process transcript → structured MoM |
 | `POST` | `/api/mom/save` | Save MoM |
 | `GET` | `/api/mom` | List saved MoMs |
-| `POST` | `/api/mom/:id/export-to-hub` | Push MoM into Knowledge Hub |
+| `POST` | `/api/mom/{id}/export-to-hub` | Push MoM into Knowledge Hub |
 | `GET` | `/api/action-items` | List action items |
 | `POST` | `/api/action-items/extract` | Extract from document text |
-| `PATCH` | `/api/action-items/:id` | Update items |
+| `PATCH` | `/api/action-items/{id}` | Update items |
 | `GET` | `/api/task-forces` | List task forces |
 | `POST` | `/api/task-forces` | Create task force |
-| `PATCH` | `/api/task-forces/:id` | Update task force |
-| `POST` | `/api/task-forces/:id/updates` | Post update |
-| `POST` | `/api/task-forces/:id/action-items` | Add action item |
+| `PATCH` | `/api/task-forces/{id}` | Update task force |
+| `POST` | `/api/task-forces/{id}/updates` | Post update |
+| `POST` | `/api/task-forces/{id}/action-items` | Add action item |
 
 ### Chatroom
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/api/chatroom` | Fetch conversation messages |
 | `POST` | `/api/chatroom` | Send message |
-| `DELETE` | `/api/chatroom/:id` | Delete message |
+| `DELETE` | `/api/chatroom/{id}` | Delete message |
 | `POST` | `/api/admin/chatroom/process-chunks` | Manually trigger nightly chunk job |
 
 ### Quizzes & Users
@@ -962,7 +955,7 @@ Each metric is a float 0–1. Results are stored in `rag_evaluations` and the ro
 
 ---
 
-## 21. Configuration Reference (`config.json`)
+## 20. Configuration Reference (`config.json`)
 
 ```json
 {
@@ -974,14 +967,13 @@ Each metric is a float 0–1. Results are stored in `rag_evaluations` and the ro
   },
   "parts": [...],                // valid part names
   "models": {
-    "scoring": "gemini-2.5-flash",        // feed filtering + worklet tagging
-    "summarisation": "gemini-2.5-flash",  // report generation
-    "enrichment": "gemini-2.5-flash",     // chunk enrichment on upload
-    "reranker": "gemini-2.5-flash",       // RAG reranking
-    "chat": "gemini-2.5-flash"            // chatbot + routing + entity extraction
+    "scoring": "qwen3.5:27b-q4_k_m",        // feed filtering + worklet tagging
+    "summarisation": "qwen3.5:27b-q4_k_m",  // report generation
+    "enrichment": "qwen3.5:27b-q4_k_m",     // chunk enrichment on upload
+    "reranker": "qwen3.5:27b-q4_k_m",       // RAG reranking
+    "chat": "qwen3.5:27b-q4_k_m"            // chatbot + routing + entity extraction
   },
-  "embeddingModel": "text-embedding-004",
-  "embeddingDimensions": 768,
+  "embeddingModel": "qwen3-embedding:0.6b",
   "rag": {
     "vector_search_top_k": 20,   // how many chunks to retrieve before reranking
     "rerank_top_n": 5,           // how many chunks to keep after reranking
@@ -993,40 +985,30 @@ Each metric is a float 0–1. Results are stored in `rag_evaluations` and the ro
 
 ---
 
-## 22. Alternative Codebase Stack
+## 21. Alternative Cloud Stack
 
-A parallel implementation of the same platform exists with a different infrastructure stack, intended for fully local/on-premise deployment.
+A parallel cloud-hosted implementation exists using managed services instead of local infrastructure. It uses the same business logic, API routes, and prompt designs — only the infrastructure layer differs.
 
-| Component | Cloud version (this repo) | Local/on-premise version |
+| Component | Local stack (this document) | Cloud stack |
 |---|---|---|
-| LLM | Gemini 2.5 Flash (Vertex AI) | Qwen 3.5 27B (Q4_K_M) via Ollama |
-| Embedding model | `text-embedding-004` (768-dim, Google) | `qwen3-embedding:0.6b` (via Ollama) |
-| Vector store | Supabase PostgreSQL + pgvector | PostgreSQL (self-hosted) + ChromaDB |
-| Graph DB | Neo4j (AuraDB or self-hosted) | Neo4j (same) |
-| File storage | Supabase Storage | Local filesystem or MinIO |
-| Auth | Supabase service key | Custom or none |
+| Backend | FastAPI (Python) | Node.js (ESM) + Express |
+| LLM | Qwen 3.5 27B via Ollama | Gemini 2.5 Flash via Vertex AI |
+| Embedding model | `qwen3-embedding:0.6b` via Ollama | `text-embedding-004` (768-dim) via Vertex AI |
+| Vector store | ChromaDB (local persistent) | Supabase PostgreSQL + pgvector (HNSW) |
+| Relational DB | PostgreSQL (psycopg2, direct) | Supabase (PostgreSQL + PostgREST JS client) |
+| Graph DB | Neo4j (self-hosted) | Neo4j (AuraDB managed) |
+| File storage | Local filesystem | Supabase Storage (S3-compatible) |
+| Vector search | ChromaDB `.query()` + Python post-filter | `match_chunks` SQL RPC (pgvector `<=>` operator) |
+| Chatroom vector search | ChromaDB `kernel_chatroom_chunks` | `match_chatroom_chunks` SQL RPC |
+| Auth | Custom / none | Supabase service key (bypasses RLS) |
 
-### Key differences for engineers working on the local stack
+### Key structural differences
 
-**ChromaDB instead of pgvector:**
-- ChromaDB is a dedicated vector database (Python-native, with a JS client)
-- No SQL `match_chunks` RPC — use the ChromaDB collection's `.query()` method with `n_results: 20`
-- The embedding must be generated first (same process), then passed to ChromaDB
+**pgvector vs ChromaDB:**  
+In the cloud stack, the `chunks` table has a `vector(768)` embedding column and an HNSW index. Vector search is a single SQL call (`match_chunks` RPC) that filters by `accessible_to` and computes cosine similarity in one step. In the local stack, embeddings live in ChromaDB and text lives in PostgreSQL — a two-step lookup is needed (ChromaDB → get IDs → PostgreSQL → get text).
 
-**`qwen3-embedding:0.6b` instead of `text-embedding-004`:**
-- Served locally via Ollama on the same machine as the LLM
-- Endpoint: `POST http://localhost:11434/api/embeddings` with `{ model: "qwen3-embedding:0.6b", prompt: "..." }`
-- Output dimension may differ from 768 — verify the actual dimension and update the ChromaDB collection schema and PostgreSQL vector column size accordingly
-- Task type distinction (`RETRIEVAL_DOCUMENT` vs `RETRIEVAL_QUERY`) does not apply — Ollama embedding models do not support task types
+**No task_type distinction in Ollama embeddings:**  
+The Vertex AI `text-embedding-004` model accepts a `task_type` parameter (`RETRIEVAL_DOCUMENT` vs `RETRIEVAL_QUERY`) which adjusts the embedding for its intended use. Ollama embedding models do not support this — the same model and call signature is used for both document indexing and query embedding.
 
-**Qwen 3.5 27B via Ollama:**
-- Single-user sequential inference — no concurrent request handling
-- Endpoint: `POST http://localhost:11434/api/chat` (OpenAI-compat: `POST http://localhost:11434/v1/chat/completions`)
-- All LLM calls in `lib/llm.js` need to be pointed at the Ollama endpoint
-- Context window: 256K tokens (Q4_K_M quantization), but realizable context is ~83,000 tokens given the 48GB VRAM budget
-
-**What stays the same:**
-- Neo4j graph schema and all Cypher queries are identical
-- Chunking logic (`lib/chunk.js`) is identical
-- Enrichment, reranking, and routing prompt logic is identical
-- All API routes and business logic in `server.js` are identical — only the `lib/llm.js` and `lib/rag.js` clients change
+**Single-user LLM concurrency:**  
+Ollama serves one request at a time. The cloud stack (Gemini via Vertex AI) handles concurrent requests natively. For the local stack to support multiple simultaneous users, replace Ollama with vLLM or SGLang which implement continuous batching for true concurrent serving.
