@@ -227,13 +227,13 @@ The uploaded file buffer is dispatched by file type:
 
 | Format | Parser | Notes |
 |---|---|---|
-| PDF | `pdfplumber` / `PyMuPDF` | Returns raw text + heuristic heading detection |
-| DOCX | `python-docx` (raw text mode) | Avoids HTML conversion which silently drops table content |
-| PPTX | `python-pptx` | Iterates slides, extracts all text frame content. Returns one entry per slide |
-| XLSX | `openpyxl` | Each sheet converted to CSV-like text, sheet names become headings |
+| PDF | `PyMuPDF` | 
+| DOCX | `python-docx` |
+| PPTX | `python-pptx` |
+| XLSX | `openpyxl` |
 | TXT | Raw UTF-8 decode | |
 
-Returns: `{ text: str, headings: list[{line, level, text}], slides?: list[str] }`
+Returns: `{ text: str, headings: list[{line, level, text}], slides?: list[str], error?: str }`
 
 **Heading detection (PDF/DOCX):** Four heuristics checked in order — Markdown `#` style, numbered sections (`1.`, `2.1`), short ALL-CAPS lines, short Title Case lines followed by a blank line.
 
@@ -245,11 +245,11 @@ Returns: `{ text: str, headings: list[{line, level, text}], slides?: list[str] }
 - **PDF/DOCX with ≥2 detected headings:** `chunk_by_headings` — splits on section boundaries, sub-splits oversized sections, merges undersized consecutive sections until each chunk reaches the minimum word count
 - **Everything else:** `chunk_by_paragraphs` — accumulates paragraphs into a buffer, flushes when adding the next paragraph would exceed the max
 
-Then `add_context_prefix` prepends the nearest heading (`[Heading]\n\n...`) to every chunk so the LLM has structural context even for isolated passages.
+Then `add_context_prefix` prepends the nearest heading ([Section: {heading}]\n...) to every chunk so the LLM has structural context even for isolated passages.
 
 ### Step 3 — Local File Storage
 
-The original file buffer is saved to the local filesystem under `FILE_STORAGE_PATH`. A UUID prefix is added to the filename to avoid collisions. The resulting path/URL is stored in `files.file_url`.
+The original file buffer is saved to the local filesystem under fastapi_backend/uploads/. A UUID prefix is added to the filename to avoid collisions. The resulting URL (http://localhost:{PORT}/uploads/{uuid}-{filename}) is stored in files.file_url.
 
 ### Step 4 — `files` Row Insert
 
@@ -276,15 +276,12 @@ If enrichment failed, falls back to raw `chunk_text[:2000]`.
 
 **5c. Embedding (Ollama)**  
 Calls the local Ollama embedding endpoint:
-```
-POST http://localhost:11434/api/embeddings
-Body: { "model": "qwen3-embedding:0.6b", "prompt": "<enriched text>" }
-```
+
 Returns a float array. The dimension depends on the model — verify the exact output dimension and configure ChromaDB collection with the matching dimension on first creation.
 
 **5d. Dual store**  
 - **PostgreSQL `chunks`:** Stores `chunk_text`, `chunk_summary`, `keywords`, `hypothetical_questions`, `chunk_index`, `file_id` — everything *except* the embedding
-- **ChromaDB `kernel_chunks`:** Stores the embedding vector, with `chunk_id` as the document ID and `{ file_id, chunk_index, filename, accessible_to }` as metadata
+- **ChromaDB `kernel_chunks`:** Stores the embedding vector, with `chunk_id` as the document ID and ` { file_id, chunk_index, filename, filetype, file_url, uploaded_by, accessible_to_str, chunk_summary, keywords_json, hypothetical_questions_json }` as metadata
 
 ### Step 6 — Graph Indexing (Neo4j)
 
@@ -303,12 +300,14 @@ Non-blocking — does not block the upload response. If Neo4j is configured:
 
 2. `write_document_to_graph(...)` writes to Neo4j:
    - `MERGE (d:Document {id})` — upsert document node
-   - Per topic: `MERGE (t:Topic {name})` + `(d)-[:COVERS]->(t)`
-   - Per technology: `MERGE (t:Technology {name})` + `(d)-[:MENTIONS_TECH]->(t)`
-   - Per person: `MERGE (p:Person {name})` + `(d)-[:MENTIONS_PERSON]->(p)`
-   - Per project: `MERGE (p:Project {name})` + `(d)-[:PART_OF]->(p)`
+   - Per topic: `MERGE (t:Topic {name})` + `(d)-[:COVERS]->(t)` — name is lowercased
+   - Per technology: `MERGE (t:Technology {name})` + `(d)-[:MENTIONS_TECH]->(t)` — name is lowercased
+   - Per person: `MERGE (p:Person {name})` + `(d)-[:MENTIONS_PERSON]->(p)`— name is lowercased
+   - Per project: `MERGE (p:Project {name})` + `(d)-[:PART_OF]->(p)`— name is lowercased
    - Per decision: `MERGE (dec:Decision {text, documentId})` + `(d)-[:RECORDS]->(dec)`
    - **Topic co-occurrence edges:** `(t1)-[:RELATED_TO]-(t2)` for every pair of topics in the same document — enables one-hop graph traversal during search
+
+When a document is deleted, `delete_document_from_graph` runs `DETACH DELETE` on the Document node and any associated Decision nodes, removing all their relationships.
 
 **Neo4j constraints (created at server startup):**
 - `Document.id` UNIQUE
