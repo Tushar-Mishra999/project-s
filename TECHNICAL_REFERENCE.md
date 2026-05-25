@@ -1011,11 +1011,15 @@ Each metric is a float 0–1. Results are stored in `rag_evaluations`. The Postg
 | `GET` | `/api/users` | List users |
 
 ### Render endpoints
+| Method | Path | Description |
+|---|---|---|
 | `POST` | `/api/render-pdf` | HTML → PDF (Playwright/xhtml2pdf) |
 | `POST` | `/api/render-docx` | HTML → DOCX |
 | `POST` | `/api/render-xlsx` | HTML → XLSX |
 
 ### Gmail Integration (testing feature)
+| Method | Path | Description |
+|---|---|---|
 | `GET` | `/api/email/status` | Check Gmail connection |
 | `GET` | `/api/email/auth` | Start Gmail OAuth flow |
 | `GET` | `/api/email/callback` | OAuth callback |
