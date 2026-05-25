@@ -594,7 +594,7 @@ The original implementation used UTC midnight as the filter — messages sent be
 ### Core Generation Flow
 
 ```
-Input: { input_data (text), instruction, output_format, user_id, include_chatroom? }
+Input: { input_data (text), instruction, output_format, report_model, user_id, include_chatroom? } | Note: report_model is passed through but the actual LLM used is OLLAMA_MODEL
     │
     ├── [If include_chatroom]:
     │     chatroom_text = get_chatroom_context()
@@ -605,22 +605,24 @@ Input: { input_data (text), instruction, output_format, user_id, include_chatroo
     │     PDF mode: narrative text, paragraphs, full visual hierarchy
     │     Excel mode: maximize tables, structured data over prose
     │
-    ├── Qwen 3.5 9B call (max_tokens: 16000)
+    ├── Qwen 3.5 9B call 
     │     Produces HTML report content
     │
     ├── Agent Review (optional second pass):
-    │     Second LLM call critiques the output for completeness/accuracy
+    │     Second LLM call, when enabled, critiques the output for completeness/accuracy
     │     → revises and returns improved HTML
     │
     └── Export:
-          PDF: WeasyPrint (HTML → PDF)
-          Excel: parse HTML tables → openpyxl workbook → XLSX bytes
-          Response: binary file download
+          PDF: html2pdf.js (client-side, html2canvas + jsPDF) — no server call needed
+          PDF server fallback: Playwright (headless Chromium) or xhtml2pdf (Pisa)
+          Excel: parse HTML tables → openpyxl workbook → XLSX bytes (server-side via /api/render-xlsx)
+          Response: SSE stream with {report, template_filename, used_files?}
 ```
 
 ### `generate-from-files`
 
-Accepts `file_ids[]` from the Knowledge Hub. For each file, retrieves all chunks from PostgreSQL ordered by `chunk_index`, concatenates them, and passes the full content to the report LLM as source material.
+Accepts `file_ids[]` and optional `instruction` from the Knowledge Hub. For each file, retrieves all chunks from PostgreSQL ordered by `chunk_index`, concatenates them (capped at 60,000 chars per file), and passes the full content to the report LLM as source material. If an instruction is provided, it's prepended as "User instruction: {instruction}".
+
 
 ### Agent Review
 
@@ -628,9 +630,10 @@ After the initial generation, a second LLM pass is optionally run with a "critic
 
 ### Export formats
 
-**PDF:** WeasyPrint converts the generated HTML to PDF directly in Python — no headless browser required.  
-**DOCX:** python-docx parses the HTML structure and builds a Word document.  
-**Excel:** Custom logic parses HTML `<table>` elements, converts to openpyxl worksheet rows, creates an XLSX workbook.
+**PDF:** html2pdf.js generates PDF client-side in the browser (html2canvas + jsPDF). Server-side fallback uses Playwright (headless Chromium) with xhtml2pdf as secondary fallback.
+**DOCX:** htmldocx parses the HTML structure and builds a Word document via python-docx.
+**Excel:** Custom logic in render_xlsx() parses HTML `<table>` elements via BeautifulSoup, converts to openpyxl worksheet rows, creates an XLSX workbook. Each `<table>` becomes a separate sheet named after the preceding heading.
+
 
 ---
 
@@ -649,21 +652,29 @@ Request: { file_id, user_id }
     ├── Reconstruct full document text
     │
     ├── Qwen 3.5 9B call with "smart suggestions" prompt:
-    │     Returns JSON: { suggestions: [{type, original, suggested, reason}] }
-    │     Types: "grammar", "clarity", "structure", "paraphrase"
+    │     Returns JSON array: [{type, original, suggestion, explanation}]
+    │     Types: "spelling", "grammar", "paraphrase"
+    │     Max 10 suggestions; returns [] if text is clean
     │
-    └── Return suggestions to frontend for user review
+    └── Return { suggestions: [...], text: "full document text" }
+        Note: LLM returns a flat JSON array, not a wrapping object
+        The `text` field is the reconstructed document text (capped at 7000 chars)
+
 ```
 
 ### Save Refined Version
 
 When the user accepts suggestions and saves:
-1. The updated document text is re-chunked
-2. Old chunks for this `file_id` are deleted from PostgreSQL `chunks`
-3. Old ChromaDB entries for this `file_id` are deleted (using stored chunk UUIDs)
-4. New chunks are enriched, embedded (Ollama), inserted into PostgreSQL and ChromaDB
-5. `files` row updated: `version++`, `updated_by`, `updated_at`
-6. Neo4j graph updated: old document node replaced with fresh entity extraction
+1. File format preservation:
+   - DOCX: python-docx creates a new document with the edited text
+   - TXT/MD: saved as UTF-8 text
+   - PDF/others: saved as .txt (cannot reconstruct original format)
+2. New file is uploaded to local storage, old file deleted
+3. Old chunks for this `file_id` are deleted from PostgreSQL `chunks`
+4. Old ChromaDB entries for this `file_id` are deleted (using ChromaDB where filter on file_id)
+5. The updated document text is re-chunked, enriched, embedded, inserted into PostgreSQL and ChromaDB
+6. `files` row updated: filename (may change extension), filetype, file_url, version++, updated_by, updated_at, lock released
+7. Neo4j graph is NOT updated on refine save (no entity re-extraction)
 
 ---
 
@@ -730,33 +741,42 @@ When the user exports to the Knowledge Hub:
 - `POST /api/action-items` — create manually
 - `PATCH /api/action-items/{id}` — update items array (complete, assign)
 - `DELETE /api/action-items/{id}` — delete
-- `POST /api/action-items/extract` — extract from a document (LLM call)
+- `POST /api/action-items/extract/{file_id}` — extract from a document (LLM call)
 
 ### Extraction Logic
 
 ```
-Input: document text (truncated to 16,000 chars)
+Input: document text 
     │
     ├── Qwen 3.5 9B call with extraction prompt:
-    │     Looks for: assigned tasks, action verbs, open items, pending approvals
-    │     Returns JSON array: ["Review Q3 budget and share by Friday", ...]
+    │     System prompt: "Extract action items from the document. Return ONLY a JSON array:
+    │     [{"id":"<uuid>","text":"action item text","completed":false}]"
+    │     Max 20 items; returns [] if none found
     │
-    └── Each string wrapped in { id: uuid, text, completed: False }
+    └── If LLM fails, regex fallback scans for lines starting with action verbs
+     (review|update|send|create|prepare|schedule|follow|complete|implement|draft|check|report|discuss|coordinate)
+     after bullet markers (-, •, *)
+
 ```
 
 ### Storage
 
 Each record in `action_items` has:
 - `file_id` / `source_id` — which document or MoM it came from
-- `source_type` — `'file'` or `'mom'`
-- `items` — JSONB array of `{ id, text, completed, assignees: [user_id] }`
+- `source_type` — `'file'`, `'mom'`, or `'manual'`
+  'file': extracted from an uploaded document
+  'mom': extracted from a Minutes of Meeting record
+  'manual': created from email extraction or manual entry
+- `items` — JSONB array of `{ id, text, completed, assignees: [user_id], due_date, parent_item_id }`
+  due_date: optional ISO date string or null
+  parent_item_id: optional UUID linking to a parent action item (for sub-tasks) or null
 - `accessible_to` — inherits from the source document
 
 ---
 
 ## 14. Intelligence Feed (Tech Sensing)
 
-**Entry point:** `POST /api/feed/refresh`
+The refresh endpoint triggers the pipeline asynchronously via `asyncio.create_task()` and returns immediately. The frontend polls `GET /api/feed?part=X` which returns `pipelineRunning: true` until the pipeline completes. Results are cached in both memory and the `feed_cache` PostgreSQL table.
 
 This feature automatically fetches, filters, scores, and caches industry news per department.
 
@@ -777,16 +797,23 @@ Each source specifies:
 For each source filtered by requested part:
     │
     ├── [RSS source]:
-    │     feedparser.parse(rss_url)
-    │     if fails: raw HTTP fetch → sanitize XML → feedparser.parse(string)
-    │     if fails: web search fallback
+    │     httpx.get(rss_url) with custom User-Agent header
+    │     feedparser.parse(response_text)
+    │     if 0 entries: sanitize XML (fix bare &, strip BOM) → feedparser.parse(sanitized)
+    │     if still 0 entries: skip source (no web search fallback)
+    │     Max 15 articles per source fetched
     │
     ├── Apply part-specific LLM filter:
     │     PMO: keep only AI-in-PM articles
     │     Tech Management: keep only technical/research articles
     │     PRISM: assign High/Medium/Low worklet relevance tag
     │
+    ├── [MD / Data Management / other parts]:
+    │     _score_article() — LLM scores each article 1-10 relevance + assigns a category label
+    │     Articles sorted by score (descending), top N kept
+    │
     └── Collect into grouped result object
+
 ```
 
 ### Filtering (LLM-based, Qwen 3.5 9B)
@@ -797,15 +824,21 @@ Each filter/scorer is a separate LLM call with a targeted system prompt:
 - **Tech Sensing filter:** Keeps technical content (new models, tools, research). Discards business/consumer news.
 - **PRISM worklet tagger:** Assigns `High` / `Medium` / `Low` based on whether an article could inspire a 3-5 day hands-on engineering task.
 
-All three have 3-attempt retry logic with exponential backoff. On persistent failure, articles are kept (fail-open policy).
+All three use a single LLM call with no retry. On failure, the fail-open policy applies:
+  - PMO/Tech filters: default to `relevant=True` (keep the article)
+  - PRISM tagger: default to `None` (no relevance tag shown)
+  - Scorer: default to `{score: 5, category: "General"}`
+
 
 ### Live Search
 
-`POST /api/feed/live-search` accepts a free-text query and performs a real-time search using the **DuckDuckGo Search API** (via the `duckduckgo-search` Python library — no API key required). Results are returned directly without going through the feed cache, surfacing articles beyond the curated RSS sources.
+`POST /api/feed/live-search` accepts a free-text query and performs a real-time search using the **DuckDuckGo Search API** (via the `duckduckgo-search` Python library — no API key required). Tries 3 backends in order: "lite" → "html" → "auto". Each backend gets 2 attempts with 3s/6s retry delay. Returns up to 10 results. On total failure, returns an error message about rate limiting. Results are returned directly without going through the feed cache.
+
 
 ### Caching
 
-Results are stored as a single JSON blob in `feed_cache` (one row, id='latest'). Subsequent `GET /api/feed?part=X` reads from cache. Cache is invalidated only when `POST /api/feed/refresh` is explicitly called.
+Results are stored as JSON blobs in `feed_cache` with per-part keys (e.g., id='part:Tech Management', id='part:PMO', or id='latest' for no part filter). Subsequent `GET /api/feed?part=X` reads from cache. Cache is invalidated only when `POST /api/feed/refresh` is explicitly called. An in-memory cache (_memory_feed_cache) also avoids DB reads for repeated requests.
+
 
 ---
 
@@ -893,13 +926,15 @@ Each metric is a float 0–1. Results are stored in `rag_evaluations`. The Postg
 ### Files / Knowledge Hub
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/api/files/upload` | Upload a document |
+| `POST` | `/api/upload` | Upload a document |
 | `GET` | `/api/files` | List files (filtered by user's part) |
 | `DELETE` | `/api/files/{id}` | Delete file + chunks + graph nodes |
 | `POST` | `/api/files/{id}/lock` | Lock file for editing |
 | `POST` | `/api/files/{id}/unlock` | Release lock |
 | `POST` | `/api/files/{id}/replace` | Upload a new version |
-| `POST` | `/api/files/match` | Full-text search in filenames |
+| `POST` | `/api/files/match` |  AI-powered file matching by natural language instruction |
+| `POST` | `/api/retrieve` | Vector search for chunks |
+| `GET` | `/api/parts` | List configured parts/teams |
 
 ### Chatbot
 | Method | Path | Description |
@@ -935,23 +970,30 @@ Each metric is a float 0–1. Results are stored in `rag_evaluations`. The Postg
 | `GET` | `/api/feed/sources` | List configured sources |
 | `POST` | `/api/feed/sources` | Add/update a source |
 | `POST` | `/api/feed/live-search` | On-demand DuckDuckGo web search |
-| `GET` | `/api/feed/leaderboard` | Live open-source LLM rankings |
+| `GET` | `/api/leaderboard` | Live open-source LLM rankings |
 
 ### MoM, Action Items, Task Forces
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/api/mom/transcribe` | Process transcript → structured MoM |
-| `POST` | `/api/mom/save` | Save MoM |
-| `GET` | `/api/mom` | List saved MoMs |
-| `POST` | `/api/mom/{id}/export-to-hub` | Push MoM into Knowledge Hub |
+| `POST` | `/api/minutes/transcribe` | Transcribe audio → text via faster-whisper |
+| `POST` | `/api/minutes/parse` | Parse transcript → structured MoM (LLM) |
+| `POST` | `/api/minutes` | Save MoM |
+| `GET` | `/api/minutes` | List saved MoMs |
+| `DELETE` | `/api/minutes/{id}` | Delete MoM |
+| `POST` | `/api/minutes/{id}/extract-action-items` | Extract action items from MoM |
+| `POST` | `/api/minutes/{id}/save-to-hub` | Push MoM into Knowledge Hub |
 | `GET` | `/api/action-items` | List action items |
-| `POST` | `/api/action-items/extract` | Extract from document text |
+| `POST` | `/api/action-items/extract/{file_id}` | Extract from document text |
 | `PATCH` | `/api/action-items/{id}` | Update items |
 | `GET` | `/api/task-forces` | List task forces |
 | `POST` | `/api/task-forces` | Create task force |
 | `PATCH` | `/api/task-forces/{id}` | Update task force |
 | `POST` | `/api/task-forces/{id}/updates` | Post update |
 | `POST` | `/api/task-forces/{id}/action-items` | Add action item |
+| `POST` | `/api/action-items` | Save action items (manual or from MoM/email) |
+| `DELETE` | `/api/action-items/{id}` | Delete action item card |
+| `DELETE` | `/api/task-forces/{id}` | Delete task force |
+| `PATCH` | `/api/task-forces/{id}/action-items/{aid}` | Update action item (toggle done, add comment) |
 
 ### Chatroom
 | Method | Path | Description |
@@ -964,11 +1006,27 @@ Each metric is a float 0–1. Results are stored in `rag_evaluations`. The Postg
 ### Quizzes & Users
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/quiz` | Get quiz questions |
-| `POST` | `/api/quiz/score` | Submit score |
+| `POST` | `/api/quiz/score` | Submit/overwrite quiz score |
 | `GET` | `/api/quiz/leaderboard` | Get leaderboard |
 | `GET` | `/api/users` | List users |
-| `POST` | `/api/users` | Create user |
+
+### Render endpoints
+| `POST` | `/api/render-pdf` | HTML → PDF (Playwright/xhtml2pdf) |
+| `POST` | `/api/render-docx` | HTML → DOCX |
+| `POST` | `/api/render-xlsx` | HTML → XLSX |
+
+### Gmail Integration (testing feature)
+| `GET` | `/api/email/status` | Check Gmail connection |
+| `GET` | `/api/email/auth` | Start Gmail OAuth flow |
+| `GET` | `/api/email/callback` | OAuth callback |
+| `GET` | `/api/email/messages` | Fetch recent emails |
+| `POST` | `/api/email/summarize` | Summarize emails via LLM |
+| `POST` | `/api/email/extract-actions` | Extract action items from email |
+| `POST` | `/api/email/upload-attachment` | Upload email attachment to Hub |
+
+
+### Health
+| `GET` | `/api/health` | Health check (RAG status, model info) |
 
 ---
 
