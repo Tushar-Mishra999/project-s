@@ -62,21 +62,13 @@ The core capabilities are:
 | Vector DB | ChromaDB (local persistent) | `chromadb` |
 | Relational DB | PostgreSQL (self-hosted, direct connection) | `psycopg2` |
 | Graph DB | Neo4j (self-hosted or AuraDB) | `neo4j` Python driver |
-| File storage | Local filesystem | Python `pathlib` / `shutil` |
-| PDF parsing | pdfplumber or PyMuPDF | `pdfplumber` / `fitz` |
-| DOCX parsing | python-docx | `python-docx` |
-| PPTX parsing | python-pptx | `python-pptx` |
-| XLSX parsing | openpyxl / pandas | `openpyxl` |
-| PDF export | WeasyPrint or ReportLab | `weasyprint` |
-| DOCX export | python-docx | `python-docx` |
-| RSS parsing | feedparser | `feedparser` |
+
 
 ### Frontend
 | Layer | Technology |
 |---|---|
 | Framework | React 18 |
 | Build tool | Vite |
-| Routing | React Router |
 | HTTP client | Native fetch |
 
 ### Models
@@ -115,7 +107,6 @@ NEO4J_PASSWORD       Neo4j password
 
 ```
 
-Neo4j vars are optional — if absent, all graph operations are silently skipped and vector search is used as fallback.
 
 ---
 
@@ -141,9 +132,9 @@ Stores metadata for every uploaded document.
 ```
 id              uuid PK
 filename        text
-filetype        text          (mime + extension, e.g. "application/pdf .pdf")
+filetype        text          (file extension only, e.g. pdf, docx)
 file_url        text          (local filesystem path or URL)
-uploaded_by     text          (user_id)
+uploaded_by     text          (user name (e.g. Arjun Mehta))
 accessible_to   text[]        (array of parts/roles that can see this file)
 version         integer       (increments on each replace)
 updated_by      text
@@ -182,8 +173,8 @@ ChromaDB stores the actual vector embeddings. Two collections are maintained:
 ```
 document id     = chunk.id (UUID from PostgreSQL chunks table)
 embedding       = qwen3-embedding:0.6b output on enriched text
-metadata        = { file_id, chunk_index, filename, accessible_to, filetype }
-document        = enriched text (summary + keywords + hypothetical_questions)
+metadata        = { file_id, chunk_index, filename, 	accessible_to_str (pipe-delimited string), filetype }
+document        = raw chunk_text (summary + keywords + hypothetical_questions)
 ```
 
 **`kernel_chatroom_chunks`** (chatroom segments)
@@ -204,7 +195,7 @@ Part-scoped access filtering is applied in Python after ChromaDB returns results
 |---|---|
 | `users` | Org members with role (`MD`, `PartHead`, `Member`, `TeamHead`), part, and team |
 | `feed_cache` | Single-row JSON cache for the latest Intelligence Feed run per part |
-| `action_items` | Per-document/MoM action item lists (JSONB array of `{id, text, completed, assignees}`) |
+| `action_items` | Per-document/MoM action item lists (JSONB array of `{id, text, completed, assignees, due_date, parent_item_id, source_type,source_id}`) |
 | `minutes` | Saved MoM records (title, summary, attendees, decisions, action_items, transcript) |
 | `quiz_scores` | Latest quiz score per user (`user_id` PK — retaking overwrites) |
 | `report_templates` | Uploaded templates with extracted text for report generation |
