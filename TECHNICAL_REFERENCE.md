@@ -91,27 +91,28 @@ The core capabilities are:
 ## 3. Environment Variables
 
 ```
-POSTGRES_HOST        PostgreSQL host (default: localhost)
-POSTGRES_PORT        PostgreSQL port (default: 5432)
-POSTGRES_DB          Database name (e.g. projectdb)
-POSTGRES_USER        PostgreSQL user
-POSTGRES_PASSWORD    PostgreSQL password
+DB_HOST     PostgreSQL host (default: localhost)
+DB_PORT     PostgreSQL port
+DB_NAME     Database name
+DB_USER     PostgreSQL user
+DB_PASSWORD PostgreSQL password
 
-OLLAMA_BASE_URL      Ollama server URL (default: http://localhost:11434)
-OLLAMA_LLM_MODEL     LLM model name (e.g. qwen3.5:9b-q4_k_m)
-OLLAMA_EMBED_MODEL   Embedding model name (e.g. qwen3-embedding:0.6b)
+#LLM
+OLLAMA_BASE_URL
+OLLAMA_MODEL
 
-CHROMA_HOST          ChromaDB host (default: localhost)
-CHROMA_PORT          ChromaDB port (default: 8000)
-CHROMA_COLLECTION    Collection name for document chunks (default: kernel_chunks)
-CHROMA_CHATROOM_COLLECTION  Collection name for chatroom chunks (default: kernel_chatroom_chunks)
+#Embedding model
+OLLAMA_EMBED_URL
+OLLAMA_EMBED_MODEL
+OLLAMA_EMBED_DIMENSIONS
+
+
 
 NEO4J_URI            bolt:// or neo4j+s:// URI
 NEO4J_USER           Neo4j username
 NEO4J_PASSWORD       Neo4j password
 
-FILE_STORAGE_PATH    Local directory for uploaded file storage (default: ./uploads)
-PORT                 FastAPI port (default: 8000)
+
 ```
 
 Neo4j vars are optional — if absent, all graph operations are silently skipped and vector search is used as fallback.
