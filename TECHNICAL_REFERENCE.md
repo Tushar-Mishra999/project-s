@@ -271,7 +271,7 @@ A call to Qwen 3.5 9B via Ollama generates:
 This is the **Hypothetical Document Embedding (HyDE)** pattern — instead of embedding the raw chunk text directly, we embed a richer representation of what the chunk *means*.
 
 **5b. Build embedding input**  
-Concatenates: `summary + "\n" + keywords joined by ", " + "\n" + hypothetical_questions joined by " "`.  
+Concatenates: `summary + "\n" + "Keywords: " + keywords joined by ", " + "\n" + "Questions: " + hypothetical_questions joined by " | "`.  
 If enrichment failed, falls back to raw `chunk_text[:2000]`.
 
 **5c. Embedding (Ollama)**  
@@ -335,25 +335,28 @@ Ollama embedding: POST /api/embeddings
     ▼
 ChromaDB collection.query(
   query_embeddings=[vector],
-  n_results=20,
+  n_results=config["rag"]["vector_search_top_k"],  (default 20, configurable)
+  where={"accessible_to_str": {"$contains": f"|{part_filter}|"}},  (if part_filter)
   include=["documents", "metadatas", "distances"]
 )
     │  Top 20 chunks by cosine similarity
     ▼
-Filter results by accessible_to metadata
-  (keep only chunks where metadata["accessible_to"] contains user's part)
+  Access filtering is done inside the ChromaDB query using:
+  where={"accessible_to_str": {"$contains": f"|{part_filter}|"}}
+  (accessible_to_str is a pipe-delimited string like "|Tech Management|")
     │
     ▼
-Fetch full chunk_text + chunk_summary from PostgreSQL
-  WHERE id IN [returned ChromaDB IDs]
+  Chunk data is read directly from ChromaDB results
+  (chunk_text from documents, chunk_summary/keywords from metadata)
+  No PostgreSQL fetch is needed — all data comes from ChromaDB
     │
     ▼
 rerank_chunks(query, chunks, llm_model)
     │
-    ├── if chunks ≤ 5: return as-is
+    ├── if chunks ≤ config["rag"]["rerank_top_n"]: return as-is
     └── else: LLM call with query + chunk summaries/texts
               Returns list of indices: [3, 0, 7, 12, 1]
-              Picks top 5 in relevance order
+              Picks top config["rag"]["rerank_top_n"] in relevance order
     │
     ▼
 Top 5 chunks passed to LLM as context
@@ -372,7 +375,7 @@ These match semantically even though they share no exact words.
 
 ### Cosine similarity in ChromaDB
 
-ChromaDB computes cosine similarity natively. The `distances` returned are cosine distances — lower is more similar. When surfacing results to the LLM, similarity = `1 - distance`. ChromaDB uses an HNSW index internally for fast approximate nearest-neighbour search.
+ChromaDB's default distance function depends on collection configuration (L2 or cosine). The code computes similarity = 1 - distance, which is correct for cosine distance. If the collection uses L2 distance, this formula is approximate. ChromaDB uses an HNSW index internally for fast approximate nearest-neighbour search.
 
 ### Reranker
 
@@ -409,31 +412,33 @@ Returns JSON: {
 route_query(query) → { search_type: 'graph', entities: { topics, technologies, people, projects } }
     │
     ▼
-graph_search({ entities, part_filter })
+graph_search({ entities, part_filter }) Note: all entity names are lowercased before querying Neo4j (topics/technologies/people/projects)
     │
-    ├── Topics query (direct):
+    ├── Topics query (direct — substring match):
     │     MATCH (d:Document)-[:COVERS]->(t:Topic)
-    │     WHERE t.name IN $topics
+    │     WHERE ANY(val IN $topics WHERE toLower(t.name) CONTAINS val OR val CONTAINS toLower(t.name))
     │     RETURN DISTINCT d.id
+    │     (matches if topic name contains the search term OR vice versa, case-insensitive)
     │
-    ├── Topics query (one hop via RELATED_TO):
+    ├── Topics query (one hop via RELATED_TO — substring match):
     │     MATCH (d:Document)-[:COVERS]->(t1:Topic)-[:RELATED_TO]-(t2:Topic)
-    │     WHERE t2.name IN $topics
+    │     WHERE ANY(val IN $topics WHERE toLower(t2.name) CONTAINS val OR val CONTAINS toLower(t2.name))
     │     RETURN DISTINCT d.id
     │     (finds documents about *related* topics even if not exact match)
     │
-    ├── Technologies: MATCH (d)-[:MENTIONS_TECH]->(t:Technology)
-    ├── People: MATCH (d)-[:MENTIONS_PERSON]->(p:Person)
-    └── Projects: MATCH (d)-[:PART_OF]->(p:Project)
+    ├── Technologies: MATCH (d)-[:MENTIONS_TECH]->(t:Technology) — same CONTAINS pattern
+    ├── People: MATCH (d)-[:MENTIONS_PERSON]->(p:Person) — same CONTAINS pattern
+    └── Projects: MATCH (d)-[:PART_OF]->(p:Project) — same CONTAINS pattern
     │
     │  Union of all matched file IDs (set)
     ▼
 PostgreSQL: SELECT chunk_text, chunk_index, file_id, filename, filetype, file_url
 FROM chunks JOIN files ON chunks.file_id = files.id
 WHERE file_id IN [matched IDs]
-  AND [part_filter] = ANY(files.accessible_to)
 ORDER BY chunk_index
-LIMIT 20
+LIMIT 40
+
+Then in Python: rows = [r for r in rows if part_filter in (r.get("accessible_to") or [])]
     │
     ▼
 Return chunks (same shape as vector search output)
@@ -479,7 +484,7 @@ The chatbot has two modes, determined by the `include_chatroom` flag in the requ
 ### Single-turn flow (`POST /api/chat`)
 
 ```
-Request: { query, user_id, model?, include_chatroom? }
+Request: { query, user_id, part?, include_chatroom?, conversation_history? }
     │
     ├── Validate user + load user record from PostgreSQL
     ├── Determine part_filter from user.part
@@ -494,21 +499,24 @@ Request: { query, user_id, model?, include_chatroom? }
     │     get_chatroom_context(query) → raw messages (last 7 days) + relevant historical chunks
     │
     ├── Build context string from chunks
+    ├── Build messages array: conversation_history (prior messages) + user message with context
     ├── Ollama chat call: POST /api/chat with model=qwen3.5:9b-q4_k_m
-    └── Return { answer, chunks_used, search_type, route_reason }
+    └── Return { answer, sources, eval_chunks, search_type }
+        sources: [{filename, file_url, chunk_index, filetype}]
+        eval_chunks: [{chunk_text, filename}] (for RAG evaluation)
+        search_type: "vector" | "graph"
 ```
 
 ### Streaming flow (`POST /api/chat/stream`)
 
-Same logic but uses SSE (Server-Sent Events). FastAPI's `StreamingResponse` yields tokens as `data: <token>\n\n`. The Ollama API supports streaming natively via `stream=True` in the chat call — tokens are yielded as they are generated and forwarded to the client.
+Same logic but uses SSE (Server-Sent Events). The stream sends typed events:
+  event: meta\ndata: {sources, eval_chunks, search_type}\n\n
+  event: chunk\ndata: {text: "<token>"}\n\n  (one per token)
+  event: done\ndata: {}\n\n
+  event: error\ndata: {message: "..."}\n\n
 
-### System prompts
+The Ollama API supports streaming natively via stream=True — tokens are yielded as they are generated and forwarded to the client as SSE chunk events.
 
-**`CHAT_SYSTEM` (document mode):**
-> "You are an intelligent knowledge assistant. Answer using only the context below. Cite source filenames. If the answer is not in the context, say so."
-
-**`CHAT_SYSTEM_CHATROOM` (chatroom mode):**
-> "You are an intelligent assistant with access to executive chatroom conversations. Answer using only the chatroom messages provided. If the answer is not in the context, say 'I could not find this in the chatroom history.'"
 
 ---
 
